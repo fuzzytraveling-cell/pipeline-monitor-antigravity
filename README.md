@@ -9,7 +9,7 @@
 ## 安裝（一行，加到 `~/.zshrc`）
 
 ```sh
-alias pipeline-status='node "/Users/oscarhsieh/Desktop/TutorPod AI/TutorPod AI v4/pipeline-monitor/status.mjs"'
+alias pipeline-status='node "/Users/oscarhsieh/Desktop/pipeline-monitor/status.mjs"'
 ```
 
 存檔後開新終端機（或 `source ~/.zshrc`）。

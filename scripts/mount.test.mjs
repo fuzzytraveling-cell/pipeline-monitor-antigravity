@@ -5,7 +5,7 @@
 import { writeFileSync, readFileSync, mkdirSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import process from 'node:process';
-import { mount, unmount, isMounted } from '../lib/mount.mjs';
+import { mount, unmount, isMounted, mountState } from '../lib/mount.mjs';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 
 const settings = (dir) => JSON.parse(readFileSync(join(dir, '.claude', 'settings.local.json'), 'utf8'));
@@ -93,6 +93,36 @@ section('R1:不准宣稱「它真的會動」');
   // ⚠️ 我們只能確認「設定寫進去了」。宣稱它會動就是假成功。
   check('明講自己只確認了設定寫入', txt.includes('不能確認它真的會動'));
   check('給了驗證方法', txt.includes('驗證方法'));
+  r.cleanup();
+}
+
+section('🔴 掛著 ≠ 活著:hook 指向的檔案不見了要看得出來');
+{
+  // ⚠️ 2026-09-10 真的發生過:資料夾搬走 → hook 指向不存在的檔案 →
+  //    紀錄靜默停止,設定看起來完全正常。這是這個專案最痛恨的失敗形狀。
+  const r = makeRepo({ files: { 'a.js': '1\n' } });
+  mount(r.dir);
+  eq('剛掛好 → ok', mountState(r.dir).state, 'ok');
+
+  // 把設定裡的路徑改成一個不存在的地方,模擬「資料夾被搬走」。
+  // ⚠️ 要改解析後的物件,不要對檔案文字做取代——檔案裡的引號是 JSON 跳脫過的。
+  const f = join(r.dir, '.claude', 'settings.local.json');
+  const cfg = JSON.parse(readFileSync(f, 'utf8'));
+  for (const arr of Object.values(cfg.hooks)) {
+    for (const e of arr) {
+      for (const h of e.hooks ?? []) {
+        if (String(h.command).includes('pipeline-monitor')) {
+          h.command = 'sh "/tmp/被搬走了/pipeline-monitor/hook.sh"';
+        }
+      }
+    }
+  }
+  writeFileSync(f, JSON.stringify(cfg, null, 2));
+
+  const st = mountState(r.dir);
+  eq('路徑失效 → broken(不是 ok,也不是 off)', st.state, 'broken');
+  check('說得出是哪個路徑找不到', st.paths.some((p) => p.includes('被搬走了')), JSON.stringify(st.paths));
+  check('isMounted 仍然是 true(它確實掛著)', isMounted(r.dir));
   r.cleanup();
 }
 

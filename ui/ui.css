@@ -313,8 +313,10 @@ a.ext { color: var(--color-lake-blue); }
   border: 1px solid var(--color-ash); border-radius: var(--radius-2xl);
   padding: 22px 20px; background: var(--color-parchment); overflow: hidden; min-height: 210px;
 }
-.ov-col { display: grid; gap: 7px; align-content: center; z-index: 1; }
+.ov-col { display: grid; gap: 7px; align-content: center; justify-items: start; z-index: 1; }
 .ov-right { justify-items: end; }
+/* 膠囊寬度貼著文字,不要撐滿整欄 */
+.ochip { width: max-content; max-width: 100%; }
 .ov-h {
   font-size: var(--text-caption); color: var(--color-smoke);
   text-transform: uppercase; letter-spacing: var(--tracking-caption); margin-bottom: 2px;
@@ -323,14 +325,16 @@ a.ext { color: var(--color-lake-blue); }
   display: inline-flex; align-items: center; gap: 7px; text-decoration: none;
   border: 1px solid var(--color-ash); border-radius: var(--radius-full);
   padding: 6px 14px; background: var(--color-parchment); color: var(--color-off-black);
-  max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .ochip:hover { border-color: var(--color-lake-blue); }
 .odot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-lake-blue); flex: none; }
 .ov-right .odot { background: var(--color-ash); }
 
 /* 中央的匯流點:參考設計稿那顆會呼吸的核心 */
-.ov-mid { position: relative; display: grid; justify-items: center; gap: 10px; z-index: 1; }
+/* ⚠️ hub 必須落在**線匯流的那個高度**(50%)。
+   原本 hub 與文字疊成一欄,文字把 hub 往上推,線就對不到球心。 */
+.ov-mid { position: relative; display: grid; place-items: center; z-index: 1; min-height: 150px; }
 .ov-hub {
   width: 74px; height: 74px; border-radius: 50%; display: grid; place-items: center;
   background: radial-gradient(circle at 40% 35%, var(--color-mint), transparent 62%),
@@ -348,7 +352,11 @@ a.ext { color: var(--color-lake-blue); }
   0%   { transform: scale(.72); opacity: .9; }
   100% { transform: scale(1.35); opacity: 0; }
 }
-.ov-state { text-align: center; font-size: var(--text-caption); color: var(--color-graphite); }
+.ov-state {
+  position: absolute; top: calc(50% + 48px); left: 50%; transform: translateX(-50%);
+  text-align: center; font-size: var(--text-caption); color: var(--color-graphite);
+  white-space: nowrap;
+}
 .ov-state div { padding: 1px 0; }
 
 /* 匯流的細線:左邊多條收進中心,右邊再散出去 */

@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { appendFileSync } from 'node:fs';
 import { readEvents, loadStages, lastRunPerStage } from './lib/events.mjs';
-import { mount, unmount, isMounted } from './lib/mount.mjs';
+import { mount, unmount, mountState } from './lib/mount.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CHECKPOINT_DIR = join(HERE, 'checkpoints');
@@ -263,7 +263,16 @@ function doCheckpoint(ctx) {
 
 function render(ctx) {
   console.log(`━━ ${ctx.project} · ${ctx.branch} ━━`);
-  console.log(isMounted(ctx.root) ? '感測器：已掛上\n' : '感測器：沒掛上（打 pipeline-status --on 掛上）\n');
+  const ms = mountState(ctx.root);
+  if (ms.state === 'ok') console.log('感測器：已掛上\n');
+  else if (ms.state === 'off') console.log('感測器：沒掛上（打 pipeline-status --on 掛上）\n');
+  else {
+    // ⚠️ 這一種最危險:設定看起來好好的,但它指向的檔案不見了,
+    //    而 hook 永遠靜默,所以紀錄只是安靜地停止增加。
+    console.log('感測器：🔴 掛著,但它指向的檔案不存在——**紀錄已經停了,而且不會有任何徵兆**');
+    for (const p of ms.paths) console.log(`         找不到：${p}`);
+    console.log('         修法：pipeline-status --on（會重新指到正確的位置）\n');
+  }
 
   const cp = readCheckpoint(ctx);
   const dirty = uncommitted(ctx.root);
@@ -439,7 +448,16 @@ function main() {
   }
   if (!ctx.hasCommits && !process.argv.includes('--checkpoint')) {
     console.log(`━━ ${ctx.project} · ${ctx.branch} ━━`);
-  console.log(isMounted(ctx.root) ? '感測器：已掛上\n' : '感測器：沒掛上（打 pipeline-status --on 掛上）\n');
+  const ms = mountState(ctx.root);
+  if (ms.state === 'ok') console.log('感測器：已掛上\n');
+  else if (ms.state === 'off') console.log('感測器：沒掛上（打 pipeline-status --on 掛上）\n');
+  else {
+    // ⚠️ 這一種最危險:設定看起來好好的,但它指向的檔案不見了,
+    //    而 hook 永遠靜默,所以紀錄只是安靜地停止增加。
+    console.log('感測器：🔴 掛著,但它指向的檔案不存在——**紀錄已經停了,而且不會有任何徵兆**');
+    for (const p of ms.paths) console.log(`         找不到：${p}`);
+    console.log('         修法：pipeline-status --on（會重新指到正確的位置）\n');
+  }
     console.log('這個專案還沒有任何 commit,所以還沒有版本可以回去。');
     return 0;
   }
