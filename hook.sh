@@ -13,7 +13,9 @@
 #    關卡清單只住在 stages.json 一個地方,由讀取端判斷。
 
 MONITOR_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-LOG_DIR="$MONITOR_DIR/logs"
+# 紀錄位置可以用環境變數換掉。這是**設定**不是測試專用後門——
+# 測試要能在自己的暫存資料夾裡跑,而且真的有人會想把紀錄放別的地方。
+LOG_DIR="${PIPELINE_MONITOR_LOG_DIR:-$MONITOR_DIR/logs}"
 mkdir -p "$LOG_DIR" 2>/dev/null
 
 PAYLOAD=$(cat)

@@ -149,8 +149,12 @@ function changeHealth(cwd, since) {
   const modifiedTests = git(['diff', '--diff-filter=M', '--name-only', ...range], cwd);
   // ⚠️ 不要用 diff 的 `+"lodash": "^4"` 去比對——那**假設 package.json 是一行一個相依**。
   // 壓成一行的 package.json 就完全認不到,而且是安靜地認不到。直接解析兩邊的鍵。
-  const depsNow = readDeps(readFileSync(join(cwd, 'package.json'), 'utf8'));
-  const depsBefore = since ? readDeps(git(['show', `${since}:package.json`], cwd)) : depsNow;
+  // ⚠️ 這裡本來寫成 `since ? ... : depsNow`——沒有還原點的時候拿自己跟自己比,
+  // 差集永遠是空的,**新增的相依一輩子不會被報出來**。測試抓到的。
+  // 沒有還原點時,「改動」的基準是 HEAD(＝還沒 commit 的東西),不是工作區自己。
+  const pkgPath = join(cwd, 'package.json');
+  const depsNow = readDeps(existsSync(pkgPath) ? readFileSync(pkgPath, 'utf8') : null);
+  const depsBefore = readDeps(git(['show', `${since ?? 'HEAD'}:package.json`], cwd));
 
   // ⚠️ `git diff` **看不到還沒被 git 追蹤的新檔案**。
   // AI 生成最常見的產物就是新檔案,漏掉它們會讓改動看起來比實際小——
