@@ -79,12 +79,21 @@ h2.section { font-size: var(--text-subheading); letter-spacing: var(--tracking-s
 .stat[data-tone="change"]::before  { background: radial-gradient(circle, var(--color-gold), transparent 70%); }
 .stat[data-tone="alert"]::before   { background: radial-gradient(circle, var(--color-coral), transparent 70%); }
 .stat > * { position: relative; }
+.stat .ctitle {
+  font-family: var(--font-untitled-serif); font-weight: var(--font-weight-regular);
+  font-size: var(--text-label); letter-spacing: var(--tracking-label);
+  margin: 0 0 2px;
+}
+/* ⚠️ 副標刻意**不用** uppercase + letter-spacing。
+   那兩個屬性套在中英混排上,會把「commit 後尚未檢查的檔案」的字距撐開,
+   看起來像三段拼起來的,不像一句話。 */
 .stat .label {
-  font-size: var(--text-caption); text-transform: uppercase;
-  letter-spacing: var(--tracking-caption); color: var(--color-smoke); margin-bottom: 8px;
+  font-size: var(--text-body-sm); letter-spacing: normal;
+  color: var(--color-smoke); margin-bottom: 10px;
 }
 .stat .big { font-family: var(--font-untitled-serif); font-weight: var(--font-weight-regular);
-  font-size: var(--text-heading-sm); letter-spacing: var(--tracking-heading-sm); line-height: 1.1; }
+  font-size: var(--text-heading-sm); letter-spacing: var(--tracking-heading-sm); line-height: 1.1;
+  display: flex; align-items: baseline; gap: 8px; }
 .stat .sub { color: var(--color-graphite); margin-top: 8px; }
 .stat .hint { color: var(--color-smoke); font-size: var(--text-caption); margin-top: 10px; }
 
@@ -132,18 +141,27 @@ h2.section { font-size: var(--text-subheading); letter-spacing: var(--tracking-s
 .capt b { font-weight: var(--font-weight-medium); }
 .capt small { display: block; color: var(--color-smoke); font-size: var(--text-caption); }
 
-/* 膠囊之間的流水線。⚠️ 三段速度一致,不隨狀態變——
-   只讓「目前那一段」動的話,會被讀成「現在正在跑」。 */
-.wire { height: 20px; margin-left: 27px; position: relative; overflow: hidden; }
-.wire::before {
-  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px;
-  background: var(--color-ash);
+/* ⚠️ 原本膠囊之間有流水線動畫,拿掉了。
+   Oscar:「現在確定不是單向的流程了,加入流水會誤導。」——對。
+   ①②③ 會來回進退,畫成單向水流等於在說謊。
+   改成:只有**你現在卡在哪一階**那一格,內部做一層會流動的暖色暈染。 */
+.pipe { display: grid; gap: 8px; margin-top: 4px; }
+.cap[data-cur="1"] {
+  position: relative; overflow: hidden;
+  border-color: var(--color-coral);
 }
-.wire i {
-  position: absolute; left: 0; width: 2px; height: 9px; border-radius: 2px;
-  background: var(--color-lake-blue); animation: flowdown 1.9s linear infinite;
+.cap[data-cur="1"]::before {
+  content: ''; position: absolute; inset: -60% -20%;
+  background: radial-gradient(ellipse at 30% 50%, var(--color-coral), transparent 55%),
+              radial-gradient(ellipse at 70% 50%, var(--color-gold), transparent 55%);
+  filter: blur(22px); opacity: .55; pointer-events: none;
+  animation: wash 5.5s ease-in-out infinite alternate;
 }
-@keyframes flowdown { from { top: -10px; } to { top: 22px; } }
+.cap[data-cur="1"] > * { position: relative; }
+@keyframes wash {
+  from { transform: translateX(-14%) scale(1); }
+  to   { transform: translateX(14%) scale(1.12); }
+}
 
 /* ───────── My Agent work flow ───────── */
 /* 左軌與右卡在同一個 grid 的同一列 → A–E 的對應由版面保證,不靠調數字 */
@@ -159,11 +177,11 @@ h2.section { font-size: var(--text-subheading); letter-spacing: var(--tracking-s
 }
 .railcell {
   position: relative; display: grid; justify-items: center;
-  grid-template-rows: auto 1fr; padding-top: 20px;
+  grid-template-rows: auto auto 1fr; padding-top: 18px; gap: 4px;
 }
+/* 代號與圓點置中對齊(Oscar 指定) */
 .railcell .rlab {
-  position: absolute; top: 14px; left: 4px;
-  font-size: var(--text-caption); color: var(--color-graphite);
+  font-size: var(--text-caption); color: var(--color-graphite); line-height: 1;
 }
 .railcell .dot {
   width: 15px; height: 15px; border-radius: 50%; z-index: 1;
@@ -172,13 +190,25 @@ h2.section { font-size: var(--text-subheading); letter-spacing: var(--tracking-s
 .railcell[data-state="done"] .dot { background: var(--color-off-black); border-color: var(--color-off-black); }
 .railcell[data-state="ran"]  .dot { background: var(--color-lake-blue); border-color: var(--color-lake-blue); }
 /* 連到下一列的線:高度撐滿剩餘空間,所以卡片多高都連得起來 */
-.railcell .link { position: relative; width: 2px; height: 100%; overflow: hidden; margin-top: 2px; }
-.railcell .link::before { content: ''; position: absolute; inset: -2px 0 -14px; background: var(--color-ash); }
-.railcell .link i {
-  position: absolute; left: 0; width: 2px; height: 12px; border-radius: 2px;
-  background: var(--color-sky-blue); animation: flowdown2 2.4s linear infinite;
+/* 鉛筆手繪感:路徑本身有輕微擺動,再用 dash 動畫「畫」下來,
+   像有人拿筆一路往下打勾。刻意不畫直線。 */
+.railcell .link { position: relative; width: 12px; height: 100%; margin-top: 2px; }
+.railcell .link svg { width: 12px; height: 100%; display: block; overflow: visible; }
+.railcell .link path {
+  fill: none; stroke: var(--color-ash); stroke-width: 1.6; stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
 }
-@keyframes flowdown2 { from { top: -14px; } to { top: 110%; } }
+.railcell[data-state="done"] .link path,
+.railcell[data-state="ran"] .link path {
+  stroke: var(--color-graphite);
+  stroke-dasharray: 130; stroke-dashoffset: 130;
+  animation: draw 2.6s ease-in-out infinite;
+}
+@keyframes draw {
+  0%   { stroke-dashoffset: 130; }
+  55%  { stroke-dashoffset: 0; }
+  100% { stroke-dashoffset: 0; opacity: .45; }
+}
 
 .acard {
   display: flex; align-items: flex-start; gap: 14px;
@@ -190,11 +220,31 @@ h2.section { font-size: var(--text-subheading); letter-spacing: var(--tracking-s
   width: 46px; height: 46px; flex: none; border-radius: 50%;
   display: grid; place-items: center; font-size: 19px; color: var(--color-off-black);
 }
-.orb[data-id="A"] { background: radial-gradient(circle at 32% 30%, var(--color-sky-blue), var(--color-periwinkle-mist)); }
-.orb[data-id="B"] { background: radial-gradient(circle at 32% 30%, var(--color-gold), var(--color-coral)); }
-.orb[data-id="C"] { background: radial-gradient(circle at 32% 30%, var(--color-mint), var(--color-sky-blue)); }
-.orb[data-id="D"] { background: radial-gradient(circle at 32% 30%, var(--color-coral), var(--color-gold)); }
-.orb[data-id="E"] { background: radial-gradient(circle at 32% 30%, var(--color-periwinkle-mist), var(--color-mint)); }
+/* 五種明確區隔的顏色(之前五顆長太像) */
+.orb[data-id="A"] { background: radial-gradient(circle at 32% 28%, var(--color-sky-blue), var(--color-lake-blue)); color: var(--color-parchment); }
+.orb[data-id="B"] { background: radial-gradient(circle at 32% 28%, var(--color-graphite), var(--color-ink)); color: var(--color-parchment); }
+.orb[data-id="C"] { background: radial-gradient(circle at 32% 28%, var(--color-mint), var(--color-sky-blue)); }
+.orb[data-id="D"] { background: radial-gradient(circle at 32% 28%, var(--color-coral), var(--color-crimson)); color: var(--color-parchment); }
+.orb[data-id="E"] { background: radial-gradient(circle at 32% 28%, var(--color-gold), var(--color-coral)); }
+.orb svg { width: 22px; height: 22px; }
+
+/* 跑過的:icon 外圈呼吸燈 */
+.acard[data-state="ran"] .orb, .acard[data-state="done"] .orb { animation: breathe 3s ease-in-out infinite; }
+@keyframes breathe {
+  0%,100% { box-shadow: 0 0 0 0 var(--color-ash); }
+  50%     { box-shadow: 0 0 0 5px var(--color-periwinkle-mist); }
+}
+
+/* 跑過的:卡片右側一層會流動的暈染(不覆蓋整張卡) */
+.acard[data-state="ran"], .acard[data-state="done"] { overflow: hidden; }
+.acard[data-state="ran"]::after, .acard[data-state="done"]::after {
+  content: ''; position: absolute; right: -30px; top: -40%; bottom: -40%; width: 190px;
+  background: radial-gradient(ellipse at 70% 50%, var(--color-mint), transparent 62%),
+              radial-gradient(ellipse at 40% 50%, var(--color-sky-blue), transparent 62%);
+  filter: blur(26px); opacity: .5; pointer-events: none;
+  animation: wash 6s ease-in-out infinite alternate;
+}
+.acard > * { position: relative; z-index: 1; }
 .abody { flex: 1; min-width: 0; }
 .atitle { font-size: var(--text-body); letter-spacing: var(--tracking-body); }
 .ahouse { color: var(--color-smoke); font-size: var(--text-caption); margin-left: 8px; }
@@ -214,7 +264,8 @@ h2.section { font-size: var(--text-subheading); letter-spacing: var(--tracking-s
 .acard[data-state="done"] .lamp { background: var(--color-off-black); border-color: var(--color-off-black); }
 
 @media (prefers-reduced-motion: reduce) {
-  .wire i, .rail .link i { animation: none; }
+  .cap[data-cur="1"]::before, .railcell .link path,
+  .acard .orb, .acard::after { animation: none; }
 }
 
 /* ───────── 檔案清單 ───────── */

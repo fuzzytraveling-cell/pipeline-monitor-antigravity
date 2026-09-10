@@ -20,13 +20,22 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 /* ═══ 角色:同一份 agent.svg,五個裁切窗（座標是從 SVG 量出來的，不是猜的） ═══ */
-/* 每一關在做什麼——用 Oscar 自己那張「蓋房子」對照表的白話 */
+/* 每一關在做什麼——用 Oscar 自己那張「蓋房子」對照表的白話。
+   icon 用 inline SVG 不用 emoji:emoji 在不同系統長得不一樣,而且跟這套設計格格不入。 */
+const I = (d, extra = '') =>
+  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
+     stroke-linecap="round" stroke-linejoin="round">${d}${extra}</svg>`;
 const ROLE = {
-  A: { icon: '⌗', house: '建築師畫圖',       does: '把需求翻成一條條可以打勾的驗收條件' },
-  B: { icon: '⚒', house: '工班施工',         does: '照圖蓋,蓋到每條都打勾' },
-  C: { icon: '⌫', house: '收尾清場',         does: '清掉施工留下的鷹架、暫時變數、複製貼上' },
-  D: { icon: '⚑', house: '驗屋師傅拿槌子敲牆', does: '不是看漂不漂亮,是找「哪裡是空心的」' },
-  E: { icon: '⌂', house: '你自己走進去住一晚', does: '真的開門、開燈、沖馬桶,確認能住人' },
+  A: { house: '建築師畫圖', does: '把需求翻成一條條可以打勾的驗收條件',
+       icon: I('<path d="M4 5h9l4 4v10H4z"/><path d="M13 5v4h4"/><path d="M18.5 13.5 21 16l-4.5 4.5H14v-2.5z"/>') },
+  B: { house: '工班施工', does: '照圖蓋,蓋到每條都打勾',
+       icon: I('<rect x="3" y="4.5" width="18" height="15" rx="2"/><path d="m7 10 3 2.5-3 2.5"/><path d="M12.5 15.5H17"/>') },
+  C: { house: '收尾清場', does: '清掉施工留下的鷹架、暫時變數、複製貼上',
+       icon: I('<path d="M14.5 3.5 10 8"/><path d="m8.5 6.5 4 4"/><path d="M9.5 9.5 4 15v5h5l5.5-5.5z"/><path d="m6 14 4 4"/>') },
+  D: { house: '驗屋師傅拿槌子敲牆', does: '不是看漂不漂亮,是找「哪裡是空心的」',
+       icon: I('<path d="M13.5 3.5 20 10l-2.5 2.5-6.5-6.5z"/><path d="M11.5 8 4 15.5V20h4.5L16 12.5"/>') },
+  E: { house: '你自己走進去住一晚', does: '真的開門、開燈、沖馬桶,確認能住人',
+       icon: I('<rect x="5" y="3.5" width="14" height="17" rx="2"/><path d="M9 3.5v17"/><path d="m12 11 1.8 1.8L17 9.5"/>') },
 };
 
 /* ═══ 新鮮度(AC-1／AC-2) ═══ */
@@ -93,24 +102,28 @@ function projectList() {
 function statRestore(c) {
   const cp = c.checkpoint;
   if (!cp) return `<div class="stat" data-tone="restore">
-    <div class="label">還原點</div>
+    <h3 class="ctitle">還原點</h3><div class="label">你回得去哪裡</div>
     <div class="big">還沒有</div>
     <div class="sub">這不代表你沒有好版本,只代表還沒看過你跑檢查。</div>
     <div class="hint">在那個資料夾跑 <code>pipeline-status --checkpoint</code></div></div>`;
 
-  const cmd = `git reset --hard ${cp.commit.slice(0, 7)}`;
+  // ⚠️ 一定要帶 cd。少了它,這一行會在終端機**當下所在的資料夾**執行——
+  // 而 `git reset --hard` 跑錯資料夾會毀掉另一個專案的東西,還沒有 undo。
+  // Oscar 2026-09-10 實際貼了才發現,這是我漏掉的,而且是危險的那一種。
+  const cmd = `cd ${JSON.stringify(c.path)} && git reset --hard ${cp.commit.slice(0, 7)}`;
   // ⚠️ 不再把 SHA 當標題。`a79e8d7` 對使用者沒有意義——時間與版本號才有。
   // SHA 只留在「複製回去的指令」裡,因為 git 需要它。
   const pills = cp.checks.map((k) => `<span class="pill ok">${esc(k)}</span>`).join('');
   return `<div class="stat" data-tone="restore">
-    <div class="label">還原點 · 你回得去哪裡</div>
+    <h3 class="ctitle">還原點</h3><div class="label">你回得去哪裡</div>
     <div class="big">${esc(c.cpVersion ? `v${c.cpVersion}` : clock(cp.at))}</div>
     <div class="sub">${ago(cp.at)}存的${c.cpVersion ? `（${esc(clock(cp.at))}）` : ''}</div>
     <div class="pills">${pills}</div>
     <div class="hint">上面這幾項當時全綠。<span class="muted">⚠️ 檢查全綠不等於功能正確。</span></div>
     <button class="copy" data-copy="${esc(cmd)}">複製回去的指令</button>
-    <div class="hint">⚠️ 這個網頁<b>不會</b>幫你還原——指令複製到<b>終端機</b>自己貼。
-      回去會丟掉還沒 commit 的東西。</div>
+    <div class="hint">⚠️ 這個網頁<b>不會</b>幫你還原。複製出來的指令<b>已經含 cd</b>,
+      貼到終端機或直接貼給 Claude 都可以——貼給 Claude 的話它會先問過你才動手。
+      <b>回去會丟掉還沒 commit 的東西。</b></div>
   </div>`;
 }
 
@@ -118,11 +131,15 @@ function statLadder(c) {
   const L = c.ladder ?? {};
   // 每一階是一個膠囊;膠囊之間有一段會流動的連接線。
   // ⚠️ 三段的流動速度一樣,不隨狀態變——否則會被讀成「現在正在跑」。
-  const cap = (n, ok, title, detail) =>
-    `<div class="cap" data-ok="${ok ? 'yes' : 'no'}">
+  let cur = false;   // 第一個還沒完成的階梯 = 你現在在哪
+  const cap = (n, ok, title, detail) => {
+    const isCur = !ok && !cur;
+    if (isCur) cur = true;
+    return `<div class="cap" data-ok="${ok ? 'yes' : 'no'}" data-cur="${isCur ? 1 : 0}">
        <span class="capn">${n}</span>
        <span class="capt"><b>${title}</b><small>${detail}</small></span>
      </div>`;
+  };
 
   const s1 = L.uncommitted === null ? cap(1, false, 'commit 存進這條分支', '問不到')
     : L.uncommitted === 0 ? cap(1, true, 'commit 存進這條分支', '都存好了')
@@ -140,10 +157,9 @@ function statLadder(c) {
     : cap(3, false, 'push 推到 GitHub', `還有 ${L.unpushed} 個存檔沒推上去`);
 
   const allSafe = L.uncommitted === 0 && (L.onMain || L.unmerged === 0) && L.unpushed === 0;
-  const wire = '<div class="wire"><i></i></div>';
   return `<div class="stat" data-tone="${allSafe ? 'safe' : 'alert'}">
-    <div class="label">東西走到哪了</div>
-    <div class="pipe">${s1}${wire}${s2}${wire}${s3}</div>
+    <h3 class="ctitle">三階梯</h3><div class="label">東西走到哪了</div>
+    <div class="pipe">${s1}${s2}${s3}</div>
     ${L.webUrl ? `<div class="hint"><a class="ext" href="${esc(L.webUrl)}" target="_blank"
       rel="noreferrer">在 GitHub 上看這個 repo ↗</a></div>` : ''}
     <div class="hint muted">⚠️ 這三格顯示的是<b>現在的事實</b>,不是你走過的最遠距離——
@@ -153,9 +169,9 @@ function statLadder(c) {
 
 function statChanges(c) {
   const f = c.files;
-  if (!f) return `<div class="stat" data-tone="change"><div class="label">commit 後尚未檢查的檔案</div>
+  if (!f) return `<div class="stat" data-tone="change"><h3 class="ctitle">未檢查清單</h3><div class="label">commit 後還沒被檢查的檔案</div>
     <div class="big">問不到</div></div>`;
-  if (!f.total) return `<div class="stat" data-tone="change"><div class="label">commit 後尚未檢查的檔案</div>
+  if (!f.total) return `<div class="stat" data-tone="change"><h3 class="ctitle">未檢查清單</h3><div class="label">commit 後還沒被檢查的檔案</div>
     <div class="big">沒有改動</div>
     <div class="sub">${c.checkpoint ? '蓋章之後' : '相對於上一個存檔'}沒有任何檔案被動過。</div></div>`;
 
@@ -166,7 +182,7 @@ function statChanges(c) {
     </div>`).join('');
 
   return `<div class="stat" data-tone="change">
-    <div class="label">${c.checkpoint ? 'commit 後尚未檢查的檔案' : '還沒存檔的改動'}</div>
+    <h3 class="ctitle">未檢查清單</h3><div class="label">${c.checkpoint ? 'commit 後還沒被檢查的檔案' : '還沒存檔的改動'}</div>
     <div class="big">${f.total} 個檔案</div>
     ${f.newCount ? `<div class="sub">其中 ${f.newCount} 個是新建的。</div>` : ''}
     <div class="files">${groups}</div>
@@ -196,10 +212,13 @@ function workflow(c) {
     return `<div class="railcell" data-state="${s}">
         <span class="rlab">${esc(st.id)}</span>
         <span class="dot"></span>
-        ${last ? '' : '<span class="link"><i></i></span>'}
+        ${last ? '' : `<span class="link">
+          <svg preserveAspectRatio="none" viewBox="0 0 12 100">
+            <path d="M6 0 C4.4 18, 7.6 34, 5.6 52 C4 68, 7.2 84, 6 100"/>
+          </svg></span>`}
       </div>
       <div class="acard" data-state="${s}">
-        <span class="orb" data-id="${esc(st.id)}">${r.icon}</span>
+        <span class="orb" data-id="${esc(st.id)}">${r.icon ?? ''}</span>
         <div class="abody">
           <div class="atitle">${esc(st.id)} ${esc(st.name)}
             <span class="ahouse">${esc(r.house)}</span></div>
