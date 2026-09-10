@@ -20,18 +20,13 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 /* ═══ 角色:同一份 agent.svg,五個裁切窗（座標是從 SVG 量出來的，不是猜的） ═══ */
-const WHO = {
-  A: { x: 1407, y: 139, w: 128, h: 267, alt: '建築師攤開藍圖' },
-  B: { x: 2583, y: 482, w: 166, h: 242, alt: '工班在鋸木頭' },
-  C: { x: 1567, y: 453, w: 213, h: 271, alt: '收尾清場,拿滾筒和油漆桶' },
-  D: { x: 2245, y: 453, w: 103, h: 271, alt: '驗屋師傅拿槌子' },
-  E: { x: 2240, y: 130, w: 115, h: 278, alt: '戴白色安全帽的人拿板夾巡視' },
-};
-const who = (id) => {
-  const w = WHO[id];
-  if (!w) return '';
-  return `<div class="who" role="img" aria-label="${esc(w.alt)}"
-    style="--x:${w.x};--y:${w.y};--w:${w.w};--h:${w.h}"></div>`;
+/* 每一關在做什麼——用 Oscar 自己那張「蓋房子」對照表的白話 */
+const ROLE = {
+  A: { icon: '⌗', house: '建築師畫圖',       does: '把需求翻成一條條可以打勾的驗收條件' },
+  B: { icon: '⚒', house: '工班施工',         does: '照圖蓋,蓋到每條都打勾' },
+  C: { icon: '⌫', house: '收尾清場',         does: '清掉施工留下的鷹架、暫時變數、複製貼上' },
+  D: { icon: '⚑', house: '驗屋師傅拿槌子敲牆', does: '不是看漂不漂亮,是找「哪裡是空心的」' },
+  E: { icon: '⌂', house: '你自己走進去住一晚', does: '真的開門、開燈、沖馬桶,確認能住人' },
 };
 
 /* ═══ 新鮮度(AC-1／AC-2) ═══ */
@@ -58,6 +53,12 @@ function ago(iso) {
   const m = Math.round(s / 60); if (m < 60) return `${m} 分鐘前`;
   const h = Math.round(m / 60); return h < 48 ? `${h} 小時前` : `${Math.round(h / 24)} 天前`;
 }
+const clock = (iso) => {
+  const d = new Date(iso);
+  return Number.isFinite(d.getTime())
+    ? `${String(d.getMonth() + 1)}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
+    : '時間對不上';
+};
 const stageState = (st) =>
   st.type === 'not-built' ? 'notbuilt' :
   st.type === 'main-conversation' ? 'main' :
@@ -97,56 +98,64 @@ function statRestore(c) {
     <div class="sub">這不代表你沒有好版本,只代表還沒看過你跑檢查。</div>
     <div class="hint">在那個資料夾跑 <code>pipeline-status --checkpoint</code></div></div>`;
 
-  const n = c.changedSince;
   const cmd = `git reset --hard ${cp.commit.slice(0, 7)}`;
+  // ⚠️ 不再把 SHA 當標題。`a79e8d7` 對使用者沒有意義——時間與版本號才有。
+  // SHA 只留在「複製回去的指令」裡,因為 git 需要它。
+  const pills = cp.checks.map((k) => `<span class="pill ok">${esc(k)}</span>`).join('');
   return `<div class="stat" data-tone="restore">
     <div class="label">還原點 · 你回得去哪裡</div>
-    <div class="big">${esc(cp.commit.slice(0, 7))}</div>
-    <div class="sub">${ago(cp.at)},這幾項檢查全綠：${esc(cp.checks.join(' / '))}<br>
-      <span class="muted">⚠️ 檢查全綠不等於功能正確。</span></div>
-    <div class="hint">${n ? `這是你<b>最後一個確定跑過檢查</b>的版本。之後改的 ${n} 個檔案不在裡面。`
-      : '從那之後沒有任何檔案被改過。'}</div>
+    <div class="big">${esc(c.cpVersion ? `v${c.cpVersion}` : clock(cp.at))}</div>
+    <div class="sub">${ago(cp.at)}存的${c.cpVersion ? `（${esc(clock(cp.at))}）` : ''}</div>
+    <div class="pills">${pills}</div>
+    <div class="hint">上面這幾項當時全綠。<span class="muted">⚠️ 檢查全綠不等於功能正確。</span></div>
     <button class="copy" data-copy="${esc(cmd)}">複製回去的指令</button>
-    <div class="hint">⚠️ 這個網頁<b>不會</b>幫你還原——指令複製到終端機自己貼。
+    <div class="hint">⚠️ 這個網頁<b>不會</b>幫你還原——指令複製到<b>終端機</b>自己貼。
       回去會丟掉還沒 commit 的東西。</div>
   </div>`;
 }
 
 function statLadder(c) {
   const L = c.ladder ?? {};
-  const step = (n, ok, title, detail) =>
-    `<div class="step" data-ok="${ok ? 'yes' : 'no'}"><span class="n">${n}</span>
-      <span class="txt"><b>${title}</b><small>${detail}</small></span></div>`;
+  // 每一階是一個膠囊;膠囊之間有一段會流動的連接線。
+  // ⚠️ 三段的流動速度一樣,不隨狀態變——否則會被讀成「現在正在跑」。
+  const cap = (n, ok, title, detail) =>
+    `<div class="cap" data-ok="${ok ? 'yes' : 'no'}">
+       <span class="capn">${n}</span>
+       <span class="capt"><b>${title}</b><small>${detail}</small></span>
+     </div>`;
 
-  const s1 = L.uncommitted === null ? step(1, false, 'commit', '問不到')
-    : L.uncommitted === 0 ? step(1, true, 'commit 存進這條分支', '都存好了')
-    : step(1, false, 'commit 存進這條分支', `還有 ${L.uncommitted} 個檔案沒存`);
+  const s1 = L.uncommitted === null ? cap(1, false, 'commit 存進這條分支', '問不到')
+    : L.uncommitted === 0 ? cap(1, true, 'commit 存進這條分支', '都存好了')
+    : cap(1, false, 'commit 存進這條分支', `還有 ${L.uncommitted} 個檔案沒存`);
 
-  const s2 = L.unmerged === null ? step(2, false, 'merge 併進主線', '問不到')
-    : L.onMain ? step(2, true, 'merge 併進主線', `你就在 ${esc(L.mainName ?? 'main')} 上,不用併`)
-    : L.unmerged === 0 ? step(2, true, `merge 併進 ${esc(L.mainName ?? 'main')}`, '已經併進去了')
-    : step(2, false, `merge 併進 ${esc(L.mainName ?? 'main')}`, `這條分支還多 ${L.unmerged} 個存檔沒併`);
+  const s2 = L.unmerged === null ? cap(2, false, 'merge 併進主線', '問不到')
+    : L.onMain ? cap(2, true, 'merge 併進主線', `你就在 ${esc(L.mainName ?? 'main')} 上,不用併`)
+    : L.unmerged === 0 ? cap(2, true, `merge 併進 ${esc(L.mainName ?? 'main')}`, '已經併進去了')
+    : cap(2, false, `merge 併進 ${esc(L.mainName ?? 'main')}`, `這條分支還多 ${L.unmerged} 個存檔沒併`);
 
   const s3 = !L.hasUpstream
-    ? step(3, false, 'push 推到 GitHub', '這條分支還沒有遠端 — 只存在你這台電腦上')
-    : L.unpushed === null ? step(3, false, 'push 推到 GitHub', '問不到')
-    : L.unpushed === 0 ? step(3, true, 'push 推到 GitHub', '已經同步了')
-    : step(3, false, 'push 推到 GitHub', `還有 ${L.unpushed} 個存檔沒推上去`);
+    ? cap(3, false, 'push 推到 GitHub', '這條分支還沒有遠端 — 只存在你這台電腦上')
+    : L.unpushed === null ? cap(3, false, 'push 推到 GitHub', '問不到')
+    : L.unpushed === 0 ? cap(3, true, 'push 推到 GitHub', '已經同步了')
+    : cap(3, false, 'push 推到 GitHub', `還有 ${L.unpushed} 個存檔沒推上去`);
 
   const allSafe = L.uncommitted === 0 && (L.onMain || L.unmerged === 0) && L.unpushed === 0;
+  const wire = '<div class="wire"><i></i></div>';
   return `<div class="stat" data-tone="${allSafe ? 'safe' : 'alert'}">
     <div class="label">東西走到哪了</div>
-    <div class="ladder">${s1}${s2}${s3}</div>
+    <div class="pipe">${s1}${wire}${s2}${wire}${s3}</div>
     ${L.webUrl ? `<div class="hint"><a class="ext" href="${esc(L.webUrl)}" target="_blank"
       rel="noreferrer">在 GitHub 上看這個 repo ↗</a></div>` : ''}
+    <div class="hint muted">⚠️ 這三格顯示的是<b>現在的事實</b>,不是你走過的最遠距離——
+      併完之後又動了新東西,它就會退回去。</div>
   </div>`;
 }
 
 function statChanges(c) {
   const f = c.files;
-  if (!f) return `<div class="stat" data-tone="change"><div class="label">改了哪些檔案</div>
+  if (!f) return `<div class="stat" data-tone="change"><div class="label">commit 後尚未檢查的檔案</div>
     <div class="big">問不到</div></div>`;
-  if (!f.total) return `<div class="stat" data-tone="change"><div class="label">改了哪些檔案</div>
+  if (!f.total) return `<div class="stat" data-tone="change"><div class="label">commit 後尚未檢查的檔案</div>
     <div class="big">沒有改動</div>
     <div class="sub">${c.checkpoint ? '蓋章之後' : '相對於上一個存檔'}沒有任何檔案被動過。</div></div>`;
 
@@ -157,7 +166,7 @@ function statChanges(c) {
     </div>`).join('');
 
   return `<div class="stat" data-tone="change">
-    <div class="label">${c.checkpoint ? '蓋章之後改了哪些檔案' : '還沒存檔的改動'}</div>
+    <div class="label">${c.checkpoint ? 'commit 後尚未檢查的檔案' : '還沒存檔的改動'}</div>
     <div class="big">${f.total} 個檔案</div>
     ${f.newCount ? `<div class="sub">其中 ${f.newCount} 個是新建的。</div>` : ''}
     <div class="files">${groups}</div>
@@ -166,28 +175,43 @@ function statChanges(c) {
   </div>`;
 }
 
-/* ═══ 流程總覽 ═══ */
-function flow(c) {
-  const nodes = c.stages.map((st) => {
+/* ═══ My Agent work flow:左邊架構圖,右邊五張說明卡 ═══ */
+function workflow(c) {
+  // ⚠️ 左邊的軌道與右邊的卡片放在**同一個 grid 的同一列**,
+  // 這樣 A–E 的對應是**版面結構保證的**,不是靠我調數字對齊——
+  // 靠調數字的話,卡片內容一長就會錯開,而錯開的對應圖比沒有圖更糟。
+  const rows = c.stages.map((st, i) => {
     const s = stageState(st);
-    const when =
-      s === 'notbuilt' ? '<span class="when q">這一關還沒建</span>'
-      : s === 'main' ? '<span class="when q">就是你在講話的那個對話</span>'
-      : s === 'done' ? `<span class="when">${ago(st.ranAt)}跑過<br>你說處理完了</span>`
-      : s === 'ran' ? `<span class="when">${ago(st.ranAt)}跑過<br>還沒有人說處理完了</span>`
-      : `<span class="when q">${c.sensor.state === 'ok' ? '沒有紀錄' : '感測器沒有資料'}</span>`;
-    return `<div class="node" data-state="${s}" data-cur="${s === 'ran' ? 1 : 0}">
-      ${who(st.id)}
-      <span class="tag">${esc(st.id)} ${esc(st.name)}</span>
-      ${when}</div>`;
+    const r = ROLE[st.id] ?? { icon: '·', house: '', does: '' };
+    const last = i === c.stages.length - 1;
+    const status =
+      s === 'notbuilt' ? '這一關還沒建'
+      : s === 'main' ? '就是你在講話的那個對話'
+      : s === 'done' ? `${ago(st.ranAt)}跑過,你說處理完了`
+      : s === 'ran' ? `${ago(st.ranAt)}跑過,還沒有人說處理完了`
+      : (c.sensor.state === 'ok' ? '沒有紀錄' : '感測器沒有資料');
+    const said = st.args
+      ? `<div class="said">「${esc(st.args.slice(0, 90))}${st.args.length > 90 ? '…' : ''}」</div>` : '';
+
+    return `<div class="railcell" data-state="${s}">
+        <span class="rlab">${esc(st.id)}</span>
+        <span class="dot"></span>
+        ${last ? '' : '<span class="link"><i></i></span>'}
+      </div>
+      <div class="acard" data-state="${s}">
+        <span class="orb" data-id="${esc(st.id)}">${r.icon}</span>
+        <div class="abody">
+          <div class="atitle">${esc(st.id)} ${esc(st.name)}
+            <span class="ahouse">${esc(r.house)}</span></div>
+          <div class="adoes">${esc(r.does)}</div>
+          <div class="astatus">${esc(status)}</div>
+          ${said}
+        </div>
+        <span class="lamp" title="${s === 'done' || s === 'ran' ? '有紀錄' : '沒有紀錄'}"></span>
+      </div>`;
   }).join('');
 
-  return `<div class="flow">
-    <div class="flow-line"><svg preserveAspectRatio="none" viewBox="0 0 100 2">
-      <line class="base" x1="2" y1="1" x2="98" y2="1"></line>
-      <line class="move" x1="2" y1="1" x2="98" y2="1"></line></svg></div>
-    <div class="flow-track">${nodes}</div>
-  </div>`;
+  return `<div class="wf">${rows}</div>`;
 }
 
 /* ═══ 第二層:一個案件的儀表板 ═══ */
@@ -212,10 +236,11 @@ function dashboard(name) {
       </div>
 
       <div class="block">
-        <h2 class="section serif">五個工班跑到哪了</h2>
-        <p class="section-note">「跑過」不等於「通過」——感測器只看得到指令被呼叫,看不到結果。
+        <h2 class="section serif">My Agent work flow</h2>
+        <p class="section-note">五個工班跑到哪了,工作進度監視。<br>
+          ⚠️「跑過」不等於「通過」——感測器只看得到指令被呼叫,看不到結果。
           驗屋師傅來過,不等於房子修好了。</p>
-        ${flow(c)}
+        ${workflow(c)}
         <div class="note">${esc(sensorNote)}</div>
       </div>`;
   }).join('');

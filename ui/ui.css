@@ -102,69 +102,126 @@ h2.section { font-size: var(--text-subheading); letter-spacing: var(--tracking-s
 .step .txt b { font-weight: var(--font-weight-medium); }
 .step small { color: var(--color-smoke); display: block; font-size: var(--text-caption); }
 
-/* ───────── 流程總覽 ───────── */
-.flow { position: relative; border: 1px solid var(--color-ash); border-radius: var(--radius-2xl);
-  padding: 28px 20px 20px; background: var(--color-parchment); overflow: hidden; }
-.flow::before {
-  content: ''; position: absolute; inset: -40% -10% auto -10%; height: 300px;
-  background: radial-gradient(ellipse at 20% 50%, var(--color-coral), transparent 60%),
-              radial-gradient(ellipse at 70% 40%, var(--color-sky-blue), transparent 60%);
-  filter: blur(70px); opacity: .3; pointer-events: none;
+/* ───────── 全綠項目的膠囊標籤 ───────── */
+.pills { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 4px; }
+.pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  border: 1px solid var(--color-ash); border-radius: var(--radius-full);
+  padding: 4px 12px; font-size: var(--text-caption); letter-spacing: var(--tracking-caption);
+  background: var(--color-parchment); color: var(--color-graphite); white-space: nowrap;
 }
-.flow-track { position: relative; display: flex; gap: 6px; }
-.node { position: relative; flex: 1; min-width: 0; text-align: center; }
+.pill.ok::before { content: '✓'; color: var(--color-lake-blue); }
 
-/* 角色:從 agent.svg 這張大圖裁出一個人。同一份資產,五個裁切窗。 */
-/* 角色裁切:用 background-position 而不是 SVG 的 <image>+viewBox。
-   後者在瀏覽器裡的縮放行為不可預期(實測會露出隔壁的人)。
-   --x/--y/--w/--h 是從 agent.svg 量出來的座標,單位是 SVG 使用者單位。 */
-.who {
-  --H: 176;
-  height: calc(var(--H) * 1px);
-  width: calc(var(--H) * 1px * var(--w) / var(--h));
-  margin: 0 auto; display: block;
-  background-image: url('/agent.svg');
-  background-repeat: no-repeat;
-  background-size: calc(3333px * var(--H) / var(--h)) auto;
-  background-position:
-    calc(-1px * var(--x) * var(--H) / var(--h))
-    calc(-1px * var(--y) * var(--H) / var(--h));
+/* ───────── 三階梯:膠囊 + 流動的連接段 ───────── */
+.pipe { display: grid; gap: 0; margin-top: 4px; }
+.cap {
+  display: flex; align-items: center; gap: 10px;
+  border: 1px solid var(--color-ash); border-radius: var(--radius-full);
+  padding: 8px 16px; background: var(--color-parchment);
 }
-.node[data-cur="1"] .who { animation: bob 2.6s ease-in-out infinite; }
-@keyframes bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
-
-.tag {
-  display: inline-block; border: 1px solid var(--color-ash); border-radius: var(--radius-full);
-  padding: 5px 12px; font-size: var(--text-caption); letter-spacing: var(--tracking-caption);
-  background: var(--color-parchment); white-space: nowrap;
+.cap[data-ok="yes"] { border-color: var(--color-off-black); }
+.capn {
+  width: 22px; height: 22px; flex: none; border-radius: 50%;
+  border: 1px solid var(--color-ash); display: grid; place-items: center;
+  font-size: 11px; color: var(--color-graphite);
 }
-.node[data-state="done"] .tag { background: var(--color-off-black); color: var(--color-parchment);
-  border-color: var(--color-off-black); }
-.node[data-state="ran"]  .tag { border-color: var(--color-lake-blue); color: var(--color-lake-blue); }
-.node[data-state="none"] .tag,
-.node[data-state="notbuilt"] .tag { color: var(--color-smoke); }
-.node .when { display: block; margin-top: 6px; font-size: var(--text-caption); color: var(--color-graphite); }
-.node .when.q { color: var(--color-smoke); }
+.cap[data-ok="yes"] .capn {
+  background: var(--color-off-black); color: var(--color-parchment); border-color: var(--color-off-black);
+}
+.capt { min-width: 0; }
+.capt b { font-weight: var(--font-weight-medium); }
+.capt small { display: block; color: var(--color-smoke); font-size: var(--text-caption); }
 
-/* 連接線:一條貫穿的細線 + 緩慢流動的虛線。
-   ⚠️ 刻意讓**每一段都一樣**地流動。只讓「目前那一段」流動的話,
-      它就會被讀成「現在正在跑」——而那正是這個產品第一條紅線禁止的東西。 */
-.flow-line { position: absolute; left: 20px; right: 20px; top: 196px; height: 2px; z-index: 0; }
-.flow-line svg { width: 100%; height: 2px; overflow: visible; }
-.flow-line .base { stroke: var(--color-ash); stroke-width: 1; }
-.flow-line .move { stroke: var(--color-sky-blue); stroke-width: 1.5; stroke-dasharray: 5 13;
-  animation: drift 3.5s linear infinite; }
-@keyframes drift { to { stroke-dashoffset: -36; } }
+/* 膠囊之間的流水線。⚠️ 三段速度一致,不隨狀態變——
+   只讓「目前那一段」動的話,會被讀成「現在正在跑」。 */
+.wire { height: 20px; margin-left: 27px; position: relative; overflow: hidden; }
+.wire::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px;
+  background: var(--color-ash);
+}
+.wire i {
+  position: absolute; left: 0; width: 2px; height: 9px; border-radius: 2px;
+  background: var(--color-lake-blue); animation: flowdown 1.9s linear infinite;
+}
+@keyframes flowdown { from { top: -10px; } to { top: 22px; } }
+
+/* ───────── My Agent work flow ───────── */
+/* 左軌與右卡在同一個 grid 的同一列 → A–E 的對應由版面保證,不靠調數字 */
+.wf {
+  display: grid; grid-template-columns: 64px 1fr; gap: 10px 14px;
+  align-items: stretch; position: relative;
+}
+.wf::before {
+  content: ''; position: absolute; left: -14px; top: 0; bottom: 0; width: 92px;
+  background: radial-gradient(ellipse at 50% 20%, var(--color-sky-blue), transparent 62%),
+              radial-gradient(ellipse at 50% 85%, var(--color-coral), transparent 62%);
+  filter: blur(40px); opacity: .34; pointer-events: none; border-radius: var(--radius-2xl);
+}
+.railcell {
+  position: relative; display: grid; justify-items: center;
+  grid-template-rows: auto 1fr; padding-top: 20px;
+}
+.railcell .rlab {
+  position: absolute; top: 14px; left: 4px;
+  font-size: var(--text-caption); color: var(--color-graphite);
+}
+.railcell .dot {
+  width: 15px; height: 15px; border-radius: 50%; z-index: 1;
+  border: 1px solid var(--color-ash); background: var(--color-parchment);
+}
+.railcell[data-state="done"] .dot { background: var(--color-off-black); border-color: var(--color-off-black); }
+.railcell[data-state="ran"]  .dot { background: var(--color-lake-blue); border-color: var(--color-lake-blue); }
+/* 連到下一列的線:高度撐滿剩餘空間,所以卡片多高都連得起來 */
+.railcell .link { position: relative; width: 2px; height: 100%; overflow: hidden; margin-top: 2px; }
+.railcell .link::before { content: ''; position: absolute; inset: -2px 0 -14px; background: var(--color-ash); }
+.railcell .link i {
+  position: absolute; left: 0; width: 2px; height: 12px; border-radius: 2px;
+  background: var(--color-sky-blue); animation: flowdown2 2.4s linear infinite;
+}
+@keyframes flowdown2 { from { top: -14px; } to { top: 110%; } }
+
+.acard {
+  display: flex; align-items: flex-start; gap: 14px;
+  border: 1px solid var(--color-ash); border-radius: var(--radius-2xl);
+  padding: 14px 18px; background: var(--color-parchment); position: relative;
+}
+/* 圓形漸層示意圖(先不用人物) */
+.orb {
+  width: 46px; height: 46px; flex: none; border-radius: 50%;
+  display: grid; place-items: center; font-size: 19px; color: var(--color-off-black);
+}
+.orb[data-id="A"] { background: radial-gradient(circle at 32% 30%, var(--color-sky-blue), var(--color-periwinkle-mist)); }
+.orb[data-id="B"] { background: radial-gradient(circle at 32% 30%, var(--color-gold), var(--color-coral)); }
+.orb[data-id="C"] { background: radial-gradient(circle at 32% 30%, var(--color-mint), var(--color-sky-blue)); }
+.orb[data-id="D"] { background: radial-gradient(circle at 32% 30%, var(--color-coral), var(--color-gold)); }
+.orb[data-id="E"] { background: radial-gradient(circle at 32% 30%, var(--color-periwinkle-mist), var(--color-mint)); }
+.abody { flex: 1; min-width: 0; }
+.atitle { font-size: var(--text-body); letter-spacing: var(--tracking-body); }
+.ahouse { color: var(--color-smoke); font-size: var(--text-caption); margin-left: 8px; }
+.adoes { color: var(--color-graphite); margin-top: 2px; }
+.astatus { margin-top: 6px; }
+.acard[data-state="none"] .astatus,
+.acard[data-state="notbuilt"] .astatus,
+.acard[data-state="main"] .astatus { color: var(--color-smoke); }
+.said { color: var(--color-smoke); font-size: var(--text-caption); margin-top: 4px; }
+
+/* 燈號:亮＝跑過了。⚠️ 亮不代表通過,只代表有紀錄。 */
+.lamp {
+  width: 11px; height: 11px; border-radius: 50%; flex: none; margin-top: 6px;
+  border: 1px solid var(--color-ash); background: transparent;
+}
+.acard[data-state="ran"]  .lamp { background: var(--color-lake-blue); border-color: var(--color-lake-blue); }
+.acard[data-state="done"] .lamp { background: var(--color-off-black); border-color: var(--color-off-black); }
+
 @media (prefers-reduced-motion: reduce) {
-  .flow-line .move { animation: none; }
-  .node[data-cur="1"] .who { animation: none; }
+  .wire i, .rail .link i { animation: none; }
 }
 
 /* ───────── 檔案清單 ───────── */
 .files { margin-top: 12px; }
 .fgroup { margin-bottom: 10px; }
 .fgroup .dir { font-size: var(--text-caption); color: var(--color-smoke);
-  text-transform: none; letter-spacing: 0; margin-bottom: 3px; }
+  text-transform: none; letter-spacing: 0; margin-bottom: 3px; text-align: left; padding-left: 0; }
 .fgroup ul { list-style: none; margin: 0; padding: 0 0 0 12px; }
 .fgroup li { padding: 1px 0; }
 .isnew { color: var(--color-lake-blue); }
