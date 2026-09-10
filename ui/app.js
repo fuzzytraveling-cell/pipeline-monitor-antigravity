@@ -31,9 +31,13 @@ const ROLE = {
   B: { house: '工班施工', does: '照圖蓋,蓋到每條都打勾',
        icon: I('<rect x="3" y="4.5" width="18" height="15" rx="2"/><path d="m7 10 3 2.5-3 2.5"/><path d="M12.5 15.5H17"/>') },
   C: { house: '收尾清場', does: '清掉施工留下的鷹架、暫時變數、複製貼上',
-       icon: I('<path d="M14.5 3.5 10 8"/><path d="m8.5 6.5 4 4"/><path d="M9.5 9.5 4 15v5h5l5.5-5.5z"/><path d="m6 14 4 4"/>') },
+       // 掃把:一根斜柄 + 綁繩 + 散開的鬃毛
+       icon: I('<path d="M17.5 3 11 9.5"/><path d="M12.5 8 8 12.5l3.5 3.5L16 11.5z"/>'
+             + '<path d="M8 12.5 4 20"/><path d="m10 14.5-3.2 6.2"/><path d="m12 16.5-1.5 4.5"/>') },
   D: { house: '驗屋師傅拿槌子敲牆', does: '不是看漂不漂亮,是找「哪裡是空心的」',
-       icon: I('<path d="M13.5 3.5 20 10l-2.5 2.5-6.5-6.5z"/><path d="M11.5 8 4 15.5V20h4.5L16 12.5"/>') },
+       // 鐵錘:方形錘頭 + 拔釘爪 + 長柄
+       icon: I('<path d="M6.5 5.5h8v4h-8z"/><path d="M6.5 7.5C4.5 7.5 3.5 6.5 3.5 5"/>'
+             + '<path d="M6.5 7.5c-2 0-3 1-3 2.5"/><path d="M11 9.5 9.5 20"/>') },
   E: { house: '你自己走進去住一晚', does: '真的開門、開燈、沖馬桶,確認能住人',
        icon: I('<rect x="5" y="3.5" width="14" height="17" rx="2"/><path d="M9 3.5v17"/><path d="m12 11 1.8 1.8L17 9.5"/>') },
 };
@@ -131,11 +135,10 @@ function statLadder(c) {
   const L = c.ladder ?? {};
   // 每一階是一個膠囊;膠囊之間有一段會流動的連接線。
   // ⚠️ 三段的流動速度一樣,不隨狀態變——否則會被讀成「現在正在跑」。
-  let cur = false;   // 第一個還沒完成的階梯 = 你現在在哪
+  // ⚠️ 暈染標的是「**這一階已經完成**」,不是「卡在哪」。
+  // 我上一版做反了——Oscar:「我的顏色要顯示在已完成的階梯上」。
   const cap = (n, ok, title, detail) => {
-    const isCur = !ok && !cur;
-    if (isCur) cur = true;
-    return `<div class="cap" data-ok="${ok ? 'yes' : 'no'}" data-cur="${isCur ? 1 : 0}">
+    return `<div class="cap" data-ok="${ok ? 'yes' : 'no'}">
        <span class="capn">${n}</span>
        <span class="capt"><b>${title}</b><small>${detail}</small></span>
      </div>`;
@@ -151,7 +154,7 @@ function statLadder(c) {
     : cap(2, false, `merge 併進 ${esc(L.mainName ?? 'main')}`, `這條分支還多 ${L.unmerged} 個存檔沒併`);
 
   const s3 = !L.hasUpstream
-    ? cap(3, false, 'push 推到 GitHub', '這條分支還沒有遠端 — 只存在你這台電腦上')
+    ? cap(3, false, 'push 推到 GitHub', '這條分支還沒有 push 到 GitHub — 只存在你這台電腦上')
     : L.unpushed === null ? cap(3, false, 'push 推到 GitHub', '問不到')
     : L.unpushed === 0 ? cap(3, true, 'push 推到 GitHub', '已經同步了')
     : cap(3, false, 'push 推到 GitHub', `還有 ${L.unpushed} 個存檔沒推上去`);
@@ -169,9 +172,9 @@ function statLadder(c) {
 
 function statChanges(c) {
   const f = c.files;
-  if (!f) return `<div class="stat" data-tone="change"><h3 class="ctitle">未檢查清單</h3><div class="label">commit 後還沒被檢查的檔案</div>
+  if (!f) return `<div class="stat" data-tone="change"><h3 class="ctitle">未檢查清單</h3><div class="label">commit後還沒被檢查的檔案</div>
     <div class="big">問不到</div></div>`;
-  if (!f.total) return `<div class="stat" data-tone="change"><h3 class="ctitle">未檢查清單</h3><div class="label">commit 後還沒被檢查的檔案</div>
+  if (!f.total) return `<div class="stat" data-tone="change"><h3 class="ctitle">未檢查清單</h3><div class="label">commit後還沒被檢查的檔案</div>
     <div class="big">沒有改動</div>
     <div class="sub">${c.checkpoint ? '蓋章之後' : '相對於上一個存檔'}沒有任何檔案被動過。</div></div>`;
 
@@ -182,8 +185,8 @@ function statChanges(c) {
     </div>`).join('');
 
   return `<div class="stat" data-tone="change">
-    <h3 class="ctitle">未檢查清單</h3><div class="label">${c.checkpoint ? 'commit 後還沒被檢查的檔案' : '還沒存檔的改動'}</div>
-    <div class="big">${f.total} 個檔案</div>
+    <h3 class="ctitle">未檢查清單</h3><div class="label">${c.checkpoint ? 'commit後還沒被檢查的檔案' : '還沒存檔的改動'}</div>
+    <div class="big"><span class="num">${f.total}</span><span class="unit">個檔案</span></div>
     ${f.newCount ? `<div class="sub">其中 ${f.newCount} 個是新建的。</div>` : ''}
     <div class="files">${groups}</div>
     ${c.scale ? `<div class="hint">參考:這個專案一次改動通常 ${c.scale.median} 個檔案,
@@ -212,10 +215,7 @@ function workflow(c) {
     return `<div class="railcell" data-state="${s}">
         <span class="rlab">${esc(st.id)}</span>
         <span class="dot"></span>
-        ${last ? '' : `<span class="link">
-          <svg preserveAspectRatio="none" viewBox="0 0 12 100">
-            <path d="M6 0 C4.4 18, 7.6 34, 5.6 52 C4 68, 7.2 84, 6 100"/>
-          </svg></span>`}
+
       </div>
       <div class="acard" data-state="${s}">
         <span class="orb" data-id="${esc(st.id)}">${r.icon ?? ''}</span>
@@ -230,7 +230,13 @@ function workflow(c) {
       </div>`;
   }).join('');
 
-  return `<div class="wf">${rows}</div>`;
+  // ⚠️ 一條貫穿 A→E 的線,絕對定位在整個左欄上——不是每一格各畫一段。
+  // 分段畫的話,卡片高度不同就會在接縫處斷開。
+  return `<div class="wf">
+    <svg class="wf-line" preserveAspectRatio="none" viewBox="0 0 10 1000">
+      <path d="M5 6 C2.6 130, 7.8 250, 4.6 372 C1.8 480, 8 600, 5.2 720
+               C3 820, 7.4 900, 5 994"/>
+    </svg>${rows}</div>`;
 }
 
 /* ═══ 第二層:一個案件的儀表板 ═══ */

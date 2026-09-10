@@ -89,11 +89,15 @@ h2.section { font-size: var(--text-subheading); letter-spacing: var(--tracking-s
    看起來像三段拼起來的,不像一句話。 */
 .stat .label {
   font-size: var(--text-body-sm); letter-spacing: normal;
-  color: var(--color-smoke); margin-bottom: 10px;
+  color: var(--color-smoke);
+  padding-bottom: 10px; margin-bottom: 14px;
+  border-bottom: 1px solid var(--color-ash);   /* 副標與內容的分隔線 */
 }
 .stat .big { font-family: var(--font-untitled-serif); font-weight: var(--font-weight-regular);
-  font-size: var(--text-heading-sm); letter-spacing: var(--tracking-heading-sm); line-height: 1.1;
-  display: flex; align-items: baseline; gap: 8px; }
+  font-size: var(--text-heading-sm); letter-spacing: var(--tracking-heading-sm); line-height: 1.1; }
+.stat .big .num { font-size: var(--text-heading-sm); }
+/* 單位小一級並貼齊基線,不然「5」和「個檔案」看起來是兩件事 */
+.stat .big .unit { font-size: var(--text-body-lg); margin-left: 4px; }
 .stat .sub { color: var(--color-graphite); margin-top: 8px; }
 .stat .hint { color: var(--color-smoke); font-size: var(--text-caption); margin-top: 10px; }
 
@@ -142,35 +146,62 @@ h2.section { font-size: var(--text-subheading); letter-spacing: var(--tracking-s
 .capt small { display: block; color: var(--color-smoke); font-size: var(--text-caption); }
 
 /* ⚠️ 原本膠囊之間有流水線動畫,拿掉了。
-   Oscar:「現在確定不是單向的流程了,加入流水會誤導。」——對。
-   ①②③ 會來回進退,畫成單向水流等於在說謊。
-   改成:只有**你現在卡在哪一階**那一格,內部做一層會流動的暖色暈染。 */
+   Oscar:「現在確定不是單向的流程了,加入流水會誤導。」——①②③ 會來回進退。
+   ⚠️ 而且暈染標的是「**這一階已經完成**」,不是「卡在哪」——我上一版做反了。 */
 .pipe { display: grid; gap: 8px; margin-top: 4px; }
-.cap[data-cur="1"] {
-  position: relative; overflow: hidden;
-  border-color: var(--color-coral);
+.cap {
+  min-height: 62px;              /* 三格等高,不因文案長短而不一樣大 */
+  align-items: center;
 }
-.cap[data-cur="1"]::before {
-  content: ''; position: absolute; inset: -60% -20%;
-  background: radial-gradient(ellipse at 30% 50%, var(--color-coral), transparent 55%),
-              radial-gradient(ellipse at 70% 50%, var(--color-gold), transparent 55%);
-  filter: blur(22px); opacity: .55; pointer-events: none;
-  animation: wash 5.5s ease-in-out infinite alternate;
+.cap[data-ok="yes"] { position: relative; overflow: hidden; border-color: var(--color-off-black); }
+/* 類似 After Effects 的 4 color gradient:四個色點各自漂移 */
+.cap[data-ok="yes"]::before {
+  content: ''; position: absolute; inset: -70% -30%;
+  background:
+    radial-gradient(circle at 18% 28%, var(--color-mint), transparent 52%),
+    radial-gradient(circle at 72% 22%, var(--color-sky-blue), transparent 52%),
+    radial-gradient(circle at 34% 78%, var(--color-gold), transparent 52%),
+    radial-gradient(circle at 84% 74%, var(--color-coral), transparent 52%);
+  filter: blur(20px); opacity: .6; pointer-events: none;
+  animation: g4 11s ease-in-out infinite alternate;
 }
-.cap[data-cur="1"] > * { position: relative; }
-@keyframes wash {
-  from { transform: translateX(-14%) scale(1); }
-  to   { transform: translateX(14%) scale(1.12); }
+.cap[data-ok="yes"] > * { position: relative; z-index: 1; }
+@keyframes g4 {
+  0%   { transform: translate(-7%, -5%) scale(1.04) rotate(0deg); }
+  35%  { transform: translate(6%, 2%)   scale(1.16) rotate(7deg); }
+  70%  { transform: translate(-2%, 6%)  scale(1.10) rotate(-6deg); }
+  100% { transform: translate(5%, -3%)  scale(1.18) rotate(4deg); }
 }
 
 /* ───────── My Agent work flow ───────── */
 /* 左軌與右卡在同一個 grid 的同一列 → A–E 的對應由版面保證,不靠調數字 */
 .wf {
-  display: grid; grid-template-columns: 64px 1fr; gap: 10px 14px;
+  display: grid; grid-template-columns: 76px 1fr; gap: 10px 14px;
   align-items: stretch; position: relative;
 }
+/* ⚠️ 不能只寫 top + bottom。<svg> 是 replaced element,
+   絕對定位時 height:auto 會採用它的**內在高度**(viewBox 的 1000),
+   top/bottom 就被忽略了——實測線條會多出 400px 掉在卡片下面。
+   必須給明確的 height。 */
+.wf-line {
+  position: absolute; left: 6px; top: 10px; width: 10px;
+  height: calc(100% - 20px);
+  z-index: 0; overflow: visible;
+}
+.wf-line path {
+  fill: none; stroke: var(--color-graphite); stroke-width: 1.7; stroke-linecap: round;
+  vector-effect: non-scaling-stroke; opacity: .55;
+  stroke-dasharray: 1400; stroke-dashoffset: 1400;
+  animation: draw 7s ease-in-out infinite;
+}
+@keyframes draw {
+  0%   { stroke-dashoffset: 1400; }
+  55%  { stroke-dashoffset: 0; }
+  92%  { stroke-dashoffset: 0; opacity: .55; }
+  100% { stroke-dashoffset: 0; opacity: .15; }
+}
 .wf::before {
-  content: ''; position: absolute; left: -14px; top: 0; bottom: 0; width: 92px;
+  content: ''; position: absolute; left: -10px; top: 0; bottom: 0; width: 88px;
   background: radial-gradient(ellipse at 50% 20%, var(--color-sky-blue), transparent 62%),
               radial-gradient(ellipse at 50% 85%, var(--color-coral), transparent 62%);
   filter: blur(40px); opacity: .34; pointer-events: none; border-radius: var(--radius-2xl);
@@ -190,25 +221,9 @@ h2.section { font-size: var(--text-subheading); letter-spacing: var(--tracking-s
 .railcell[data-state="done"] .dot { background: var(--color-off-black); border-color: var(--color-off-black); }
 .railcell[data-state="ran"]  .dot { background: var(--color-lake-blue); border-color: var(--color-lake-blue); }
 /* 連到下一列的線:高度撐滿剩餘空間,所以卡片多高都連得起來 */
-/* 鉛筆手繪感:路徑本身有輕微擺動,再用 dash 動畫「畫」下來,
-   像有人拿筆一路往下打勾。刻意不畫直線。 */
-.railcell .link { position: relative; width: 12px; height: 100%; margin-top: 2px; }
-.railcell .link svg { width: 12px; height: 100%; display: block; overflow: visible; }
-.railcell .link path {
-  fill: none; stroke: var(--color-ash); stroke-width: 1.6; stroke-linecap: round;
-  vector-effect: non-scaling-stroke;
-}
-.railcell[data-state="done"] .link path,
-.railcell[data-state="ran"] .link path {
-  stroke: var(--color-graphite);
-  stroke-dasharray: 130; stroke-dashoffset: 130;
-  animation: draw 2.6s ease-in-out infinite;
-}
-@keyframes draw {
-  0%   { stroke-dashoffset: 130; }
-  55%  { stroke-dashoffset: 0; }
-  100% { stroke-dashoffset: 0; opacity: .45; }
-}
+/* 每格只剩「代號 + 圓點」;貫穿的長線由 .wf-line 一條畫完(見上)。
+   分段畫的話,卡片高度不同就會在接縫處斷開。 */
+.railcell { padding-left: 18px; }
 
 .acard {
   display: flex; align-items: flex-start; gap: 14px;
