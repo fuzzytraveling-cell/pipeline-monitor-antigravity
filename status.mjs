@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { appendFileSync } from 'node:fs';
 import { readEvents, loadStages, lastRunPerStage } from './lib/events.mjs';
+import { mount, unmount, isMounted } from './lib/mount.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CHECKPOINT_DIR = join(HERE, 'checkpoints');
@@ -261,7 +262,8 @@ function doCheckpoint(ctx) {
 /* ══════════════════════════ 畫面 ══════════════════════════ */
 
 function render(ctx) {
-  console.log(`━━ ${ctx.project} · ${ctx.branch} ━━\n`);
+  console.log(`━━ ${ctx.project} · ${ctx.branch} ━━`);
+  console.log(isMounted(ctx.root) ? '感測器：已掛上\n' : '感測器：沒掛上（打 pipeline-status --on 掛上）\n');
 
   const cp = readCheckpoint(ctx);
   const dirty = uncommitted(ctx.root);
@@ -436,10 +438,19 @@ function main() {
     return 0;
   }
   if (!ctx.hasCommits && !process.argv.includes('--checkpoint')) {
-    console.log(`━━ ${ctx.project} · ${ctx.branch} ━━\n`);
+    console.log(`━━ ${ctx.project} · ${ctx.branch} ━━`);
+  console.log(isMounted(ctx.root) ? '感測器：已掛上\n' : '感測器：沒掛上（打 pipeline-status --on 掛上）\n');
     console.log('這個專案還沒有任何 commit,所以還沒有版本可以回去。');
     return 0;
   }
+  if (process.argv.includes('--on') || process.argv.includes('--off')) {
+    const on = process.argv.includes('--on');
+    console.log(`${on ? '掛上' : '拆下'}：${ctx.root}\n`);
+    const r = on ? mount(ctx.root) : unmount(ctx.root);
+    for (const line of r.out) console.log(line);
+    return r.ok ? 0 : 1;
+  }
+
   const clearAt = process.argv.indexOf('--clear');
   if (clearAt !== -1) return doClear(ctx, process.argv[clearAt + 1]);
   if (process.argv.includes('--checkpoint')) return doCheckpoint(ctx);

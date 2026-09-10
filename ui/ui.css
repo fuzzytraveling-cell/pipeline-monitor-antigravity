@@ -305,3 +305,85 @@ button.copy:hover { background: var(--color-off-black); color: var(--color-parch
 a.ext { color: var(--color-lake-blue); }
 .muted { color: var(--color-smoke); }
 .warn { color: var(--color-off-black); }
+
+/* ───────── Overview:左邊在跑、中間狀態、右邊已結案 ───────── */
+.ov {
+  position: relative; display: grid; grid-template-columns: 1fr 200px 1fr;
+  gap: var(--spacing-16); align-items: center;
+  border: 1px solid var(--color-ash); border-radius: var(--radius-2xl);
+  padding: 22px 20px; background: var(--color-parchment); overflow: hidden; min-height: 210px;
+}
+.ov-col { display: grid; gap: 7px; align-content: center; z-index: 1; }
+.ov-right { justify-items: end; }
+.ov-h {
+  font-size: var(--text-caption); color: var(--color-smoke);
+  text-transform: uppercase; letter-spacing: var(--tracking-caption); margin-bottom: 2px;
+}
+.ochip {
+  display: inline-flex; align-items: center; gap: 7px; text-decoration: none;
+  border: 1px solid var(--color-ash); border-radius: var(--radius-full);
+  padding: 6px 14px; background: var(--color-parchment); color: var(--color-off-black);
+  max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ochip:hover { border-color: var(--color-lake-blue); }
+.odot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-lake-blue); flex: none; }
+.ov-right .odot { background: var(--color-ash); }
+
+/* 中央的匯流點:參考設計稿那顆會呼吸的核心 */
+.ov-mid { position: relative; display: grid; justify-items: center; gap: 10px; z-index: 1; }
+.ov-hub {
+  width: 74px; height: 74px; border-radius: 50%; display: grid; place-items: center;
+  background: radial-gradient(circle at 40% 35%, var(--color-mint), transparent 62%),
+              radial-gradient(circle at 65% 60%, var(--color-sky-blue), transparent 62%),
+              radial-gradient(circle at 45% 75%, var(--color-gold), transparent 62%);
+  position: relative;
+}
+.ov-hub span {
+  position: absolute; inset: 0; border-radius: 50%;
+  border: 1px solid var(--color-ash); animation: pulse 3.4s ease-in-out infinite;
+}
+.ov-hub span:nth-child(2) { animation-delay: 1.1s; }
+.ov-hub span:nth-child(3) { animation-delay: 2.2s; }
+@keyframes pulse {
+  0%   { transform: scale(.72); opacity: .9; }
+  100% { transform: scale(1.35); opacity: 0; }
+}
+.ov-state { text-align: center; font-size: var(--text-caption); color: var(--color-graphite); }
+.ov-state div { padding: 1px 0; }
+
+/* 匯流的細線:左邊多條收進中心,右邊再散出去 */
+.ov-wires { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; }
+.ov-wires path {
+  fill: none; stroke: var(--color-ash); stroke-width: 1; vector-effect: non-scaling-stroke;
+  stroke-dasharray: 3 7; animation: ovdrift 4.5s linear infinite;
+}
+.ov-wires path.out { stroke: var(--color-periwinkle-mist); animation-duration: 5.5s; }
+@keyframes ovdrift { to { stroke-dashoffset: -40; } }
+
+/* ───────── 對話清單 ───────── */
+.slist { display: grid; gap: 8px; }
+.srow {
+  display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: center;
+  border: 1px solid var(--color-ash); border-radius: var(--radius-2xl); padding: 12px 18px;
+}
+.srow .sname { grid-column: 1; font-size: var(--text-body); color: var(--color-off-black); text-decoration: none; }
+.srow .sname:hover { color: var(--color-lake-blue); }
+.srow .smeta { grid-column: 1; font-size: var(--text-caption); color: var(--color-smoke); }
+.srow .mini-btn { grid-column: 2; grid-row: 1 / span 2; }
+/* 結案:用一條手繪感的線劃掉,不是刪掉——紀錄還在 */
+.srow.closed { opacity: .62; }
+.srow.closed .sname {
+  text-decoration: line-through; text-decoration-thickness: 1.5px;
+  text-decoration-color: var(--color-coral); color: var(--color-smoke);
+}
+.mini-btn {
+  font: inherit; font-size: var(--text-caption); cursor: pointer;
+  border: 1px solid var(--color-ash); background: transparent; color: var(--color-graphite);
+  border-radius: var(--radius-full); padding: 5px 14px; white-space: nowrap;
+}
+.mini-btn:hover { border-color: var(--color-off-black); color: var(--color-off-black); }
+.mini-btn:disabled { opacity: .5; cursor: default; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ov-hub span, .ov-wires path { animation: none; }
+}

@@ -12,6 +12,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
+import { appendFileSync, mkdirSync } from 'node:fs';
 import { collectAll } from './lib/collect.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -48,6 +49,38 @@ export function createApp() {
       }
       res.writeHead(200, { 'content-type': TYPES['.json'], 'cache-control': 'no-store' });
       return res.end(body);
+    }
+
+    // 結案:把「這個對話做完了」記成一筆事件。
+    // ⚠️ 這是**唯一**一個網頁能寫入的動作,而且它是 append-only——
+    //    它不刪任何東西,只是多記一行「Oscar 在某時說這個對話結束了」。
+    //    真正會刪東西的事(reset/commit/push)一律只給指令,不代跑。
+    if (url.pathname === '/api/close' && req.method === 'POST') {
+      // 同源檢查:別的網站不准叫這個
+      const origin = req.headers.origin;
+      if (origin && !/^http:\/\/(127\.0\.0\.1|localhost):/.test(origin)) {
+        res.writeHead(403, TYPES['.json']);
+        return res.end(JSON.stringify({ error: 'cross-origin' }));
+      }
+      let body = '';
+      req.on('data', (c) => { body += c; if (body.length > 4096) req.destroy(); });
+      req.on('end', () => {
+        try {
+          const { project, session, cwd, undo } = JSON.parse(body || '{}');
+          if (!project || !session) throw new Error('缺 project 或 session');
+          mkdirSync(join(HERE, 'logs'), { recursive: true });
+          appendFileSync(join(HERE, 'logs', `${project}.jsonl`), JSON.stringify({
+            ts: new Date().toISOString(),
+            event: undo ? 'session_reopened' : 'session_closed',
+            session, cwd: cwd ?? null, source: 'human',
+          }) + '\n');
+          res.writeHead(200, TYPES['.json']); res.end(JSON.stringify({ ok: true }));
+        } catch (e) {
+          res.writeHead(400, TYPES['.json']);
+          res.end(JSON.stringify({ error: String(e?.message ?? e) }));
+        }
+      });
+      return;
     }
 
     const file = SERVE[url.pathname];

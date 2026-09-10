@@ -91,7 +91,7 @@ function projectList() {
     return `<button class="pcard" data-go="${esc(p.name)}">
       <h3>${esc(p.name)}</h3>
       <div class="mini">${mini}</div>
-      <div class="meta">${p.cards.length} 個工作區 ·
+      <div class="meta">${(p.sessions ?? []).filter((s) => !s.closedAt).length} 個進行中的對話 ·
         ${cp ? `還原點 ${ago(cp.at)}` : '還沒有還原點'}</div>
     </button>`;
   }).join('');
@@ -239,59 +239,156 @@ function workflow(c) {
     </svg>${rows}</div>`;
 }
 
-/* ═══ 第二層:一個案件的儀表板 ═══ */
-function dashboard(name) {
+/* ═══ Overview:左邊在跑的、中間這個專案的狀態、右邊已結案的 ═══ */
+function overview(p) {
+  const live = p.sessions.filter((s) => !s.closedAt);
+  const done = p.sessions.filter((s) => s.closedAt);
+  const card = p.cards[0];
+
+  const chip = (s) => `<a class="ochip" href="#/p/${encodeURIComponent(p.name)}/s/${encodeURIComponent(s.id)}">
+      <span class="odot"></span>${esc((s.title ?? '（還沒有標題）').slice(0, 22))}</a>`;
+
+  const mid = card ? [
+    card.ladder?.uncommitted ? `${card.ladder.uncommitted} 個檔案沒存` : '都存好了',
+    card.checkpoint ? `還原點 ${ago(card.checkpoint.at)}` : '還沒有還原點',
+    card.files?.total ? `${card.files.total} 個檔案還沒檢查` : '沒有待檢查的檔案',
+  ] : ['還沒有資料'];
+
+  return `<div class="ov">
+    <div class="ov-col">
+      <div class="ov-h">正在跑的對話</div>
+      ${live.length ? live.map(chip).join('') : '<div class="muted">沒有進行中的對話</div>'}
+    </div>
+    <div class="ov-mid">
+      <div class="ov-hub"><span></span><span></span><span></span></div>
+      <div class="ov-state">${mid.map((t) => `<div>${esc(t)}</div>`).join('')}</div>
+    </div>
+    <div class="ov-col ov-right">
+      <div class="ov-h">已結案</div>
+      ${done.length ? done.map(chip).join('') : '<div class="muted">還沒有結案的對話</div>'}
+    </div>
+    <svg class="ov-wires" preserveAspectRatio="none" viewBox="0 0 100 100">
+      ${[22, 38, 50, 62, 78].map((y) =>
+        `<path d="M2 ${y} C24 ${y}, 32 50, 48 50"/>`).join('')}
+      ${[30, 44, 56, 70].map((y) =>
+        `<path class="out" d="M52 50 C68 50, 76 ${y}, 98 ${y}"/>`).join('')}
+    </svg>
+  </div>`;
+}
+
+/* ═══ 第二層:一個案件底下的對話清單 ═══ */
+function sessionList(p) {
+  if (!p.sessions.length) {
+    return `<div class="block"><p class="muted">這個案件還沒有任何對話紀錄。<br>
+      在那個資料夾跑 <code>pipeline-status --on</code> 掛上感測器,
+      之後的對話就會出現在這裡。</p></div>`;
+  }
+  const row = (s) => {
+    const ran = s.stages.filter((x) => x.ranAt).length;
+    const total = s.stages.filter((x) => !x.type).length;
+    return `<div class="srow ${s.closedAt ? 'closed' : ''}">
+      <a class="sname" href="#/p/${encodeURIComponent(p.name)}/s/${encodeURIComponent(s.id)}">
+        ${esc(s.title ?? '（還沒有標題）')}</a>
+      <span class="smeta">${s.prompts} 則訊息 · 最後動作 ${ago(s.lastTs)}
+        · 五關有紀錄 ${ran}/${total}${s.sharesCwd ? ' · ⚠️ 與其他對話共用工作區' : ''}</span>
+      <button class="mini-btn" data-close="${esc(s.id)}" data-proj="${esc(p.name)}"
+        data-cwd="${esc(s.cwd ?? '')}" data-undo="${s.closedAt ? 1 : 0}">
+        ${s.closedAt ? '取消結案' : '結案'}</button>
+    </div>`;
+  };
+  return `<div class="block">
+      <h2 class="section serif">對話</h2>
+      <p class="section-note">一個功能開一個對話,各自獨立。點進去看那個對話的完整狀況。</p>
+      <div class="slist">${p.sessions.map(row).join('')}</div>
+    </div>`;
+}
+
+function projectPage(name) {
   const p = latest?.projects?.find((x) => x.name === name);
-  if (!p) return `<p class="muted">找不到「${esc(name)}」這個案件。<a href="#/">回列表</a></p>`;
+  if (!p) return `<p class="muted">找不到「${esc(name)}」。<a href="#/">回列表</a></p>`;
+  return `<div class="block">
+      <h2 class="section serif">Overview</h2>
+      <p class="section-note">左邊在跑的、中間這個專案現在的狀態、右邊已結案的。</p>
+      ${overview(p)}
+    </div>` + sessionList(p);
+}
 
-  return p.cards.map((c) => {
-    if (c.gone) return `<div class="stat" data-tone="alert"><div class="label">資料夾不見了</div>
-      <div class="sub">${esc(c.path)}</div>
-      <div class="hint">這個工作區已經不在磁碟上。上面那些是舊資料,不是現在的狀態。</div></div>`;
+/* ═══ 第三層:一個對話 ═══ */
+function sessionPage(name, sid) {
+  const p = latest?.projects?.find((x) => x.name === name);
+  const s = p?.sessions.find((x) => x.id === sid);
+  if (!s) return `<p class="muted">找不到這個對話。<a href="#/p/${encodeURIComponent(name)}">回對話清單</a></p>`;
+  const c = s.card;
+  if (!c) return `<p class="muted">這個對話的工作區找不到了（${esc(s.cwd ?? '?')}）。</p>`;
 
-    const sensorNote = c.sensor.state === 'ok' && c.sensor.firstSeen
-      ? `感測器從 ${ago(c.sensor.firstSeen)}才開始記,在那之前發生的事情它一輩子都不會知道。`
-      : '這個工作區還沒有感測器紀錄 — 可能是還沒裝,也可能是裝了還沒跑過指令。這兩種分不出來。';
+  const warn = s.sharesCwd
+    ? `<p class="section-note">⚠️ 這個工作區還有別的對話在用,所以下面的 git 狀態是**共用的**——
+       不是這個對話獨有。</p>` : '';
 
-    return `
-      <div class="block">
-        <h2 class="section serif">工地現況 · ${esc(c.branch ?? '沒有分支')}</h2>
-        <p class="section-note">這三件事回答:我回得去哪裡、東西走到哪了、這次動了什麼。</p>
-        <div class="stats">${statRestore(c)}${statLadder(c)}${statChanges(c)}</div>
-      </div>
-
-      <div class="block">
-        <h2 class="section serif">My Agent work flow</h2>
-        <p class="section-note">五個工班跑到哪了,工作進度監視。<br>
-          ⚠️「跑過」不等於「通過」——感測器只看得到指令被呼叫,看不到結果。
-          驗屋師傅來過,不等於房子修好了。</p>
-        ${workflow(c)}
-        <div class="note">${esc(sensorNote)}</div>
-      </div>`;
-  }).join('');
+  return `
+    <div class="block">
+      <h2 class="section serif">${esc(s.title ?? '（還沒有標題）')}</h2>
+      <p class="section-note">${esc(c.branch ?? '沒有分支')} · ${s.prompts} 則訊息 ·
+        最後動作 ${ago(s.lastTs)}${s.closedAt ? ` · 已於 ${ago(s.closedAt)}結案` : ''}</p>
+      ${warn}
+      <div class="stats">${statRestore(c)}${statLadder(c)}${statChanges(c)}</div>
+    </div>
+    <div class="block">
+      <h2 class="section serif">My Agent work flow</h2>
+      <p class="section-note">五個工班跑到哪了,工作進度監視。<br>
+        ⚠️「跑過」不等於「通過」——感測器只看得到指令被呼叫,看不到結果。</p>
+      ${workflow({ ...c, stages: s.stages })}
+    </div>`;
 }
 
 /* ═══ 路由 ═══ */
 function route() {
-  const m = location.hash.match(/^#\/p\/(.+)$/);
-  return m ? decodeURIComponent(m[1]) : null;
+  const m = location.hash.match(/^#\/p\/([^/]+)(?:\/s\/(.+))?$/);
+  if (!m) return { view: 'projects' };
+  return { view: m[2] ? 'session' : 'project',
+           project: decodeURIComponent(m[1]),
+           session: m[2] ? decodeURIComponent(m[2]) : null };
 }
 function render() {
-  const name = route();
-  $crumb.innerHTML = name
-    ? `<a href="#/">案件</a><span class="sep">/</span><span>${esc(name)}</span>`
-    : `<span>案件</span>`;
-  $app.innerHTML = name ? dashboard(name) : projectList();
+  const r = route();
+  const link = (href, t) => `<a href="${href}">${esc(t)}</a><span class="sep">/</span>`;
+  if (r.view === 'projects') {
+    $crumb.innerHTML = '<span>案件</span>';
+    $app.innerHTML = projectList();
+  } else if (r.view === 'project') {
+    $crumb.innerHTML = link('#/', '案件') + `<span>${esc(r.project)}</span>`;
+    $app.innerHTML = projectPage(r.project);
+  } else {
+    const p = latest?.projects?.find((x) => x.name === r.project);
+    const s = p?.sessions.find((x) => x.id === r.session);
+    $crumb.innerHTML = link('#/', '案件')
+      + link(`#/p/${encodeURIComponent(r.project)}`, r.project)
+      + `<span>${esc((s?.title ?? '對話').slice(0, 20))}</span>`;
+    $app.innerHTML = sessionPage(r.project, r.session);
+  }
 }
 
-document.addEventListener('click', (e) => {
+document.addEventListener('click', async (e) => {
   const go = e.target.closest('[data-go]');
   if (go) { location.hash = `#/p/${encodeURIComponent(go.dataset.go)}`; return; }
+
   const cp = e.target.closest('[data-copy]');
   if (cp) {
     navigator.clipboard?.writeText(cp.dataset.copy);
     const old = cp.textContent; cp.textContent = '已複製到剪貼簿';
     setTimeout(() => { cp.textContent = old; }, 1600);
+    return;
+  }
+
+  const cl = e.target.closest('[data-close]');
+  if (cl) {
+    cl.disabled = true;
+    try {
+      await fetch('/api/close', { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ project: cl.dataset.proj, session: cl.dataset.close,
+                               cwd: cl.dataset.cwd, undo: cl.dataset.undo === '1' }) });
+      await poll();
+    } catch { cl.disabled = false; }
   }
 });
 window.addEventListener('hashchange', render);

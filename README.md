@@ -23,7 +23,23 @@ alias pipeline-status='node "/Users/oscarhsieh/Desktop/TutorPod AI/TutorPod AI v
 pipeline-status              # 看現況（還原點 + 改動體檢 + 五關）
 pipeline-status --checkpoint # 跑完整檢查,全綠就蓋一個還原點
 pipeline-status --clear D    # 記下「D 的發現我處理完了」
+pipeline-status --on         # 把感測器掛到**這個**專案（--off 拆掉）
 ```
+
+### 掛到新的專案
+
+```sh
+cd "/path/to/你的專案"
+pipeline-status --on
+```
+
+⚠️ 它會**合併**進那個專案的 `.claude/settings.local.json`，
+**不會覆蓋**你原本的 hook，動手前先備份。
+拆掉用 `--off`，只拆掉它自己裝的那幾筆。
+
+⚠️ 它只能確認「設定寫進去了」，**不能確認 Claude Code 真的讀到了**。
+驗證方法：在那個資料夾開個對話打一句話，回來跑 `pipeline-status`，
+五關那區從「還沒有紀錄」變成有東西就是通了。
 
 ## 網頁版
 
