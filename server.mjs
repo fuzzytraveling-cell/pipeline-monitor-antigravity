@@ -18,7 +18,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const HOST = '127.0.0.1';          // ⚠️ 不要參數化。見上面。
 const PORT = Number(process.env.PIPELINE_MONITOR_PORT ?? 4319);
 
-const TYPES = { '.mjs': 'text/javascript; charset=utf-8', '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8',
+const TYPES = { '.svg': 'image/svg+xml; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8',
                 '.js': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8' };
 
 /** 只准送這幾個檔案。不做通用靜態檔伺服器——那會變成一條把整台機器讀出去的路。 */
@@ -30,6 +30,7 @@ const SERVE = {
   '/freshness.mjs': join(HERE, 'lib', 'freshness.mjs'),
   // AC-9:設計數值只有一份,畫面直接吃那個檔,不抄一份進程式碼
   '/tokens.css': join(HERE, 'ui設計規格', 'variables.css'),
+  '/agent.svg': join(HERE, 'public', 'agent.svg'),
 };
 
 export function createApp() {

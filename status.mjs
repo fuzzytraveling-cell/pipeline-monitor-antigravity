@@ -30,7 +30,11 @@ const LOG_DIR = join(HERE, 'logs');
  * 呼叫端必須自己決定「沒問到」要怎麼講，不准預設折成 0／false／空陣列。 */
 function git(args, cwd) {
   try {
-    return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    // ⚠️ core.quotepath=false:git 預設會把非 ASCII 檔名轉義成 "\350\246\217..." 這種東西。
+    // 這個專案的資料夾叫「規劃中」「進行中」——不關掉的話,畫面上會出現一串八進位碼,
+    // 而讀的人不是工程師。這跟 L7(null 漏到畫面上)是同一族:程式的內部表示不該外流。
+    return execFileSync('git', ['-c', 'core.quotepath=false', ...args],
+      { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
   } catch {
     return null;
   }

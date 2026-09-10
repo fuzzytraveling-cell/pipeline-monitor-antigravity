@@ -56,20 +56,33 @@ section('AC-2：斷線時整頁都要承認,不准靜靜停止更新');
     ['fresh'].includes(d.state) === false);
 }
 
-section('AC-8：畫面不准出現百分比／進度條');
+section('AC-8：畫面不准把「進度百分比」秀給使用者看');
 {
-  for (const f of ['ui/app.js', 'ui/index.html', 'ui/ui.css']) {
-    const body = readFileSync(join(ROOT, f), 'utf8');
-    const hits = body.split('\n')
-      .map((l, i) => [i + 1, l])
-      .filter(([, l]) => {
-        const t = l.trim();
-        if (t.startsWith('*') || t.startsWith('//') || t.startsWith('/*')) return false;
-        return /\bprogress\b/i.test(l) || /\d\s*%/.test(l) || /`\$\{[^}]*\}%/.test(l);
-      });
-    check(`${f} 沒有百分比或進度條`, hits.length === 0,
+  // ⚠️ L10 第 3 次的修正:第一版掃到 `width: 100%`、`border-radius: 50%`、
+  //    漸層的 `70%`——**那些是版面長度,不是給人看的進度**。
+  //    CSS 的百分比一律不算違規;要抓的是「輸出到畫面上的字串裡有百分比」
+  //    以及 <progress> 這種元件。
+  const violates = (line) => {
+    const t = line.trim();
+    if (t.startsWith('*') || t.startsWith('//') || t.startsWith('/*')) return false;
+    if (/<progress\b/i.test(line)) return true;
+    // 只看字串字面量與樣板字串裡的百分比(那才會被印給人看)
+    for (const m of line.matchAll(/(['"`])((?:\\.|(?!\1)[^\\])*)\1/g)) {
+      if (/\d\s*%|\$\{[^}]*\}\s*%|進度|百分比/.test(m[2])) return true;
+    }
+    return false;
+  };
+  for (const f of ['ui/app.js', 'ui/index.html']) {
+    const hits = readFileSync(join(ROOT, f), 'utf8').split('\n')
+      .map((l, i) => [i + 1, l]).filter(([, l]) => violates(l));
+    check(`${f} 沒有把進度百分比印給使用者`, hits.length === 0,
       hits.map(([n, l]) => `${n}: ${l.trim()}`).join('\n      '));
   }
+  // 反向確認:這條檢查抓得到真的違規,也不會誤殺 CSS 長度
+  check('會抓到 `完成 87%` 這種字串', violates('el.textContent = "完成 87%";'));
+  check('會抓到樣板字串算出來的百分比', violates('html += `${pct}% 完成`;'));
+  check('不會誤殺 width: 100%', !violates('  width: 100%;'));
+  check('不會誤殺漸層的 70%', !violates('background: radial-gradient(circle, var(--x), transparent 70%);'));
 }
 
 section('AC-7：伺服器只綁 127.0.0.1');
