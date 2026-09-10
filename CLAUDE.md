@@ -86,6 +86,7 @@
 | 改 `hook.sh`／`lib/events.mjs`（感測器） | [`docs/進行中/pipeline-sensor.md`](docs/進行中/pipeline-sensor.md) 的 AC |
 | 「為什麼要寫成這樣？」 | [`docs/LESSONS.md`](docs/LESSONS.md) —— 先搜關鍵字再問 |
 | 要動使用者看得到的文案 | 上面三條紅線，逐條套過一次 |
+| **③ 畫面要做什麼、不做什麼** | [`docs/規劃中/pipeline-ui.md`](docs/規劃中/pipeline-ui.md)——**還沒開工，等 Oscar 點頭** |
 | 做畫面／碰任何顏色、字體、間距 | [`docs/DESIGN.md`](docs/DESIGN.md)——設計系統的唯一出處。實際的 token 檔在 `ui設計規格/`（`variables.css`／`tokens.json`），**畫面直接 import 那份，不要抄一份數值進程式碼** |
 
 ## 工作項的狀態就是路徑
