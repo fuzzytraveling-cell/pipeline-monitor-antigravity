@@ -1,0 +1,64 @@
+# pipeline-monitor
+
+一個指令看完：**我在哪、我回得去哪、這次動了多少。**
+
+規格住在試驗場專案裡：`ai-english-course/docs/進行中/pipeline-status.md`
+（⚠️ 這是刻意的——這個工具還在拿 TutorPod 當試驗場，還沒獨立成 repo。
+觸發條件是「有第二個專案要裝」。）
+
+## 安裝（一行，加到 `~/.zshrc`）
+
+```sh
+alias pipeline-status='node "/Users/oscarhsieh/Desktop/TutorPod AI/TutorPod AI v4/pipeline-monitor/status.mjs"'
+```
+
+存檔後開新終端機（或 `source ~/.zshrc`）。
+
+> 為什麼不用 `npm link`：這台機器的 npm 全域目錄是 `/usr/local`，寫入要 sudo。
+> 一個「看狀態」的小工具不值得動到系統目錄。
+
+## 用法
+
+```sh
+pipeline-status              # 看現況（還原點 + 改動體檢 + 五關）
+pipeline-status --checkpoint # 跑完整檢查,全綠就蓋一個還原點
+pipeline-status --clear D    # 記下「D 的發現我處理完了」
+```
+
+## 感測器（五關的時間戳）
+
+`hook.sh` 掛在 Claude Code 的 hook 上，指令一被呼叫就記一行到 `logs/<專案>.jsonl`。
+
+- 熱路徑是 **`/bin/sh` + `jq`**，不是 node——最不能壞的那一段就該是沒有東西可以壞的那一段。
+- **失敗一律靜默、永遠 `exit 0`**，絕不影響你跟 Claude 講話。
+- **只記「跑過」，不記「通過」。** `tool_response.success` 與 `duration_ms`
+  刻意不取——前者只代表指令檔讀進來了，後者只是載入時間。
+- 關卡清單只住在 `stages.json` 一份；**hook 本身不過濾**，全部照記。
+  專案可用 `.claude/pipeline-stages.json` 覆寫。
+- 紀錄**每個專案一份**，保留三個月。
+
+### 感測器有一個「開始的日期」
+
+它裝好之前發生的事情，**一輩子都不會知道**。所以畫面寫的是「沒有紀錄」而不是
+「沒跑過」——這兩件事不一樣，混為一談就會害你重跑已經跑過的檢查，或以為驗過了其實沒有。
+
+在**任何 git 專案的資料夾裡**都可以跑，不限 TutorPod。
+要跑哪些檢查是從那個專案自己的 `package.json` 認的（`lint` / `test` / `test:unit` / `build`
+有哪些就跑哪些），**沒有寫死任何 TutorPod 專屬的東西**。
+
+## 它刻意不做的事
+
+- **不說「這個版本確定能動」**，只說「這幾項檢查全綠」。
+  檢查全綠不等於功能正確——TutorPod v4.15.4 的 `commitLesson` 就是測試全綠但整堂課靜默消失。
+- **不自己編「改太多／太久」的門檻。** 只報數字，並拿**這個專案自己的歷史**當比例尺。
+  一個會亂叫的工具，你三天後就不看了。
+- **不幫你 commit、不幫你 reset、不幫你 push。** 只印出指令，按下去的是你。
+- **工作區是髒的時候不准蓋章。** 那時候的綠是「你桌上這一份」的綠，
+  不屬於任何一個存檔點——蓋下去就是把綠掛在一個沒被測過的版本上。
+
+## 紀錄放哪
+
+`checkpoints/<專案>__<分支>.json`，已 gitignore。
+
+章是**本機事實**：它記的是「在這台電腦上跑過檢查」。換一台電腦那句話就不成立，
+所以不進版控。

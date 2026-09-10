@@ -1,0 +1,5 @@
+# 章是本機事實,不進版控:它記的是「這台電腦上跑過檢查」,
+# 換一台電腦那句話就不成立了。
+checkpoints/
+node_modules/
+.DS_Store

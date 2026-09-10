@@ -1,0 +1,34 @@
+# ⚠️ 這支存在的唯一理由,是讓 docsIndex.test.mjs 從「紀律」變成「機制」。
+# 沒有它,那支測試只有在有人記得跑的時候才有用——而人不會記得。
+name: CI
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: 文件索引與工作項狀態
+        run: npm test
+      - name: hook.sh 語法
+        run: sh -n hook.sh
+      - name: 不准依賴 TutorPod
+        # CLAUDE.md 明文:它是試驗場,不是相依。這一條讓那句話變成機械檢查。
+        #
+        # ⚠️ 註解要排除。第一版沒排除,結果 4 個誤報全是「解釋為什麼」的註解——
+        #    而 CLAUDE.md 自己要求註解要寫為什麼。一個會為了正當的註解變紅的 CI,
+        #    第三次之後就沒有人看了,那時它就等於不存在。
+        #    要抓的是**相依**(import/require/路徑),不是**提到**。
+        run: |
+          HITS=$(grep -rn "ai-english-course\|TutorPod" \
+                   --include='*.mjs' --include='*.sh' --include='*.json' . \
+                 | grep -vE '^[^:]*:[0-9]+: *(\*|//|#)' || true)
+          if [ -n "$HITS" ]; then
+            echo "❌ 程式碼(非註解)裡出現了 TutorPod 專屬字串:"; echo "$HITS"; exit 1
+          fi
+          echo "✅ 沒有依賴 TutorPod"
