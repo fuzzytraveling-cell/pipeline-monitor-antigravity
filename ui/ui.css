@@ -1,0 +1,108 @@
+/* ⚠️ AC-9:所有顏色與字級都來自 tokens.css(＝ui設計規格/variables.css)。
+   這個檔案裡**不准出現任何色碼**。改設計只改那一個檔案。
+
+   ⚠️ AC-10:設計稿 Monad 是**行銷網站**的系統(80px 標題、40px 內距、64px 間距)。
+   照抄的話一屏只看得到三個事實。這裡「保留身分、壓縮尺度」——
+   身分(紙感底色、襯線不加粗、全等寬、細線不用陰影、藥丸)全部保留;
+   尺度壓到儀表板該有的密度。圓角用 16px,那是 DESIGN.md 的下限,沒有違規。 */
+@import url('/tokens.css');
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  /* 絕不用純白——暖紙底是這套設計的簽名 */
+  background: var(--color-parchment);
+  color: var(--color-off-black);
+  /* AC-6:字型全部走系統替代字,不連 Google Fonts。斷網也要能用。 */
+  font-family: var(--font-abc-diatype-mono);
+  font-size: var(--text-body-sm);
+  line-height: var(--leading-body-sm);
+  letter-spacing: var(--tracking-body-sm);
+}
+
+/* 整頁變灰:資料過期或斷線時用(AC-1/AC-2)。
+   ⚠️ 只是輔助——文字才是主要載體(AC-4)。 */
+body.dim main { opacity: 0.45; filter: grayscale(0.85); transition: opacity .2s; }
+
+header {
+  position: sticky; top: 0; z-index: 2;
+  background: var(--color-parchment);
+  border-bottom: 1px solid var(--color-ash);
+  padding: var(--spacing-16) var(--spacing-24);
+  display: flex; align-items: baseline; gap: var(--spacing-16); flex-wrap: wrap;
+}
+h1 {
+  font-family: var(--font-untitled-serif);
+  font-weight: var(--font-weight-regular);   /* 永遠 400,絕不加粗 */
+  font-size: var(--text-subheading);
+  letter-spacing: var(--tracking-subheading);
+  margin: 0;
+}
+
+/* 新鮮度列:AC-1 的主角。它必須永遠在畫面上。 */
+#freshness {
+  font-size: var(--text-caption);
+  letter-spacing: var(--tracking-caption);
+  text-transform: uppercase;
+  color: var(--color-graphite);
+  border: 1px solid var(--color-ash);
+  border-radius: var(--radius-full);          /* 藥丸 */
+  padding: 6px 14px;
+}
+#freshness[data-state="stale"],
+#freshness[data-state="disconnected"],
+#freshness[data-state="unknown"] {
+  background: var(--color-off-black);
+  color: var(--color-parchment);
+  border-color: var(--color-off-black);
+}
+
+main { padding: var(--spacing-24); display: grid; gap: var(--spacing-24); }
+.project > h2 {
+  font-family: var(--font-untitled-serif);
+  font-weight: var(--font-weight-regular);
+  font-size: var(--text-label);
+  margin: 0 0 var(--spacing-8);
+}
+.cards { display: grid; gap: var(--spacing-16); grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); }
+
+.card {
+  border: 1px solid var(--color-ash);         /* 細線,不用陰影 */
+  border-radius: var(--radius-2xl);           /* 16px:DESIGN.md 的下限 */
+  padding: 20px;                              /* 40px → 20px */
+  background: var(--color-parchment);
+}
+.card.gone { background: var(--color-periwinkle-mist); }
+
+.branch {
+  font-size: var(--text-caption); text-transform: uppercase;
+  letter-spacing: var(--tracking-caption);
+  color: var(--color-graphite);
+  border: 1px solid var(--color-ash); border-radius: var(--radius-full);
+  padding: 3px 10px; display: inline-block; margin-bottom: var(--spacing-8);
+}
+.row { display: flex; gap: 10px; padding: 5px 0; align-items: baseline; }
+.row + .row { border-top: 1px solid var(--color-ash); }
+.k { color: var(--color-smoke); min-width: 7.5em; font-size: var(--text-caption); text-transform: uppercase; }
+.v { flex: 1; }
+.warn { color: var(--color-off-black); }
+.muted { color: var(--color-smoke); }
+/* Lake Blue 是唯一的強調色,只給「唯一那個主要動作／唯一那個肯定事實」 */
+.accent { color: var(--color-lake-blue); }
+
+.stage { display: flex; gap: 10px; padding: 4px 0; align-items: baseline; }
+.stage .id { min-width: 6.5em; }
+.stage .mark { min-width: 1.4em; }
+.args { color: var(--color-smoke); font-size: var(--text-caption); padding-left: 8.2em; }
+
+.note {
+  margin-top: var(--spacing-16); padding-top: 10px;
+  border-top: 1px solid var(--color-ash);
+  color: var(--color-smoke); font-size: var(--text-caption);
+}
+code {
+  font-family: var(--font-abc-diatype-mono);
+  background: var(--color-periwinkle-mist);
+  border-radius: 4px; padding: 1px 5px;
+}

@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>產線監視器</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/ui.css">
+</head>
+<body>
+<header>
+  <h1>產線監視器</h1>
+  <!-- ⚠️ AC-1:這一列必須永遠在畫面上,而且秒數自己會跳。
+       終端機天生誠實(你剛打完指令);網頁不會,除非它一直自己承認。 -->
+  <span id="freshness" data-state="unknown">正在連線…</span>
+</header>
+<main id="app"><p class="muted">載入中…</p></main>
+<script type="module" src="/app.js"></script>
+</body>
+</html>

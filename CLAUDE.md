@@ -82,11 +82,12 @@
 | 情況 | 讀這個 |
 |---|---|
 | 想知道整體要往哪走、六個死法是什麼 | [`docs/ROADMAP.md`](docs/ROADMAP.md) |
-| 改 `status.mjs`（還原點／改動體檢） | [`docs/進行中/pipeline-status.md`](docs/進行中/pipeline-status.md) 的 AC |
-| 改 `hook.sh`／`lib/events.mjs`（感測器） | [`docs/進行中/pipeline-sensor.md`](docs/進行中/pipeline-sensor.md) 的 AC |
+| 改 `status.mjs`（還原點／改動體檢） | [`docs/升級摘要/pipeline-status.md`](docs/升級摘要/pipeline-status.md) 的 AC |
+| 改 `hook.sh`／`lib/events.mjs`（感測器） | [`docs/升級摘要/pipeline-sensor.md`](docs/升級摘要/pipeline-sensor.md) 的 AC |
 | 「為什麼要寫成這樣？」 | [`docs/LESSONS.md`](docs/LESSONS.md) —— 先搜關鍵字再問 |
 | 要動使用者看得到的文案 | 上面三條紅線，逐條套過一次 |
-| **③ 畫面要做什麼、不做什麼** | [`docs/規劃中/pipeline-ui.md`](docs/規劃中/pipeline-ui.md)——**還沒開工，等 Oscar 點頭** |
+| **③ 畫面要做什麼、不做什麼** | [`docs/進行中/pipeline-ui.md`](docs/進行中/pipeline-ui.md)——**施作中** |
+| 想把感測器裝到**新的專案** | [`docs/規劃中/sensor-install.md`](docs/規劃中/sensor-install.md)——⚠️ **還沒做**，目前要手動編輯那個專案的 `.claude/settings.local.json` |
 | 做畫面／碰任何顏色、字體、間距 | [`docs/DESIGN.md`](docs/DESIGN.md)——設計系統的唯一出處。實際的 token 檔在 `ui設計規格/`（`variables.css`／`tokens.json`），**畫面直接 import 那份，不要抄一份數值進程式碼** |
 
 ## 工作項的狀態就是路徑
