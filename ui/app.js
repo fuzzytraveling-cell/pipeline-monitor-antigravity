@@ -215,6 +215,24 @@ function statChanges(c) {
   </div>`;
 }
 
+/** 感測器那一行(誠實修補 D3):「掛在哪」看設定,「活著嗎」看紀錄。跟終端機版說同一句話。 */
+function sensorLine(c) {
+  const m = c.sensor?.mount, seen = c.sensor?.lastSeen;
+  const last = seen ? `最後一筆來自這裡的紀錄：${ago(seen)}` : '還沒有來自這裡的紀錄';
+  if (m?.state === 'broken') {
+    // ⚠️ 最危險的一種:設定看起來好好的,紀錄卻安靜地停了(LESSONS L13)。終端機講了,網頁以前沒講。
+    return `<p class="section-note">🔴 感測器掛著,但它指向的檔案不存在——<b>紀錄已經停了,而且不會有任何徵兆</b>${
+      seen ? `（${esc(last)}）` : ''}。修法：在那個資料夾跑 <code>pipeline-status --on</code>。</p>`;
+  }
+  if (m?.state === 'ok') {
+    const where = m.where === 'main' ? '（用的是主資料夾的設定）' : m.where === 'user' ? '（用的是帳號層級的設定）' : '';
+    return `<p class="section-note">感測器：已掛上${esc(where)} · ${esc(last)}</p>`;
+  }
+  // 設定裡找不到、紀錄裡卻有 → 它在記。證據在手上時不准說「沒掛上」(R1)。
+  if (seen) return `<p class="section-note">感測器：設定裡找不到,但 ${esc(ago(seen))}還有來自這裡的紀錄——它在記,只是不知道是哪份設定在做。</p>`;
+  return `<p class="section-note">感測器：沒掛上。在那個資料夾跑 <code>pipeline-status --on</code>。</p>`;
+}
+
 /* ═══ My Agent work flow:左邊架構圖,右邊五張說明卡 ═══ */
 function workflow(c) {
   // ⚠️ 左邊的軌道與右邊的卡片放在**同一個 grid 的同一列**,
@@ -360,6 +378,7 @@ function sessionPage(name, sid) {
       <h2 class="section serif">My Agent work flow</h2>
       <p class="section-note">五個工班跑到哪了,工作進度監視。<br>
         ⚠️「跑過」不等於「通過」——感測器只看得到指令被呼叫,看不到結果。</p>
+      ${sensorLine(c)}
       ${workflow({ ...c, stages: s.stages })}
     </div>`;
 }

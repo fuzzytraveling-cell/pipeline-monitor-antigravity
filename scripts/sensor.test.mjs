@@ -126,4 +126,31 @@ section('AC-6：關卡清單專案可以覆寫');
   r.cleanup();
 }
 
+section('E3：記的是使用者說的話,不是系統塞在前面的說明');
+{
+  // 2026-09-11 實測:worktree 對話的第一則訊息被記成「<system-reminder>\nYou are operating in…」,
+  // 使用者真正打的「測試pipeline-status」在 200 字之外,整個不見。
+  const r = makeRepo({ files: { 'a.js': '1\n' } });
+  const pre = '<system-reminder>\nYou are operating in a git worktree.\nWorktree path: /x\n</system-reminder>\n';
+  const base = { hook_event_name: 'UserPromptSubmit', session_id: 's1', prompt_id: 'p1', cwd: r.dir };
+  const out = runHook({ ...base, prompt: `${pre}測試pipeline-status` });
+  eq('剝掉 system-reminder 之後才截 200 字', JSON.parse(out.lines[0]).prompt, '測試pipeline-status');
+  const plain = runHook({ ...base, prompt: '沒有前綴的訊息' });
+  eq('沒有前綴的照舊', JSON.parse(plain.lines[0]).prompt, '沒有前綴的訊息');
+  r.cleanup();
+}
+
+section('D2：故障記號是警告,不是把整區蓋掉的理由');
+{
+  const d = mkdtempSync(join(tmpdir(), 'pm-ev4-'));
+  writeFileSync(join(d, 'p.jsonl'), JSON.stringify({ ts: new Date().toISOString(), hook: 'A' }) + '\n');
+  writeFileSync(join(d, '_sensor.jsonl'),
+    JSON.stringify({ ts: new Date().toISOString(), event: 'sensor_broken', why: 'jq 不存在' }) + '\n{壞行\n');
+  const r = readEvents(d, 'p');
+  eq('有事件就是 ok,故障記號不會把它變成 no-events', r.state, 'ok');
+  eq('故障記號兩筆(壞行也算一次故障)', r.broken.length, 2);
+  check('故障記號被解析成物件,讀得到時間', typeof r.broken[0] === 'object' && !!r.broken[0].ts);
+  rmSync(d, { recursive: true, force: true });
+}
+
 process.exit(summary());

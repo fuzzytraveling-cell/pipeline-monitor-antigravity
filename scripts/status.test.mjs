@@ -5,16 +5,19 @@
  *    數量算錯、把「沒問到」當成「沒有」、拿雜訊當基準。
  *    純視覺的東西壞了看得見;這幾條壞了測試全綠、畫面照跑。
  */
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { join, basename, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import {
   gitContext, changeScale, changeHealth, detectChecks, ago,
-  uncommitted, checkpointRelation, describeCheckpoint,
+  uncommitted, checkpointRelation, describeCheckpoint, describeSensor, describeCheckFailure,
 } from '../status.mjs';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const sha = (dir, ref = 'HEAD') => execFileSync('git', ['rev-parse', ref], { cwd: dir, encoding: 'utf8' }).trim();
 
 section('L2 回歸：改動計數必須看得到「還沒被 git 追蹤的新檔案」', 'P1');
@@ -186,6 +189,60 @@ section('沒有 package.json 也不准當機（AC-10 可攜性）');
   try { changeHealth(r.dir, null); } catch (e) { threw = e.message; }
   check('不是 npm 專案 → changeHealth 不丟例外', threw === null, threw ?? '');
   r.cleanup();
+}
+
+section('D：感測器那一行——「掛在哪」看設定,「活著嗎」看紀錄', 'P3');
+{
+  const t = (o) => describeSensor(o).join('\n');
+  const now = new Date().toISOString();
+  const off = t({ mount: { state: 'off', where: null, paths: [] }, lastSeen: now });
+  check('設定裡找不到、紀錄裡卻有 → 說「它在記」,不准說「沒掛上」', off.includes('它在記') && !off.includes('沒掛上'), off);
+  const offNone = t({ mount: { state: 'off', where: null, paths: [] }, lastSeen: null });
+  check('設定沒有、紀錄也沒有 → 沒掛上', offNone.includes('沒掛上'), offNone);
+  const okMain = t({ mount: { state: 'ok', where: 'main', paths: [] }, lastSeen: now });
+  check('用主資料夾的設定 → 講明,而且給最後一筆', okMain.includes('主資料夾') && okMain.includes('最後一筆'), okMain);
+  const okNone = t({ mount: { state: 'ok', where: 'here', paths: [] }, lastSeen: null });
+  check('掛上了但還沒有紀錄 → 說「還沒有來自這裡的紀錄」,不說在記', okNone.includes('還沒有來自這裡的紀錄'), okNone);
+  const broken = t({ mount: { state: 'broken', where: 'here', paths: ['/x/hook.sh'] }, lastSeen: now });
+  check('壞掉 → 紀錄已經停了 + 找不到的路徑 + 最後一筆之後就沒了',
+        broken.includes('紀錄已經停了') && broken.includes('/x/hook.sh') && broken.includes('從那之後'), broken);
+}
+
+section('E2：「沒跑起來」跟「跑了沒過」要分開講');
+{
+  const t = (fail) => describeCheckFailure('lint', { status: null, code: null, stderr: '', stdout: '', ...fail }).join('\n');
+  const noNpm = t({ code: 'ENOENT' });
+  check('找不到 npm → 跑不起來,不是「沒過」', noNpm.includes('跑不起來') && !noNpm.includes('跑了,沒過'), noNpm);
+  const noTool = t({ status: 127, stderr: 'sh: eslint: command not found' });
+  check('127 → 跑不起來(工具沒裝),而且把它說的話印出來',
+        noTool.includes('跑不起來') && noTool.includes('command not found'), noTool);
+  const red = t({ status: 1, stderr: 'a\nb\nc\nd\ne\nf\ng\n真正的錯誤在這' });
+  check('跑了沒過 → 說沒過,只給最後幾行(最後一行在,第一行不在)',
+        red.includes('跑了,沒過') && red.includes('真正的錯誤在這') && !red.includes('│ a'), red);
+  const mute = t({ status: 1 });
+  check('什麼都沒印 → 照實說它什麼都沒說', mute.includes('什麼都沒說'), mute);
+}
+
+section('D2：整支 CLI 跑一次——故障記號不蓋掉紀錄;設定找不到但紀錄有 → 說在記', 'P3');
+{
+  const r = makeRepo({ files: { 'a.js': '1\n' } });
+  const root = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: r.dir, encoding: 'utf8' }).trim();
+  const logDir = mkdtempSync(join(tmpdir(), 'pm-cli-'));
+  const ts = new Date().toISOString();
+  writeFileSync(join(logDir, `${basename(root)}.jsonl`), [
+    JSON.stringify({ ts, hook: 'UserPromptSubmit', session: 's1', cwd: root, prompt: 'hi' }),
+    JSON.stringify({ ts, hook: 'PreToolUse', session: 's1', cwd: root, tool: 'Skill', skill: 'chaos-check', args: '看一下' }),
+  ].join('\n') + '\n');
+  writeFileSync(join(logDir, '_sensor.jsonl'), JSON.stringify({ ts, event: 'sensor_broken', why: 'jq 不存在' }) + '\n');
+  // HOME 換成空的:mountState 會退而找 ~/.claude,不能讓這台機器的設定影響結果
+  const out = execFileSync('node', [join(ROOT, 'status.mjs')], {
+    cwd: root, encoding: 'utf8',
+    env: { ...process.env, PIPELINE_MONITOR_LOG_DIR: logDir, HOME: mkdtempSync(join(tmpdir(), 'pm-home-')) },
+  });
+  check('故障記號 → 一行警告,五關照畫(D 有「⏸ 跑過」)', out.includes('回報過 1 次故障') && out.includes('⏸'), out);
+  check('不再把整區蓋成「紀錄檔存在,但裡面沒有東西」', !out.includes('裡面沒有東西'), out);
+  check('設定裡沒掛、紀錄裡有 → 感測器那行說「它在記」', out.includes('它在記'), out);
+  rmSync(logDir, { recursive: true, force: true }); r.cleanup();
 }
 
 section('ago()：不准把壞掉的時間印成數字');

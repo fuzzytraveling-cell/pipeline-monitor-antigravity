@@ -24,7 +24,9 @@ import { mount, unmount, mountState } from './lib/mount.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CHECKPOINT_DIR = join(HERE, 'checkpoints');
-const LOG_DIR = join(HERE, 'logs');
+// 紀錄位置可以用環境變數換掉——跟 hook.sh 的 PIPELINE_MONITOR_LOG_DIR 是**同一個**變數。
+// 寫的跟讀的必須看同一個地方,否則感測器記在 A、畫面去 B 找(老毛病 P2)。
+const LOG_DIR = process.env.PIPELINE_MONITOR_LOG_DIR ?? join(HERE, 'logs');
 
 /* ────────────────────────── git：查不到就回 null ──────────────────────────
  * ⚠️ A1。回 null 的唯一意思是「這次沒問到」，**不是**「答案是沒有」。
@@ -62,6 +64,7 @@ function gitContext(cwd) {
   return {
     isGit: true,
     root,
+    mainRoot: dirname(absCommon),   // worktree 所屬的主資料夾;不是 worktree 的話就是 root 自己
     project: basename(dirname(absCommon)) || basename(root),
     head,
     // detached HEAD 時 branch 會是 'HEAD'——那是狀態不是名字，照實說
@@ -316,12 +319,86 @@ function describeCheckpoint({ cp, rel, dirty, files, now = new Date() }) {
   return L;
 }
 
+/**
+ * 感測器那一行(誠實修補 D)。純函式,兩件事**分開講**:
+ *   「掛在哪」看設定檔(mountState),「活著嗎」看紀錄(lastSeen = 最後一筆來自這個工作區的事件)。
+ * ⚠️ 設定裡找不到、紀錄裡卻有——那就是在記(2026-09-11 這個 worktree 就是這樣)。
+ *    證據在手上的時候,不准說「沒掛上」(R1)。證據跟設定打架時,證據贏。
+ * @param lastSeen ISO 時間,或 null
+ */
+function describeSensor({ mount, lastSeen }) {
+  const L = [];
+  const seen = lastSeen ? `最後一筆來自這裡的紀錄：${ago(lastSeen)}` : null;
+  if (mount.state === 'broken') {
+    // ⚠️ 這一種最危險:設定看起來好好的,但它指向的檔案不見了,而 hook 永遠靜默,紀錄只是安靜地停止增加。
+    L.push('感測器：🔴 掛著,但它指向的檔案不存在——**紀錄已經停了,而且不會有任何徵兆**');
+    for (const p of mount.paths) L.push(`         找不到：${p}`);
+    if (seen) L.push(`         ${seen}——從那之後就沒有了`);
+    L.push('         修法：pipeline-status --on（會重新指到正確的位置）');
+  } else if (mount.state === 'ok') {
+    const where = mount.where === 'main' ? '（用的是主資料夾的設定）'
+      : mount.where === 'user' ? '（用的是你帳號層級的設定）' : '';
+    L.push(`感測器：已掛上${where}`);
+    L.push(`         ${seen ?? '還沒有來自這裡的紀錄（設定是對話開始時讀的,掛上之後要開新的對話才會開始記）'}`);
+  } else if (seen) {
+    L.push(`感測器：設定裡找不到,但 ${ago(lastSeen)}還有來自這裡的紀錄——它在記,只是我不知道是哪份設定在做。`);
+  } else {
+    L.push('感測器：沒掛上（打 pipeline-status --on 掛上）');
+  }
+  L.push('');
+  return L;
+}
+
+/**
+ * 檢查跑失敗時要講什麼(誠實修補 E2)。純函式。
+ * ⚠️ 「紅」有兩種:跑了沒過、根本沒跑起來。混在一起講成「沒過,修好再跑」,
+ *    使用者會去修一個根本沒被檢查的東西——那是 R2 的鏡像。
+ * @param fail {status, code, stderr, stdout}  runCheck() 失敗時回的東西
+ */
+function describeCheckFailure(script, fail) {
+  const L = [];
+  if (fail.code === 'ENOENT') {
+    L.push(`\n❌ ${script} 跑不起來：找不到 npm。這不是「沒過」,是根本沒跑。`);
+  } else if (fail.status === 127) {
+    L.push(`\n❌ ${script} 跑不起來：它要用的指令找不到（通常是工具沒裝,先 npm install）。這不是「沒過」,是根本沒跑。`);
+  } else {
+    L.push(`\n❌ ${script} 跑了,沒過。不蓋章。`);
+  }
+  // 檢查工具自己的輸出——那是 npm／測試工具說的話,不是程式內部值;使用者要拿它去問 Claude。只給最後幾行。
+  const tail = (fail.stderr.trim() || fail.stdout.trim()).split('\n').filter(Boolean).slice(-6);
+  if (tail.length) {
+    L.push('   它自己說的最後幾行（拿去問 Claude）：');
+    for (const t of tail) L.push(`      │ ${t.slice(0, 160)}`);
+  } else {
+    L.push('   （它什麼都沒說。）');
+  }
+  L.push('   修好再跑一次。');
+  return L;
+}
+
 export {
   git, gitContext, changeScale, changeHealth, detectChecks, ago, TEST_FILE,
   uncommitted, checkpointRelation, backupBranchName, restoreAdvice, describeCheckpoint,
+  describeSensor, describeCheckFailure,
 };
 
 /* ══════════════════════════ 蓋章：--checkpoint（AC-1） ══════════════════════════ */
+
+/** 跑一項檢查。成功回 null;失敗回離開碼與輸出,讓 describeCheckFailure() 分辨「沒過」跟「沒跑起來」。 */
+function runCheck(cwd, script) {
+  try {
+    execFileSync('npm', ['run', '--silent', script],
+      { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 });
+    return null;
+  } catch (e) {
+    return {
+      status: typeof e.status === 'number' ? e.status : null,
+      code: e.code ?? null,
+      stderr: String(e.stderr ?? ''),
+      stdout: String(e.stdout ?? ''),
+    };
+  }
+}
 
 /** ⚠️ 這裡是整支程式最容易寫出假綠勾的地方。
  *  「檢查全綠」講的是**當下工作區**的狀態；章要蓋在**某個 commit** 上。
@@ -355,15 +432,12 @@ function doCheckpoint(ctx) {
   const passed = [];
   for (const s of checks) {
     process.stdout.write(`   ${s} … `);
-    try {
-      execFileSync('npm', ['run', '--silent', s], { cwd: ctx.root, stdio: ['ignore', 'ignore', 'ignore'] });
-      console.log('綠');
-      passed.push(s);
-    } catch {
-      console.log('紅');
-      console.log(`\n❌ ${s} 沒過,不蓋章。修好再跑一次。`);
-      return 1;
-    }
+    const fail = runCheck(ctx.root, s);
+    if (!fail) { console.log('綠'); passed.push(s); continue; }
+    console.log('紅');
+    // ⚠️ E2:「沒跑起來」跟「跑了沒過」要分開講,而且要把檢查自己說的話給出來
+    for (const line of describeCheckFailure(s, fail)) console.log(line);
+    return 1;
   }
 
   try {
@@ -383,18 +457,16 @@ function doCheckpoint(ctx) {
 
 /* ══════════════════════════ 畫面 ══════════════════════════ */
 
-function render(ctx) {
+/** 標題＋感測器那一行。零 commit 的路徑跟正常路徑都要它——以前抄了兩份,各自過期(老毛病 P2)。 */
+function renderSensor(ctx, ev) {
   console.log(`━━ ${ctx.project} · ${ctx.branch} ━━`);
-  const ms = mountState(ctx.root);
-  if (ms.state === 'ok') console.log('感測器：已掛上\n');
-  else if (ms.state === 'off') console.log('感測器：沒掛上（打 pipeline-status --on 掛上）\n');
-  else {
-    // ⚠️ 這一種最危險:設定看起來好好的,但它指向的檔案不見了,
-    //    而 hook 永遠靜默,所以紀錄只是安靜地停止增加。
-    console.log('感測器：🔴 掛著,但它指向的檔案不存在——**紀錄已經停了,而且不會有任何徵兆**');
-    for (const p of ms.paths) console.log(`         找不到：${p}`);
-    console.log('         修法：pipeline-status --on（會重新指到正確的位置）\n');
-  }
+  const mine = ev.events.filter((e) => e.cwd === ctx.root).map((e) => e.ts).filter(Boolean).sort();
+  const lines = describeSensor({ mount: mountState(ctx.root, ctx.mainRoot), lastSeen: mine.at(-1) ?? null });
+  for (const line of lines) console.log(line);
+}
+
+function render(ctx, ev) {
+  renderSensor(ctx, ev);
 
   const cp = readCheckpoint(ctx);
   const dirty = uncommitted(ctx.root);
@@ -451,11 +523,11 @@ function render(ctx) {
 
 /* ══════════════════════════ 關卡（需要感測器） ══════════════════════════ */
 
-function renderStages(ctx) {
+function renderStages(ctx, ev) {
   const { stages } = loadStages(HERE, ctx.root);
   if (!stages.length) return;
 
-  const { state, events, broken } = readEvents(LOG_DIR, ctx.project);
+  const { state, events, broken } = ev;
   console.log('\n━━ 五關 ━━');
 
   // ⚠️ AC-1／AC-7:三種「看起來一樣」的情況必須分開講。
@@ -465,11 +537,17 @@ function renderStages(ctx) {
     console.log('      所以不會說「五關都沒跑」。');
     return;
   }
-  if (state === 'no-events' || broken.length) {
+  if (state === 'no-events') {
     console.log('   ⚠️ 感測器可能沒在運作:紀錄檔存在,但裡面沒有東西。');
     if (broken.length) console.log(`      感測器自己回報過 ${broken.length} 次故障。`);
     console.log('      ⚠️ 這**不是**「五關都沒跑」——是我沒問到。');
     return;
+  }
+  // ⚠️ D2:故障記號是全機一份,而且只代表「那幾次沒記到」。以前它一出現就把整區蓋成
+  //    「紀錄檔裡沒有東西」,幾千筆紀錄也一樣。現在降成一行警告,紀錄照畫。
+  if (broken.length) {
+    const last = broken.map((b) => b.ts).filter(Boolean).sort().at(-1);
+    console.log(`   ⚠️ 感測器回報過 ${broken.length} 次故障${last ? `（最近一次 ${ago(last)}）` : ''},那段期間可能有漏記。`);
   }
 
   const { perStage, sawAnyEventHere } = lastRunPerStage(events, stages, ctx.root);
@@ -550,18 +628,10 @@ function main() {
     console.log(`（目前位置：${cwd}）`);
     return 0;
   }
+  // 紀錄只讀一次:感測器那行(活著嗎)跟五關那段(跑過什麼)共用同一份
+  const ev = readEvents(LOG_DIR, ctx.project);
   if (!ctx.hasCommits && !process.argv.includes('--checkpoint')) {
-    console.log(`━━ ${ctx.project} · ${ctx.branch} ━━`);
-  const ms = mountState(ctx.root);
-  if (ms.state === 'ok') console.log('感測器：已掛上\n');
-  else if (ms.state === 'off') console.log('感測器：沒掛上（打 pipeline-status --on 掛上）\n');
-  else {
-    // ⚠️ 這一種最危險:設定看起來好好的,但它指向的檔案不見了,
-    //    而 hook 永遠靜默,所以紀錄只是安靜地停止增加。
-    console.log('感測器：🔴 掛著,但它指向的檔案不存在——**紀錄已經停了,而且不會有任何徵兆**');
-    for (const p of ms.paths) console.log(`         找不到：${p}`);
-    console.log('         修法：pipeline-status --on（會重新指到正確的位置）\n');
-  }
+    renderSensor(ctx, ev);
     console.log('這個專案還沒有任何 commit,所以還沒有版本可以回去。');
     return 0;
   }
@@ -576,8 +646,8 @@ function main() {
   const clearAt = process.argv.indexOf('--clear');
   if (clearAt !== -1) return doClear(ctx, process.argv[clearAt + 1]);
   if (process.argv.includes('--checkpoint')) return doCheckpoint(ctx);
-  const code = render(ctx);
-  renderStages(ctx);
+  const code = render(ctx, ev);
+  renderStages(ctx, ev);
   return code;
 }
 
