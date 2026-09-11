@@ -54,4 +54,25 @@ hooks.json 兩條路都適用。
 
 ## 施作紀錄
 
-（往下追加）
+### 2026-09-11　第一版（commit `77d00d1`＋收尾）
+
+- `.claude-plugin/plugin.json`、`hooks/hooks.json`：接點清單只有這一份；舊接法（`--on`）改從它讀，測試釘住兩邊一致。
+  PreToolUse 多接 `mcp__Claude_Browser__.*|mcp__claude-in-chrome__.*`，E 驗收因此有紀錄。
+- `hook.sh`：算完專案身分後先看 `.claude/pipeline-monitor.off`（cwd、根目錄、主資料夾三處），有就 `exit 0`。
+  測試：有記號一筆都不記、子資料夾也看得到、拿掉馬上又記；用 hooks.json 裡那一行指令（`${CLAUDE_PLUGIN_ROOT}`）真的跑一次。
+- `lib/mount.mjs`：`pluginState`（捷徑／marketplace 兩種裝法；捷徑斷了 = `dangling`，畫面講 broken 不講「沒裝」）、
+  `installPlugin`／`uninstallPlugin`（只放／只拆自己放的捷徑，別的東西一律不動）、`optOut`／`optIn`／`optOutState`。
+  `mountState` 回 `where:'plugin'`、`optedOut`、`alsoLegacy`。
+- `status.mjs`：`--install`／`--uninstall`；plugin 在時 `--on`＝拿掉記號＋拆舊接法、`--off`＝放記號＋拆舊接法。
+  感測器那一行多三種話：「已掛上（plugin,每個專案都會記）」「已退出記錄（N 前）」「設定檔裡還有舊接法,會記兩次」。
+- `server.mjs`：`/api/optout`，root 只准是儀表板列得出來的主資料夾（測試：陌生資料夾 400、不寫檔）。
+- `ui/app.js`：案件頁一行「感測器會記這個專案的每個對話 [退出記錄]」／「已退出記錄（N 前）[重新加入記錄]」；
+  五關的 E 顯示「N 前開瀏覽器跑過一輪（M 個動作）」。
+- `.gitignore`／privacy 測試補 `.claude/pipeline-monitor.off`。
+
+**這台機器上的安裝**：`pipeline-status --install` 放了 `~/.claude/skills/pipeline-monitor → ~/Desktop/pipeline-monitor`；
+四個之前用 `--on` 掛過的地方（pipeline-monitor 主資料夾、TutorPod 主資料夾與兩個 worktree）都跑過 `--on` 把舊接法拆掉（各有備份）。
+儀表板上按「退出記錄」→ 主資料夾出現記號檔、API 回 optedOut；按「重新加入」→ 記號消失。
+
+⚠️ **還沒驗證的**：Claude Code 是否真的把捷徑當 plugin 載入——要開一個新對話才知道（AC-1 的 R1 保留）。
+沒通的話走「如果捷徑那條路不通」那段的備案。

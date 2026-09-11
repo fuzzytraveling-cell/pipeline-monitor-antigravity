@@ -15,7 +15,7 @@ import { section, check, summary } from './_harness.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 // 程式自己會寫出來的東西(資料夾以 / 結尾)。**新增任何會寫檔的功能時,要同步加進這個清單。**
-const MUST_NEVER_BE_TRACKED = ['logs/', 'checkpoints/', '.claude/settings.local.json'];
+const MUST_NEVER_BE_TRACKED = ['logs/', 'checkpoints/', '.claude/settings.local.json', '.claude/pipeline-monitor.off'];
 
 section('程式產生的私人資料絕不准進版控', 'P3');
 for (const p of MUST_NEVER_BE_TRACKED) {

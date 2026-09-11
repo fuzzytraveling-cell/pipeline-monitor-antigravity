@@ -279,7 +279,9 @@ function workflow(c) {
 function overview(p) {
   const live = p.sessions.filter((s) => !s.closedAt);
   const done = p.sessions.filter((s) => s.closedAt);
-  const card = p.cards[0];
+  // 一個案件可能有好幾張卡(主資料夾＋worktree),有些已經不在了。中間那格挑一張**還在**的講,
+  // 不然一個失效的舊章會讓整個案件看起來像「資料夾不見了」
+  const card = p.cards.find((c) => !c.gone && !c.notGit) ?? p.cards[0];
 
   const chip = (s) => `<a class="ochip" href="#/p/${encodeURIComponent(p.name)}/s/${encodeURIComponent(s.id)}">
       <span class="odot"></span>${esc((s.title ?? '（還沒有標題）').slice(0, 22))}</a>`;
