@@ -14,8 +14,11 @@ import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { collectAll } from './lib/collect.mjs';
+import { logFileOf } from './lib/events.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+// 跟 hook.sh／status.mjs／collect.mjs 看同一個地方(同一個環境變數),寫的跟讀的才是同一份(老毛病 P2)
+const LOG_DIR = process.env.PIPELINE_MONITOR_LOG_DIR ?? join(HERE, 'logs');
 const HOST = '127.0.0.1';          // ⚠️ 不要參數化。見上面。
 // PORT 是給開發工具用的通用慣例(預覽伺服器會派一個空的埠);PIPELINE_MONITOR_PORT 優先。
 const PORT = Number(process.env.PIPELINE_MONITOR_PORT ?? process.env.PORT ?? 4319);
@@ -69,8 +72,10 @@ export function createApp() {
         try {
           const { project, session, cwd, undo } = JSON.parse(body || '{}');
           if (!project || !session) throw new Error('缺 project 或 session');
-          mkdirSync(join(HERE, 'logs'), { recursive: true });
-          appendFileSync(join(HERE, 'logs', `${project}.jsonl`), JSON.stringify({
+          // 檔名走 logFileOf(safeName):跟感測器寫的同一個檔;順便把 project 裡的斜線洗掉,
+          // 這個端點就不可能被拿來往 logs/ 以外的地方寫東西。
+          mkdirSync(LOG_DIR, { recursive: true });
+          appendFileSync(logFileOf(LOG_DIR, project), JSON.stringify({
             ts: new Date().toISOString(),
             event: undo ? 'session_reopened' : 'session_closed',
             session, cwd: cwd ?? null, source: 'human',
