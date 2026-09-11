@@ -235,14 +235,16 @@ section('D2：整支 CLI 跑一次——故障記號不蓋掉紀錄;設定找不
   ].join('\n') + '\n');
   writeFileSync(join(logDir, '_sensor.jsonl'), JSON.stringify({ ts, event: 'sensor_broken', why: 'jq 不存在' }) + '\n');
   // HOME 換成空的:mountState 會退而找 ~/.claude,不能讓這台機器的設定影響結果
+  const home = mkdtempSync(join(tmpdir(), 'pm-home-'));
   const out = execFileSync('node', [join(ROOT, 'status.mjs')], {
     cwd: root, encoding: 'utf8',
-    env: { ...process.env, PIPELINE_MONITOR_LOG_DIR: logDir, HOME: mkdtempSync(join(tmpdir(), 'pm-home-')) },
+    env: { ...process.env, PIPELINE_MONITOR_LOG_DIR: logDir, HOME: home },
   });
   check('故障記號 → 一行警告,五關照畫(D 有「⏸ 跑過」)', out.includes('回報過 1 次故障') && out.includes('⏸'), out);
   check('不再把整區蓋成「紀錄檔存在,但裡面沒有東西」', !out.includes('裡面沒有東西'), out);
   check('設定裡沒掛、紀錄裡有 → 感測器那行說「它在記」', out.includes('它在記'), out);
-  rmSync(logDir, { recursive: true, force: true }); r.cleanup();
+  for (const d of [logDir, home]) rmSync(d, { recursive: true, force: true });
+  r.cleanup();
 }
 
 section('ago()：不准把壞掉的時間印成數字');

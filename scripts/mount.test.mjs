@@ -2,7 +2,7 @@
  * mount.test.mjs —— 掛載是全專案風險最高的一段:它會動使用者既有的設定檔。
  * ⚠️ 這裡只釘一件事:**別人的東西一根寒毛都不能少**。
  */
-import { writeFileSync, readFileSync, mkdirSync, mkdtempSync, readdirSync } from 'node:fs';
+import { writeFileSync, readFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import process from 'node:process';
@@ -153,7 +153,9 @@ section('D1:worktree 沒有自己的設定,要往主資料夾與帳號層級找'
   const bare = makeRepo({ files: { 'a.js': '1\n' } });
   const u = mountState(bare.dir, null, home2);
   eq('只有帳號層級有、路徑又失效 → broken／user', `${u.state}/${u.where}`, 'broken/user');
+  rmSync(home2, { recursive: true, force: true });
   main.cleanup(); wt.cleanup(); bare.cleanup();
 }
 
+rmSync(HOME, { recursive: true, force: true });
 process.exit(summary());
