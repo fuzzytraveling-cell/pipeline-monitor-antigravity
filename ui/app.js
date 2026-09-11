@@ -76,6 +76,8 @@ const stageState = (st) =>
   st.type === 'not-built' ? 'notbuilt' :
   st.type === 'main-conversation' ? 'main' :
   st.clearedAt ? 'done' : st.ranAt ? 'ran' : 'none';
+/** 感測器看得到的關(有 skill 或 tools 的)。B 是你在講話的那個對話、未建的關,都不算分母。 */
+const sensed = (st) => st.type !== 'main-conversation' && st.type !== 'not-built';
 
 /* ═══ 第一層:案件列表 ═══ */
 function projectList() {
@@ -84,15 +86,17 @@ function projectList() {
       <code>pipeline-status --checkpoint</code> 就會出現在這裡。</p>`;
   }
   const cards = latest.projects.map((p) => {
-    const c = p.cards[0];
-    const mini = (c?.stages ?? []).filter((s) => !s.type)
+    // 挑一張還在的卡講(失效的舊章會留下一張「資料夾不見了」的卡)
+    const c = p.cards.find((x) => !x.gone && !x.notGit) ?? p.cards[0];
+    const mini = (c?.stages ?? []).filter(sensed)
       .map((s) => `<span data-s="${stageState(s)}"></span>`).join('');
     const cp = c?.checkpoint;
     return `<button class="pcard" data-go="${esc(p.name)}">
       <h3>${esc(p.displayName ?? p.name)}</h3>
       <div class="mini">${mini}</div>
       <div class="meta">${(p.sessions ?? []).filter((s) => !s.closedAt).length} 個進行中的對話 ·
-        ${!cp ? '還沒有還原點' : cpOk(c) ? `還原點 ${ago(cp.at)}` : '還原點失效'}</div>
+        ${!cp ? '還沒有還原點' : cpOk(c) ? `還原點 ${ago(cp.at)}` : '還原點失效'}${
+        p.optedOut ? ' · 已退出記錄' : ''}</div>
     </button>`;
   }).join('');
   return `<div class="block">
@@ -325,7 +329,7 @@ function sessionList(p) {
   }
   const row = (s) => {
     const ran = s.stages.filter((x) => x.ranAt).length;
-    const total = s.stages.filter((x) => !x.type).length;
+    const total = s.stages.filter(sensed).length;   // E 接上瀏覽器之後也算分母(A/C/D/E)
     return `<div class="srow ${s.closedAt ? 'closed' : ''}">
       <a class="sname" href="#/p/${encodeURIComponent(p.name)}/s/${encodeURIComponent(s.id)}">
         ${esc(s.title ?? '（還沒有標題）')}</a>
