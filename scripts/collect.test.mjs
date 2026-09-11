@@ -10,7 +10,7 @@ import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, basename } from 'node:path';
 import process from 'node:process';
-import { collectAll } from '../lib/collect.mjs';
+import { collectAll, ladderSteps } from '../lib/collect.mjs';
 import { safeName } from '../lib/events.mjs';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 
@@ -55,6 +55,37 @@ section('L14：章之後有存檔 → 卡片帶備份分支名');
   eq('關係 ok,之後 1 次存檔', card?.checkpointRelation?.commitsAfter, 1);
   check('備份分支名以「備份-」開頭', typeof card?.backupBranch === 'string' && card.backupBranch.startsWith('備份-'),
         String(card?.backupBranch));
+  rmSync(monitorDir, { recursive: true, force: true }); r.cleanup();
+}
+
+section('F：三階梯不准把「沒有東西要做」畫成「做完了」');
+{
+  // 2026-09-11 Oscar:新開的分支一個字都沒改,三階梯亮了兩格。燈亮=「有東西,而且走到這一步」,空的分支一格都不該亮。
+  const L = (o) => ({ uncommitted: 0, unmerged: 0, onMain: false, mainName: 'main', hasUpstream: false, unpushed: null, ...o });
+  const fresh = ladderSteps(L({}));
+  check('空的分支:沒有任何一格是 done', fresh.every((s) => s.state !== 'done'), JSON.stringify(fresh));
+  check('merge 那格照實說「分不出來」', fresh[1].text.includes('分不出來'), fresh[1].text);
+  const worked = ladderSteps(L({ unmerged: 2 }));
+  eq('存了 2 次、工作區乾淨 → commit 是 done', worked[0].state, 'done');
+  eq('還沒併 → merge 是 pending', worked[1].state, 'pending');
+  eq('有東西、沒 push → push 是 pending', worked[2].state, 'pending');
+  eq('有 3 個沒存 → commit 是 pending', ladderSteps(L({ uncommitted: 3 }))[0].state, 'pending');
+  const main = ladderSteps(L({ onMain: true, hasUpstream: true, unpushed: 0 }));
+  eq('在 main 上、乾淨 → commit done', main[0].state, 'done');
+  eq('在 main 上 → merge 不適用(none),不是 done', main[1].state, 'none');
+  eq('GitHub 一樣 → push done', main[2].state, 'done');
+  const unknown = ladderSteps(L({ uncommitted: null, unmerged: null, mainName: null }));
+  check('問不到 → unknown,不是 done 也不是 none', unknown[0].state === 'unknown' && unknown[1].state === 'unknown',
+        JSON.stringify(unknown));
+
+  // 真的 git:從主線開一條新分支、什麼都不做 → 卡片上的三格一格都不亮
+  const r = makeRepo({ files: { 'a.js': '1\n' } });
+  r.git('checkout', '-q', '-b', 'feature');
+  const root = out(r.dir, 'rev-parse', '--show-toplevel');
+  const monitorDir = monitorWith(root, out(r.dir, 'rev-parse', 'HEAD'));   // 章在 HEAD,只是讓卡片出現
+  const steps = collectAll({ monitorDir }).projects[0]?.cards?.[0]?.ladder?.steps;
+  check('真的空分支:三格沒有 done', Array.isArray(steps) && steps.length === 3 && steps.every((s) => s.state !== 'done'),
+        JSON.stringify(steps));
   rmSync(monitorDir, { recursive: true, force: true }); r.cleanup();
 }
 

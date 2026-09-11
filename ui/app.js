@@ -165,25 +165,18 @@ function statLadder(c) {
      </div>`;
   };
 
-  const s1 = L.uncommitted === null ? cap(1, false, 'commit 存進這條分支', '問不到')
-    : L.uncommitted === 0 ? cap(1, true, 'commit 存進這條分支', '都存好了')
-    : cap(1, false, 'commit 存進這條分支', `還有 ${L.uncommitted} 個檔案沒存`);
+  // 狀態與文案是伺服器算好的(lib/collect.mjs 的 ladderSteps,被測試釘住);這裡只畫。
+  // ⚠️ 只有 done 亮燈。none(沒有東西)跟 unknown(問不到)都不亮——
+  //    空的分支曾經亮了兩格「都存好了／已經併進去了」,Oscar 一眼就看出那是假的(LESSONS L16)。
+  const TITLE = { commit: 'commit 存進這條分支', merge: `merge 併進 ${esc(L.mainName ?? '主線')}`, push: 'push 推到 GitHub' };
+  const steps = L.steps ?? ['commit', 'merge', 'push'].map((id) => ({ id, state: 'unknown', text: '問不到' }));
+  const caps = steps.map((st, i) => cap(i + 1, st.state === 'done', TITLE[st.id] ?? esc(st.id), esc(st.text))).join('');
 
-  const s2 = L.unmerged === null ? cap(2, false, 'merge 併進主線', '問不到')
-    : L.onMain ? cap(2, true, 'merge 併進主線', `你就在 ${esc(L.mainName ?? 'main')} 上,不用併`)
-    : L.unmerged === 0 ? cap(2, true, `merge 併進 ${esc(L.mainName ?? 'main')}`, '已經併進去了')
-    : cap(2, false, `merge 併進 ${esc(L.mainName ?? 'main')}`, `這條分支還多 ${L.unmerged} 個存檔沒併`);
-
-  const s3 = !L.hasUpstream
-    ? cap(3, false, 'push 推到 GitHub', '這條分支還沒有 push 到 GitHub — 只存在你這台電腦上')
-    : L.unpushed === null ? cap(3, false, 'push 推到 GitHub', '問不到')
-    : L.unpushed === 0 ? cap(3, true, 'push 推到 GitHub', '已經同步了')
-    : cap(3, false, 'push 推到 GitHub', `還有 ${L.unpushed} 個存檔沒推上去`);
-
-  const allSafe = L.uncommitted === 0 && (L.onMain || L.unmerged === 0) && L.unpushed === 0;
+  // 沒有任何一格是「還有東西沒做」或「問不到」,才算安全——空的分支也算安全,它沒有東西會丟
+  const allSafe = steps.every((st) => st.state === 'done' || st.state === 'none');
   return `<div class="stat" data-tone="${allSafe ? 'safe' : 'alert'}">
     <h3 class="ctitle">三階梯</h3><div class="label">東西走到哪了</div>
-    <div class="pipe">${s1}${s2}${s3}</div>
+    <div class="pipe">${caps}</div>
     ${L.webUrl ? `<div class="hint"><a class="ext" href="${esc(L.webUrl)}" target="_blank"
       rel="noreferrer">在 GitHub 上看這個 repo ↗</a></div>` : ''}
     <div class="hint muted">⚠️ 這三格顯示的是<b>現在的事實</b>,不是你走過的最遠距離——
