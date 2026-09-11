@@ -4,13 +4,15 @@
  * ⚠️ 刻意**不測長相**。樣式壞了看得見;下面這幾條壞了畫面照跑、測試全綠,
  *    而使用者會照著三小時前的資料做決定。
  */
-import { readFileSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { join, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { describeFreshness, STALE_AFTER_SECONDS } from '../lib/freshness.mjs';
 import { createApp } from '../server.mjs';
-import { section, check, eq, summary } from './_harness.mjs';
+import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const T0 = new Date('2026-09-10T10:00:00Z').getTime();
@@ -105,6 +107,34 @@ section('API 回的東西一定要帶伺服器產生的時間戳(AC-1 的來源)
     Number.isFinite(json.generatedAt) && Math.abs(Date.now() - json.generatedAt) < 60_000);
   check('有 projects 陣列', Array.isArray(json.projects));
   server.close();
+}
+
+section('退出按鈕只准對儀表板列得出來的專案動手（root 是瀏覽器送來的字串）');
+{
+  // 造一個假的 monitor 資料夾,裡面一個案件(靠章讓它出現)
+  const r = makeRepo({ files: { 'a.js': '1\n' } });
+  const out = (...a) => execFileSync('git', a, { cwd: r.dir, encoding: 'utf8' }).trim();
+  const root = out('rev-parse', '--show-toplevel');
+  const monitorDir = mkdtempSync(join(tmpdir(), 'pm-monitor-'));
+  mkdirSync(join(monitorDir, 'checkpoints'));
+  writeFileSync(join(monitorDir, 'checkpoints', `${basename(root)}__main.json`), JSON.stringify({
+    commit: out('rev-parse', 'HEAD'), branch: 'main', worktree: root, at: new Date().toISOString(), checks: ['test'],
+  }));
+  const server = createApp({ monitorDir });
+  await new Promise((res) => server.listen(0, '127.0.0.1', res));
+  const { port } = server.address();
+  const post = (body) => fetch(`http://127.0.0.1:${port}/api/optout`,
+    { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const stranger = mkdtempSync(join(tmpdir(), 'pm-stranger-'));
+  eq('不認識的資料夾 → 400,不寫檔', (await post({ root: stranger })).status, 400);
+  check('陌生資料夾裡真的沒被放東西', !existsSync(join(stranger, '.claude')));
+  eq('認識的專案 → 200', (await post({ root })).status, 200);
+  check('記號檔真的放了', existsSync(join(root, '.claude', 'pipeline-monitor.off')));
+  eq('重新加入 → 200', (await post({ root, undo: true })).status, 200);
+  check('記號檔拿掉了', !existsSync(join(root, '.claude', 'pipeline-monitor.off')));
+  server.close();
+  for (const d of [monitorDir, stranger]) rmSync(d, { recursive: true, force: true });
+  r.cleanup();
 }
 
 process.exit(summary());

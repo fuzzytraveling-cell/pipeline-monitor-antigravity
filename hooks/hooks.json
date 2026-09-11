@@ -1,0 +1,17 @@
+{
+  "_說明": "感測器的接點,**唯一的一份**。舊接法(pipeline-status --on)也是從這裡讀,把 ${CLAUDE_PLUGIN_ROOT} 換成安裝位置。",
+  "_說明2": "PreToolUse 多接瀏覽器工具:E 驗收記的是「開了瀏覽器做動作」,永遠不是「驗收通過」(R2)。",
+  "hooks": {
+    "UserPromptSubmit": [
+      { "matcher": "", "hooks": [{ "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hook.sh\"" }] }
+    ],
+    "PreToolUse": [
+      { "matcher": "Skill", "hooks": [{ "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hook.sh\"" }] },
+      { "matcher": "mcp__Claude_Browser__.*|mcp__claude-in-chrome__.*", "hooks": [{ "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hook.sh\"" }] }
+    ],
+    "PostToolUse": [
+      { "matcher": "Skill", "hooks": [{ "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hook.sh\"" }] },
+      { "matcher": "Edit|Write|NotebookEdit", "hooks": [{ "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hook.sh\"" }] }
+    ]
+  }
+}

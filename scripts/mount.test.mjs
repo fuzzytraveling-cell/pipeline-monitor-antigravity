@@ -2,12 +2,15 @@
  * mount.test.mjs —— 掛載是全專案風險最高的一段:它會動使用者既有的設定檔。
  * ⚠️ 這裡只釘一件事:**別人的東西一根寒毛都不能少**。
  */
-import { writeFileSync, readFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { writeFileSync, readFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import process from 'node:process';
-import { mount, unmount, mountState } from '../lib/mount.mjs';
+import { mount, unmount, mountState, pluginState, installPlugin, uninstallPlugin, optOut, optIn } from '../lib/mount.mjs';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 const settings = (dir) => JSON.parse(readFileSync(join(dir, '.claude', 'settings.local.json'), 'utf8'));
 function withExisting(dir, obj) {
@@ -155,6 +158,60 @@ section('D1:worktree 沒有自己的設定,要往主資料夾與帳號層級找'
   eq('只有帳號層級有、路徑又失效 → broken／user', `${u.state}/${u.where}`, 'broken/user');
   rmSync(home2, { recursive: true, force: true });
   main.cleanup(); wt.cleanup(); bare.cleanup();
+}
+
+section('接點清單只有一份:舊接法接的事件 = plugin 的 hooks/hooks.json', 'P2');
+{
+  const spec = JSON.parse(readFileSync(join(ROOT, 'hooks', 'hooks.json'), 'utf8')).hooks;
+  const r = makeRepo({ files: { 'a.js': '1\n' } });
+  mount(r.dir);
+  const d = settings(r.dir);
+  for (const [evt, entries] of Object.entries(spec)) {
+    for (const e of entries) {
+      check(`${evt} matcher="${e.matcher ?? ''}" 舊接法也有`, d.hooks[evt]?.some((x) => x.matcher === (e.matcher ?? '')));
+    }
+  }
+  check('hooks.json 的指令都指向 ${CLAUDE_PLUGIN_ROOT}/hook.sh(搬家不會斷)',
+    Object.values(spec).flat().every((e) => e.hooks.every((h) => h.command === 'sh "${CLAUDE_PLUGIN_ROOT}/hook.sh"')));
+  check('E 驗收要接得到瀏覽器工具', (spec.PreToolUse ?? []).some((e) => /Claude_Browser/.test(e.matcher ?? '')));
+  r.cleanup();
+}
+
+section('plugin:裝了沒、退出記號、舊接法會記兩次、捷徑斷了要看得出來', 'P3');
+{
+  const home = mkdtempSync(join(tmpdir(), 'pm-home-'));
+  eq('沒裝 → installed=false', pluginState(home).installed, false);
+  const r = makeRepo({ files: { 'a.js': '1\n' } });
+  const inst = installPlugin(home, ROOT);
+  check('裝得上(捷徑指到這個資料夾)', inst.ok, inst.out.join('\n'));
+  eq('裝了 → via skills-dir', pluginState(home).via, 'skills-dir');
+  // R1:裝完不宣稱會動,給驗證方法
+  check('裝完明講「不能確認它真的載入」並給驗證方法',
+    inst.out.join('').includes('不能確認') && inst.out.join('').includes('驗證方法'));
+  eq('再裝一次 → 已經裝好,不出錯', installPlugin(home, ROOT).already, true);
+  const st1 = mountState(r.dir, null, home);
+  eq('plugin 裝了、專案沒退出 → ok／plugin', `${st1.state}/${st1.where}`, 'ok/plugin');
+
+  const marker = optOut(r.dir, 'test');
+  const st2 = mountState(r.dir, null, home);
+  check('退出 → off,而且說得出記號檔在哪', st2.state === 'off' && st2.optedOut?.path === marker, JSON.stringify(st2));
+  eq('重新加入 → 記號拿掉 1 個', optIn(r.dir).length, 1);
+  eq('重新加入後 → ok', mountState(r.dir, null, home).state, 'ok');
+
+  mount(r.dir);   // 舊接法還留在專案的設定檔裡
+  check('plugin ＋ 舊接法 → alsoLegacy(會記兩次)', mountState(r.dir, null, home).alsoLegacy === true);
+
+  // 捷徑在,但指向的資料夾被搬走了——L13 的形狀,要講 broken,不是「沒裝」
+  const home2 = mkdtempSync(join(tmpdir(), 'pm-home2-'));
+  mkdirSync(join(home2, '.claude', 'skills'), { recursive: true });
+  symlinkSync(join(home2, '不存在的地方'), join(home2, '.claude', 'skills', 'pipeline-monitor'));
+  const st3 = mountState(r.dir, null, home2);
+  eq('捷徑斷了 → broken／plugin', `${st3.state}/${st3.where}`, 'broken/plugin');
+
+  uninstallPlugin(home);
+  eq('拆掉 → 沒裝', pluginState(home).installed, false);
+  for (const d of [home, home2]) rmSync(d, { recursive: true, force: true });
+  r.cleanup();
 }
 
 rmSync(HOME, { recursive: true, force: true });

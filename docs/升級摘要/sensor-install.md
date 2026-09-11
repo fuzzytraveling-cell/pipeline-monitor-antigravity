@@ -46,3 +46,8 @@ pipeline-status --uninstall   # 拆掉
 ⚠️ **原本規格想用「同意單」的做法**（在專案裡放一個空檔案，plugin 全域裝一次）。
 那個做法更安全，但**前提是要有 plugin**，而 plugin 還沒做。
 等 plugin 做出來，這一支可以簡化成「建一個空檔案」——那時再回來改。
+
+> **2026-09-11 後記**：plugin 做出來了（[`../進行中/plugin.md`](../進行中/plugin.md)），方向跟「同意單」相反——
+> Oscar 決定**預設全記、可退出**，記號檔是 `.claude/pipeline-monitor.off`。
+> plugin 裝了之後，這一支的 `--on` 變成「拿掉退出記號＋拆掉舊接法」，`--off` 變成「放退出記號」；
+> 沒裝 plugin 才走這裡描述的舊接法。舊接法的接點清單改成從 `hooks/hooks.json` 讀，兩邊只有一份。

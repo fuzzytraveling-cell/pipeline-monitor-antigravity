@@ -237,11 +237,13 @@ function workflow(c) {
     const s = stageState(st);
     const r = ROLE[st.id] ?? { icon: '·', house: '', does: '' };
     const last = i === c.stages.length - 1;
+    // 瀏覽器那一關記的是「開了瀏覽器做動作」——12 個動作不等於驗收通過,文案只講跑過
+    const verb = st.type === 'browser' ? `開瀏覽器跑過一輪${st.count ? `（${st.count} 個動作）` : ''}` : '跑過';
     const status =
       s === 'notbuilt' ? '這一關還沒建'
       : s === 'main' ? '就是你在講話的那個對話'
-      : s === 'done' ? `${ago(st.ranAt)}跑過,你說處理完了`
-      : s === 'ran' ? `${ago(st.ranAt)}跑過,還沒有人說處理完了`
+      : s === 'done' ? `${ago(st.ranAt)}${verb},你說處理完了`
+      : s === 'ran' ? `${ago(st.ranAt)}${verb},還沒有人說處理完了`
       : (c.sensor.state === 'ok' ? '沒有紀錄' : '感測器沒有資料');
     const said = st.args
       ? `<div class="said">「${esc(st.args.slice(0, 90))}${st.args.length > 90 ? '…' : ''}」</div>` : '';
@@ -346,7 +348,19 @@ function projectPage(name) {
       <h2 class="section serif">Overview</h2>
       <p class="section-note">左邊在跑的、中間這個專案現在的狀態、右邊已結案的。</p>
       ${overview(p)}
+      ${optOutLine(p)}
     </div>` + sessionList(p);
+}
+
+/** 退出記錄／重新加入。plugin 每個專案都會記,「不要記這個」靠主資料夾的一個記號檔——按下去馬上生效。 */
+function optOutLine(p) {
+  if (!p.mainRoot) return '';
+  if (p.optedOut) {
+    return `<p class="section-note">這個專案已退出記錄${p.optedOut.at ? `（${esc(ago(p.optedOut.at))}）` : ''}。之前的紀錄還在。
+      <button class="mini-btn" data-optout="${esc(p.mainRoot)}" data-undo="1">重新加入記錄</button></p>`;
+  }
+  return `<p class="section-note">感測器會記這個專案的每個對話（只在這台電腦上）。
+    <button class="mini-btn" data-optout="${esc(p.mainRoot)}" data-undo="0">退出記錄</button></p>`;
 }
 
 /* ═══ 第三層:一個對話 ═══ */
@@ -428,6 +442,16 @@ document.addEventListener('click', async (e) => {
                                cwd: cl.dataset.cwd, undo: cl.dataset.undo === '1' }) });
       await poll();
     } catch { cl.disabled = false; }
+  }
+
+  const oo = e.target.closest('[data-optout]');
+  if (oo) {
+    oo.disabled = true;
+    try {
+      await fetch('/api/optout', { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ root: oo.dataset.optout, undo: oo.dataset.undo === '1' }) });
+      await poll();
+    } catch { oo.disabled = false; }
   }
 });
 window.addEventListener('hashchange', render);

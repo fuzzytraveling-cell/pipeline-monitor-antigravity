@@ -44,6 +44,15 @@ esac
 PROJECT=$(printf '%s' "$PROJECT" | LC_ALL=C tr -c 'A-Za-z0-9._-' '_')
 HEAD=$(git -C "$CWD" rev-parse --short HEAD 2>/dev/null)
 
+# 退出記號:專案根目錄(worktree 的話是主資料夾)底下有 .claude/pipeline-monitor.off 就不記。
+# plugin 裝在使用者層級、每個專案都會跑,「不要記這個專案」只能靠這個檔案表達——
+# 儀表板的「退出記錄」按鈕放的就是它。每次呼叫都看,所以按下去馬上生效,不用開新對話。
+TOP=$(git -C "$CWD" rev-parse --show-toplevel 2>/dev/null)
+case "$COMMON" in /*) MAIN=$(dirname "$COMMON") ;; *) MAIN="$TOP" ;; esac
+for d in "$CWD" "$TOP" "$MAIN"; do
+  [ -n "$d" ] && [ -f "$d/.claude/pipeline-monitor.off" ] && exit 0
+done
+
 # ⚠️ AC-4:單行必須 < 4096 bytes,超過 O_APPEND 就不再保證原子性,
 #    兩個 worktree 同時寫會交錯,兩筆都毀掉。所以每個字串欄位都截斷。
 # ⚠️ AC-10:只記檔案路徑,不記內容(CCAM 就是這樣把資料庫養到 2GB 的)。

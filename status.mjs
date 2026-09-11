@@ -20,7 +20,9 @@ import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { appendFileSync } from 'node:fs';
 import { readEvents, loadStages, lastRunPerStage, safeName, logFileOf } from './lib/events.mjs';
-import { mount, unmount, mountState } from './lib/mount.mjs';
+import {
+  mount, unmount, mountState, pluginState, installPlugin, uninstallPlugin, optIn, optOut, hookPathsIn,
+} from './lib/mount.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CHECKPOINT_DIR = join(HERE, 'checkpoints');
@@ -336,17 +338,26 @@ function describeCheckpoint({ cp, rel, dirty, files, now = new Date() }) {
 function describeSensor({ mount, lastSeen }) {
   const L = [];
   const seen = lastSeen ? `最後一筆來自這裡的紀錄：${ago(lastSeen)}` : null;
-  if (mount.state === 'broken') {
+  if (mount.state === 'off' && mount.optedOut) {
+    // 人自己按的退出。照實說「退出了」,不說「沒掛上」——那是兩件事
+    L.push(`感測器：這個專案已退出記錄（${mount.optedOut.at ? ago(mount.optedOut.at) : '時間不明'}）,之前的紀錄還在。`);
+    if (seen) L.push(`         ${seen}`);
+    L.push('         重新加入：pipeline-status --on,或儀表板的「重新加入記錄」按鈕');
+  } else if (mount.state === 'broken') {
     // ⚠️ 這一種最危險:設定看起來好好的,但它指向的檔案不見了,而 hook 永遠靜默,紀錄只是安靜地停止增加。
     L.push('感測器：🔴 掛著,但它指向的檔案不存在——**紀錄已經停了,而且不會有任何徵兆**');
     for (const p of mount.paths) L.push(`         找不到：${p}`);
     if (seen) L.push(`         ${seen}——從那之後就沒有了`);
-    L.push('         修法：pipeline-status --on（會重新指到正確的位置）');
+    L.push(mount.where === 'plugin'
+      ? '         修法：把 pipeline-monitor 資料夾放回去,或在它現在的位置跑 pipeline-status --install'
+      : '         修法：pipeline-status --on（會重新指到正確的位置）');
   } else if (mount.state === 'ok') {
-    const where = mount.where === 'main' ? '（用的是主資料夾的設定）'
+    const where = mount.where === 'plugin' ? '（plugin,每個專案都會記）'
+      : mount.where === 'main' ? '（用的是主資料夾的設定）'
       : mount.where === 'user' ? '（用的是你帳號層級的設定）' : '';
     L.push(`感測器：已掛上${where}`);
     L.push(`         ${seen ?? '還沒有來自這裡的紀錄（設定是對話開始時讀的,掛上之後要開新的對話才會開始記）'}`);
+    if (mount.alsoLegacy) L.push('         ⚠️ 這個專案的設定檔裡還有舊的接法,會記兩次。拆掉：pipeline-status --on');
   } else if (seen) {
     L.push(`感測器：設定裡找不到,但 ${ago(lastSeen)}還有來自這裡的紀錄——它在記,只是我不知道是哪份設定在做。`);
   } else {
@@ -587,8 +598,10 @@ function renderStages(ctx, ev) {
 
     const clear = cleared.get(st.id);
     const closed = clear && new Date(clear.ts) >= new Date(run.ts);
+    // 瀏覽器那一關記的是「開了瀏覽器做動作」——R1 照樣適用:12 個動作不等於驗收通過
+    const verb = st.type === 'browser' ? `開瀏覽器跑過一輪（${run.count} 個動作）` : '跑過';
     // AC-9:沒有結案的,時間越久要越顯眼——所以天數一定印出來,而且用 ⏸ 不用 ✅
-    console.log(`   ${label} ${closed ? '✅' : '⏸'} ${ago(run.ts)}跑過`
+    console.log(`   ${label} ${closed ? '✅' : '⏸'} ${ago(run.ts)}${verb}`
       + (closed ? `,${ago(clear.ts)}你說處理完了` : ',還沒有人說處理完了'));
     if (run.args) console.log(`              「${run.args.slice(0, 46)}${run.args.length > 46 ? '…' : ''}」`);
     if (!closed) anyOpen = true;
@@ -627,7 +640,44 @@ function doClear(ctx, stageId) {
 
 /* ══════════════════════════ main ══════════════════════════ */
 
+/**
+ * --on / --off。plugin 裝好之後,這兩個指令只管「退出記號」跟「拆舊接法」;沒裝 plugin 才走舊接法(寫進設定檔)。
+ * ⚠️ 兩種掛法同時存在會記兩次,所以 plugin 在的時候,--on 跟 --off 都順手把舊接法拆掉。
+ */
+function doMount(ctx, on) {
+  const plugin = pluginState();
+  if (!plugin.installed) {
+    console.log(`${on ? '掛上' : '拆下'}（舊接法,寫進這個專案的設定檔）：${ctx.root}\n`);
+    const r = on ? mount(ctx.root) : unmount(ctx.root);
+    for (const line of r.out) console.log(line);
+    console.log('\n💡 裝成 plugin 就不用每個專案掛：pipeline-status --install');
+    return r.ok ? 0 : 1;
+  }
+  const legacy = hookPathsIn(ctx.root).length ? unmount(ctx.root) : null;
+  if (on) {
+    const removed = optIn(ctx.root, ctx.mainRoot);
+    console.log(removed.length
+      ? `✅ 重新加入記錄：拿掉了 ${removed.join(', ')}`
+      : '✅ 這個專案本來就在記錄中（plugin 每個專案都會記）。');
+  } else {
+    const p = optOut(ctx.mainRoot ?? ctx.root, 'cli');
+    console.log(`✅ 已退出記錄：放了 ${p}`);
+    console.log('   從現在起 hook 看到這個檔就不記（不用開新對話）。之前的紀錄還在;想回來就 --on,或按儀表板的按鈕。');
+  }
+  if (legacy) {
+    console.log('\n舊接法（設定檔裡的 hook）一併拆掉,不然會記兩次：');
+    for (const line of legacy.out) console.log(`   ${line}`);
+  }
+  return 0;
+}
+
 function main() {
+  // plugin 的裝／拆不需要站在 git 專案裡
+  if (process.argv.includes('--install') || process.argv.includes('--uninstall')) {
+    const r = process.argv.includes('--install') ? installPlugin() : uninstallPlugin();
+    for (const line of r.out) console.log(line);
+    return r.ok ? 0 : 1;
+  }
   const cwd = process.cwd();
   const ctx = gitContext(cwd);
   if (!ctx.isGit) {                             // AC-10
@@ -635,19 +685,13 @@ function main() {
     console.log(`（目前位置：${cwd}）`);
     return 0;
   }
+  if (process.argv.includes('--on') || process.argv.includes('--off')) return doMount(ctx, process.argv.includes('--on'));
   // 紀錄只讀一次:感測器那行(活著嗎)跟五關那段(跑過什麼)共用同一份
   const ev = readEvents(LOG_DIR, ctx.project);
   if (!ctx.hasCommits && !process.argv.includes('--checkpoint')) {
     renderSensor(ctx, ev);
     console.log('這個專案還沒有任何 commit,所以還沒有版本可以回去。');
     return 0;
-  }
-  if (process.argv.includes('--on') || process.argv.includes('--off')) {
-    const on = process.argv.includes('--on');
-    console.log(`${on ? '掛上' : '拆下'}：${ctx.root}\n`);
-    const r = on ? mount(ctx.root) : unmount(ctx.root);
-    for (const line of r.out) console.log(line);
-    return r.ok ? 0 : 1;
   }
 
   const clearAt = process.argv.indexOf('--clear');

@@ -15,6 +15,7 @@ import process from 'node:process';
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { collectAll } from './lib/collect.mjs';
 import { logFileOf } from './lib/events.mjs';
+import { optIn, optOut } from './lib/mount.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // 跟 hook.sh／status.mjs／collect.mjs 看同一個地方(同一個環境變數),寫的跟讀的才是同一份(老毛病 P2)
@@ -38,37 +39,44 @@ const SERVE = {
   '/agent.svg': join(HERE, 'public', 'agent.svg'),
 };
 
-export function createApp() {
+/** 同源檢查:別的網站不准叫會寫東西的端點 */
+function sameOrigin(req) {
+  const origin = req.headers.origin;
+  return !origin || /^http:\/\/(127\.0\.0\.1|localhost):/.test(origin);
+}
+
+/** 讀 POST 的內容,超過 4KB 就切斷——這裡收的都是幾十個字的 JSON */
+function readBody(req, cb) {
+  let body = '';
+  req.on('data', (c) => { body += c; if (body.length > 4096) req.destroy(); });
+  req.on('end', () => cb(body));
+}
+
+/** monitorDir 可以注入,測試才能在自己的暫存資料夾裡跑;預設就是這個資料夾。 */
+export function createApp({ monitorDir = HERE } = {}) {
   return createServer((req, res) => {
     const url = new URL(req.url, `http://${HOST}`);
+    const json = (code, obj) => { res.writeHead(code, TYPES['.json']); res.end(JSON.stringify(obj)); };
 
     if (url.pathname === '/api/status') {
       let body;
       try {
-        body = JSON.stringify(collectAll({ monitorDir: HERE }));
+        body = JSON.stringify(collectAll({ monitorDir }));
       } catch (e) {
         // ⚠️ 一個專案讀不到,不該害整頁掛掉。照實回報,讓畫面說「讀不到」。
-        res.writeHead(500, TYPES['.json']);
-        return res.end(JSON.stringify({ error: String(e?.message ?? e), generatedAt: Date.now() }));
+        return json(500, { error: String(e?.message ?? e), generatedAt: Date.now() });
       }
       res.writeHead(200, { 'content-type': TYPES['.json'], 'cache-control': 'no-store' });
       return res.end(body);
     }
 
     // 結案:把「這個對話做完了」記成一筆事件。
-    // ⚠️ 這是**唯一**一個網頁能寫入的動作,而且它是 append-only——
+    // ⚠️ 這是網頁能寫入的兩個動作之一,而且它是 append-only——
     //    它不刪任何東西,只是多記一行「Oscar 在某時說這個對話結束了」。
     //    真正會刪東西的事(reset/commit/push)一律只給指令,不代跑。
     if (url.pathname === '/api/close' && req.method === 'POST') {
-      // 同源檢查:別的網站不准叫這個
-      const origin = req.headers.origin;
-      if (origin && !/^http:\/\/(127\.0\.0\.1|localhost):/.test(origin)) {
-        res.writeHead(403, TYPES['.json']);
-        return res.end(JSON.stringify({ error: 'cross-origin' }));
-      }
-      let body = '';
-      req.on('data', (c) => { body += c; if (body.length > 4096) req.destroy(); });
-      req.on('end', () => {
+      if (!sameOrigin(req)) return json(403, { error: 'cross-origin' });
+      readBody(req, (body) => {
         try {
           const { project, session, cwd, undo } = JSON.parse(body || '{}');
           if (!project || !session) throw new Error('缺 project 或 session');
@@ -80,10 +88,27 @@ export function createApp() {
             event: undo ? 'session_reopened' : 'session_closed',
             session, cwd: cwd ?? null, source: 'human',
           }) + '\n');
-          res.writeHead(200, TYPES['.json']); res.end(JSON.stringify({ ok: true }));
+          json(200, { ok: true });
         } catch (e) {
-          res.writeHead(400, TYPES['.json']);
-          res.end(JSON.stringify({ error: String(e?.message ?? e) }));
+          json(400, { error: String(e?.message ?? e) });
+        }
+      });
+      return;
+    }
+
+    // 退出記錄／重新加入:在那個專案的主資料夾放（或拿掉）.claude/pipeline-monitor.off。
+    // ⚠️ root 是瀏覽器送來的字串,**不能直接拿來當路徑寫檔**——只准對「儀表板現在列得出來的專案」動手。
+    //    這是網頁唯一會碰到別的專案資料夾的動作,而它只放一個記號檔,不動任何其他東西。
+    if (url.pathname === '/api/optout' && req.method === 'POST') {
+      if (!sameOrigin(req)) return json(403, { error: 'cross-origin' });
+      readBody(req, (body) => {
+        try {
+          const { root, undo } = JSON.parse(body || '{}');
+          const known = collectAll({ monitorDir }).projects.map((p) => p.mainRoot).filter(Boolean);
+          if (!root || !known.includes(root)) throw new Error('不認識這個專案');
+          json(200, undo ? { ok: true, removed: optIn(root) } : { ok: true, marker: optOut(root, 'dashboard') });
+        } catch (e) {
+          json(400, { error: String(e?.message ?? e) });
         }
       });
       return;

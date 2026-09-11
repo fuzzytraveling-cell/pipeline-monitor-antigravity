@@ -1,0 +1,5 @@
+{
+  "name": "pipeline-monitor",
+  "description": "產線監視器的感測器：記下每個對話「誰在什麼時候呼叫了什麼」（只記路徑與前 200 字，全在本機）。裝在使用者層級，每個專案自動記；不想記的專案放 .claude/pipeline-monitor.off，或按儀表板的「退出記錄」。",
+  "author": { "name": "Oscar Hsieh" }
+}

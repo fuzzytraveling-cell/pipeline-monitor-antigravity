@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
-import { readEvents, loadStages, safeName, sessionsOf } from '../lib/events.mjs';
+import { readEvents, loadStages, safeName, sessionsOf, lastRunPerStage, stagesOfSession } from '../lib/events.mjs';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -177,6 +177,50 @@ section('結案／取消結案：最後一筆說了算');
     ev({ ts: t(2), event: 'session_reopened' }), ev({ ts: t(3), event: 'session_closed' }),
   ]);
   check('再結案一次 → 又是結案', !!again[0].closedAt);
+}
+
+section('退出記號：專案根目錄有 .claude/pipeline-monitor.off 就一筆都不記,而且馬上生效');
+{
+  const r = makeRepo({ files: { 'a.js': '1\n' } });
+  mkdirSync(join(r.dir, '.claude'), { recursive: true });
+  writeFileSync(join(r.dir, '.claude', 'pipeline-monitor.off'), '{}');
+  eq('有記號 → 沒有任何一行', runHook(SAMPLE({ cwd: r.dir })).lines.length, 0);
+  eq('有記號 → 離開碼還是 0(AC-2 不變)', runHook(SAMPLE({ cwd: r.dir })).code, 0);
+  mkdirSync(join(r.dir, 'src'));
+  eq('從子資料夾呼叫也看得到根目錄的記號', runHook(SAMPLE({ cwd: join(r.dir, 'src') })).lines.length, 0);
+  rmSync(join(r.dir, '.claude', 'pipeline-monitor.off'));
+  eq('拿掉記號 → 下一筆馬上記(不用開新對話)', runHook(SAMPLE({ cwd: r.dir })).lines.length, 1);
+  r.cleanup();
+}
+
+section('plugin 的呼叫方式：hooks.json 裡那一行 sh "${CLAUDE_PLUGIN_ROOT}/hook.sh" 真的跑得起來');
+{
+  const r = makeRepo({ files: { 'a.js': '1\n' } });
+  const logDir = mkdtempSync(join(tmpdir(), 'pm-log-'));
+  const cmd = JSON.parse(readFileSync(join(ROOT, 'hooks', 'hooks.json'), 'utf8')).hooks.UserPromptSubmit[0].hooks[0].command;
+  execFileSync('sh', ['-c', cmd], {
+    input: JSON.stringify({ hook_event_name: 'UserPromptSubmit', session_id: 's1', prompt_id: 'p1', cwd: r.dir, prompt: 'hi' }),
+    env: { ...process.env, CLAUDE_PLUGIN_ROOT: ROOT, PIPELINE_MONITOR_LOG_DIR: logDir },
+  });
+  eq('用 hooks.json 裡的指令呼叫,寫出一筆', readdirSync(logDir).length, 1);
+  rmSync(logDir, { recursive: true, force: true }); r.cleanup();
+}
+
+section('E 驗收：認瀏覽器工具的事件,講「開瀏覽器跑過一輪（N 個動作）」,不講通過');
+{
+  const stages = [{ id: 'E', name: '驗收', type: 'browser', tools: '^mcp__(Claude_Browser|claude-in-chrome)__' }];
+  const t = (n) => new Date(Date.now() + n * 1000).toISOString();
+  const ev = [
+    { ts: t(0), hook: 'PreToolUse', tool: 'mcp__Claude_Browser__navigate', session: 's1', cwd: '/x' },
+    { ts: t(1), hook: 'PreToolUse', tool: 'mcp__Claude_Browser__computer', session: 's1', cwd: '/x' },
+    { ts: t(2), hook: 'PreToolUse', tool: 'Bash', session: 's1', cwd: '/x' },
+    { ts: t(3), hook: 'PreToolUse', tool: 'mcp__claude-in-chrome__computer', session: 's1', cwd: '/x' },
+  ];
+  const run = lastRunPerStage(ev, stages, '/x').perStage.get('E');
+  check('最後一筆是瀏覽器動作', run?.tool === 'mcp__claude-in-chrome__computer', JSON.stringify(run));
+  eq('這一輪 3 個動作(Bash 不算)', run?.count, 3);
+  eq('對話層也算得出動作數', stagesOfSession(ev, stages, 's1')[0].count, 3);
+  check('沒有任何欄位叫 passed／success(R2:感測器無從得知)', run && !('passed' in run) && !('success' in run));
 }
 
 section('D2：故障記號是警告,不是把整區蓋掉的理由');

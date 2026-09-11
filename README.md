@@ -26,23 +26,27 @@ pipeline-status --clear D    # 記下「D 的發現我處理完了」
 pipeline-status --on         # 把感測器掛到**這個**專案（--off 拆掉）
 ```
 
-### 掛到新的專案
+### 裝感測器（plugin，裝一次就好）
 
 ```sh
-cd "/path/to/你的專案"
-pipeline-status --on
+pipeline-status --install
 ```
 
-⚠️ 它會**合併**進那個專案的 `.claude/settings.local.json`，
-**不會覆蓋**你原本的 hook，動手前先備份。
-拆掉用 `--off`，只拆掉它自己裝的那幾筆。
+它在 `~/.claude/skills/pipeline-monitor` 放一個捷徑指向這個資料夾，Claude Code 會把它當 plugin 載入：
+**之後每個專案都自動記**，不用再到各專案掛。拆掉用 `--uninstall`。
 
-⚠️ 它只能確認「設定寫進去了」，**不能確認 Claude Code 真的讀到了**
-（設定是對話開始時讀的，掛上之後要開**新的**對話）。
-驗證方法：在那個資料夾開個新對話打一句話，回來跑 `pipeline-status`，
+⚠️ 它只能確認「捷徑放好了」，**不能確認 Claude Code 真的載入了**——
+下一個對話才會生效（現有的對話打 `/reload-plugins`）。
+驗證方法：隨便開一個 git 專案的新對話打一句話，回來跑 `pipeline-status`，
 感測器那一行出現「最後一筆來自這裡的紀錄：N 分鐘前」就是通了。
 
-在 worktree 裡跑的時候，它會往主資料夾、再往 `~/.claude` 找設定，找到哪一份就照實說是哪一份。
+**不想記某個專案**：在那個資料夾跑 `pipeline-status --off`，或按儀表板上那個專案的「退出記錄」。
+它只是在主資料夾放一個記號檔 `.claude/pipeline-monitor.off`，hook 看到就不記，**按下去馬上生效**；
+之前的紀錄還在。回來用 `--on` 或「重新加入記錄」。
+
+⚠️ plugin 之前用 `--on` 掛過的專案會**記兩次**——到那個專案跑一次 `pipeline-status --on`，會把舊接法拆掉。
+沒裝 plugin 的話 `--on`／`--off` 還是走舊接法（寫進那個專案的 `.claude/settings.local.json`，合併不覆蓋、動手前備份）。
+
 「掛在哪」看設定，「活著嗎」看紀錄——兩件事分開講，證據跟設定打架時證據贏。
 
 ## 網頁版

@@ -1,12 +1,13 @@
 {
   "_說明": "關卡定義的唯一一份(規格 AC-6)。感測器不讀這個檔——它什麼都記;",
   "_說明2": "只有讀取端拿這裡判斷哪些呼叫算關卡。要加第六關,只改這裡。",
+  "_說明3": "type=browser + tools(正則,比工具名):認的是「開了瀏覽器做動作」,永遠不是「驗收通過」。",
   "_覆寫": "專案可放 .claude/pipeline-stages.json 覆寫,格式相同。",
   "stages": [
     { "id": "A", "name": "寫規格",   "skill": "spec" },
     { "id": "B", "name": "寫程式",   "type": "main-conversation" },
     { "id": "C", "name": "打掃",     "skill": "cleanup" },
     { "id": "D", "name": "魔鬼教官", "skill": "chaos-check" },
-    { "id": "E", "name": "驗收",     "type": "not-built" }
+    { "id": "E", "name": "驗收",     "type": "browser", "tools": "^mcp__(Claude_Browser|claude-in-chrome)__" }
   ]
 }
