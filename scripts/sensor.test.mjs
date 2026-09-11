@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
-import { readEvents, loadStages, safeName } from '../lib/events.mjs';
+import { readEvents, loadStages, safeName, sessionsOf } from '../lib/events.mjs';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -159,6 +159,24 @@ section('C1：專案名有空白和中文,hook 寫的檔名跟讀取端找的要
   eq('而且就是那一筆', r.events.length, 1);
   eq('中文一個字換成 3 個底線(逐位元組,跟 LC_ALL=C 的 tr 一樣)', safeName('中'), '___');
   rmSync(out.logDir, { recursive: true, force: true }); rmSync(parent, { recursive: true, force: true });
+}
+
+section('結案／取消結案：最後一筆說了算');
+{
+  // 2026-09-11 Oscar:按了「取消結案」沒有恢復。伺服器有寫 session_reopened,讀取端沒認。
+  const t = (n) => new Date(Date.now() + n * 1000).toISOString();
+  const ev = (o) => ({ session: 's1', cwd: '/x', ...o });
+  const closedOnly = sessionsOf([ev({ ts: t(0), hook: 'UserPromptSubmit' }), ev({ ts: t(1), event: 'session_closed' })]);
+  check('結案 → closedAt 有值', !!closedOnly[0].closedAt);
+  const reopened = sessionsOf([
+    ev({ ts: t(0), hook: 'UserPromptSubmit' }), ev({ ts: t(1), event: 'session_closed' }), ev({ ts: t(2), event: 'session_reopened' }),
+  ]);
+  eq('取消結案 → closedAt 清掉', reopened[0].closedAt, null);
+  const again = sessionsOf([
+    ev({ ts: t(0), hook: 'UserPromptSubmit' }), ev({ ts: t(1), event: 'session_closed' }),
+    ev({ ts: t(2), event: 'session_reopened' }), ev({ ts: t(3), event: 'session_closed' }),
+  ]);
+  check('再結案一次 → 又是結案', !!again[0].closedAt);
 }
 
 section('D2：故障記號是警告,不是把整區蓋掉的理由');
