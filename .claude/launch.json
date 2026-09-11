@@ -5,7 +5,8 @@
       "name": "pipeline-monitor",
       "runtimeExecutable": "node",
       "runtimeArgs": ["server.mjs"],
-      "port": 4319
+      "port": 4319,
+      "autoPort": true
     }
   ]
 }

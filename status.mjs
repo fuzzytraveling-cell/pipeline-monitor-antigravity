@@ -146,12 +146,15 @@ function readDeps(text) {
 }
 
 function changeHealth(cwd, since) {
-  const range = since ? [since] : [];
-  const stat = git(['diff', '--shortstat', ...range], cwd);
-  const names = git(['diff', '--name-only', ...range], cwd);
+  // ⚠️ 基準只在這裡決定一次:有章比章,沒章比上一次存檔(HEAD)。
+  // 沒帶 HEAD 的 `git diff` 只看得到「還沒 git add」的改動——add 過的整個消失,
+  // 畫面會同時寫「2 個檔案還沒存進保險箱」和「沒有改動」(2026-09-11 實測,老毛病 P1)。
+  const base = since ?? 'HEAD';
+  const stat = git(['diff', '--shortstat', base], cwd);
+  const names = git(['diff', '--name-only', base], cwd);
   // ⚠️ AC-8：只認「被修改」的既有測試（M），不認新增（A）。
   // 寫新功能順便補新測試是好事,天天為它跳警告會讓人關掉這個工具。
-  const modifiedTests = git(['diff', '--diff-filter=M', '--name-only', ...range], cwd);
+  const modifiedTests = git(['diff', '--diff-filter=M', '--name-only', base], cwd);
   // ⚠️ 不要用 diff 的 `+"lodash": "^4"` 去比對——那**假設 package.json 是一行一個相依**。
   // 壓成一行的 package.json 就完全認不到,而且是安靜地認不到。直接解析兩邊的鍵。
   // ⚠️ 這裡本來寫成 `since ? ... : depsNow`——沒有還原點的時候拿自己跟自己比,
@@ -165,18 +168,19 @@ function changeHealth(cwd, since) {
   // AI 生成最常見的產物就是新檔案,漏掉它們會讓改動看起來比實際小——
   // 而「看起來比較安全」正是最危險的錯誤方向。實測抓到:4 個檔案被報成 2 個。
   const untracked = git(['ls-files', '--others', '--exclude-standard'], cwd);
-  const newFiles = untracked ? untracked.split('\n').filter(Boolean).length : 0;
-  const files = (names ? names.split('\n').filter(Boolean).length : 0) + newFiles;
-  const m = stat?.match(/(\d+) insertion.*?(\d+) deletion/) ?? stat?.match(/(\d+) insertion/) ?? null;
-  return {
-    files,
-    newFiles,
-    added: m ? Number(m[1]) : 0,
-    removed: m && m[2] ? Number(m[2]) : 0,
-    modifiedTests: modifiedTests ? modifiedTests.split('\n').filter((f) => f && TEST_FILE.test(f)) : [],
-    // 只算新增的,移除不算債務
-    newDeps: [...depsNow].filter((d) => !depsBefore.has(d)),
-  };
+  const newDeps = [...depsNow].filter((d) => !depsBefore.has(d));   // 只算新增的,移除不算債務
+  const tests = modifiedTests ? modifiedTests.split('\n').filter((f) => f && TEST_FILE.test(f)) : [];
+  // ⚠️ 問不到就是 null,不是 0(R1)。呼叫端要說「問不到改動」,不准印成「沒有改動」。
+  if (names === null || untracked === null) {
+    return { files: null, newFiles: null, added: null, removed: null, modifiedTests: tests, newDeps };
+  }
+  const newFiles = untracked.split('\n').filter(Boolean).length;
+  const files = names.split('\n').filter(Boolean).length + newFiles;
+  // ⚠️ 加減分開讀。只刪不加時 shortstat 沒有「insertion」字樣,
+  // 兩個塞在同一條規則裡就整個對不上,印成 +0 −0(2026-09-11 實測)。
+  const added = stat === null ? null : Number(stat.match(/(\d+) insertion/)?.[1] ?? 0);
+  const removed = stat === null ? null : Number(stat.match(/(\d+) deletion/)?.[1] ?? 0);
+  return { files, newFiles, added, removed, modifiedTests: tests, newDeps };
 }
 
 /* ────────────────────────── 小工具 ────────────────────────── */
@@ -191,13 +195,131 @@ function ago(iso) {
   return `${Math.round(h / 24)} 天前`;
 }
 
+/** 還沒存進保險箱(commit)的檔案有幾個。**這是唯一的一份算法**,網頁那層也用它(老毛病 P2)。
+ *  ⚠️ `-uall`:少了它,一個新資料夾不管裡面有幾個檔案都只算 1 行——
+ *  「回去會丟掉 1 個檔案」實際是 3 個(2026-09-11 實測),而同畫面另一個數字用 ls-files 算會說 3。 */
 function uncommitted(cwd) {
-  const out = git(['status', '--porcelain'], cwd);
+  const out = git(['status', '--porcelain', '-uall'], cwd);
   if (out === null) return null;                 // 沒問到
   return out.split('\n').filter(Boolean).length;
 }
 
-export { git, gitContext, changeScale, changeHealth, detectChecks, ago, TEST_FILE };
+/** 跟 git() 一樣,但回的是**離開碼**——有些問題 git 是用離開碼回答的
+ *  (`merge-base --is-ancestor`:0 是、1 不是、其他是「問不到」)。回 null = 跑不起來。 */
+function gitExit(args, cwd) {
+  try {
+    execFileSync('git', ['-c', 'core.quotepath=false', ...args], { cwd, stdio: ['ignore', 'ignore', 'ignore'] });
+    return 0;
+  } catch (e) {
+    return typeof e.status === 'number' ? e.status : null;
+  }
+}
+
+/**
+ * 章指的版本,跟現在的 HEAD 是什麼關係(L14)。
+ * ⚠️ 章只有在「它指的版本還在目前這條分支的歷史上」才算數。
+ *    歷史被改寫過(2026-09-10 清掉被 commit 的紀錄時就發生了)之後,舊的 SHA 還在倉庫裡,
+ *    `git diff <章>` 照樣算得出數字——畫面看起來完全正常,回去的指令卻會把人帶到另一條歷史。
+ *    整整一天都這樣顯示,沒有任何徵兆。
+ * @returns {{state:'ok', commitsAfter:number} | {state:'off-branch'|'gone'|'unknown'}}
+ *   四種刻意分開,呼叫端不准折成布林;**只有 'ok' 才准給回去的指令**。
+ */
+function checkpointRelation(cwd, commit) {
+  const exists = gitExit(['rev-parse', '--verify', '-q', `${commit}^{commit}`], cwd);
+  if (exists === 1) return { state: 'gone' };
+  if (exists !== 0) return { state: 'unknown' };
+  const anc = gitExit(['merge-base', '--is-ancestor', commit, 'HEAD'], cwd);
+  if (anc === 1) return { state: 'off-branch' };
+  if (anc !== 0) return { state: 'unknown' };
+  // ⚠️ 先看 null 再轉數字:Number(null) 是 0,會把「問不到」變成「之後 0 次存檔」。
+  const out = git(['rev-list', '--count', `${commit}..HEAD`], cwd);
+  if (out === null || !/^\d+$/.test(out)) return { state: 'unknown' };
+  return { state: 'ok', commitsAfter: Number(out) };
+}
+
+/** 備份分支的名字。只求看得懂、同一分鐘內不重複;git 對中文分支名沒意見。 */
+function backupBranchName(now = new Date()) {
+  const p = (n) => String(n).padStart(2, '0');
+  return `備份-${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}-${p(now.getHours())}${p(now.getMinutes())}`;
+}
+
+/** 怎麼回去(AC-3):先講會失去什麼、想留著先打什麼,**指令一定放最後**。 */
+function restoreAdvice({ commit, commitsAfter = 0, dirty = 0, now = new Date() }) {
+  const L = [''];
+  let warned = false;
+  if (commitsAfter > 0) {
+    // ⚠️ L14:reset 會把章之後的存檔從分支上拿掉。git 其實還留著,但要工程師才救得回來——
+    //    對這個工具的使用者來說等於沒了。所以先留一條備份分支,跟 stash 那步同一個節奏。
+    L.push(`   ⚠️ 回去會丟掉蓋章之後的 ${commitsAfter} 次存檔(commit)。想留著先打：`);
+    L.push(`        git branch ${backupBranchName(now)}`);
+    warned = true;
+  }
+  if (dirty === null) {
+    // R1:問不到 ≠ 沒有。不知道有沒有沒存的東西,就當成有。
+    L.push('   ⚠️ 問不到你有沒有還沒存的檔案。保險起見先打：');
+    L.push('        git stash push -u -m 我的備份');
+    warned = true;
+  } else if (dirty > 0) {
+    L.push(`   ⚠️ 回去${warned ? '也' : ''}會丟掉你還沒存的 ${dirty} 個檔案。想留著先打：`);
+    L.push('        git stash push -u -m 我的備份');
+    warned = true;
+  }
+  L.push(warned ? '      確定要回去：' : '      要回到那個版本：');
+  L.push(`        git reset --hard ${commit.slice(0, 7)}`);
+  return L;
+}
+
+/**
+ * 還原點那一段的文案(AC-2／AC-3／AC-4／AC-5／L14)。純函式,一行一個字串——
+ * 因為這是整支程式**唯一會給出破壞性指令**的地方,所以抽出來讓 scripts/status.test.mjs 釘住:
+ * 章不能用的時候,輸出裡不准出現 `reset --hard`。
+ * @param files 蓋章之後改了幾個檔案;null = 問不到
+ */
+function describeCheckpoint({ cp, rel, dirty, files, now = new Date() }) {
+  const L = [];
+  const short = cp.commit.slice(0, 7);
+
+  if (rel.state !== 'ok') {
+    L.push(`⚠️ 有一個還原點（${short}，${ago(cp.at)}，${cp.checks.join(' / ')} 全綠），但它已經失效：`);
+    if (rel.state === 'gone') L.push('   它指的版本已經不存在了。');
+    else if (rel.state === 'off-branch') {
+      L.push('   它指的版本不在目前這條分支的歷史上（歷史被改寫過，或分支換過）。');
+      L.push('   照它回去會跳到另一條歷史，所以這次不給回去的指令。');
+    } else {
+      L.push('   問不到它跟現在的版本是什麼關係。為了不亂給指令，這次不給。');
+    }
+    L.push('', '   重新蓋一個：  pipeline-status --checkpoint');
+    if (dirty === null) L.push('', '   ⚠️ 另外:問不到你有幾個檔案還沒存進保險箱(git commit)。');
+    else if (dirty) L.push('', `   ⚠️ 另外:你有 ${dirty} 個檔案還沒存進保險箱(git commit)。`);
+    return L;
+  }
+
+  // AC-5：永遠寫「檢查全綠」,永遠不寫「確定能動」
+  L.push(`🟢 最後一次檢查全綠：${short}（${ago(cp.at)}）`);
+  L.push(`   通過的是：${cp.checks.join(' / ')}`);
+  L.push('   ⚠️ 檢查全綠不等於功能正確——測試沒測到的地方它不知道。');
+
+  if (files === null) L.push('', '   ⚠️ 問不到「蓋章之後改了什麼」。');
+  else if (files > 0) {
+    L.push('', `   ⚠️ 之後有 ${files} 個檔案被改過,這 ${files} 個沒有被檢查過。`);
+    if (rel.commitsAfter) L.push(`   其中包含蓋章之後的 ${rel.commitsAfter} 次存檔(commit)。`);
+  }
+  else if (rel.commitsAfter) L.push('', `   ⚠️ 蓋章之後存了 ${rel.commitsAfter} 次,但現在的檔案內容跟章一模一樣。`);
+  else L.push('', '   ✅ 蓋章之後沒有任何檔案被改過。');
+
+  if (dirty === null) L.push('   ⚠️ 問不到有幾個還沒存進保險箱(git commit)。');
+  else if (dirty) L.push(`   ⚠️ 其中 ${dirty} 個還沒存進保險箱(git commit)。`);
+
+  if (files || rel.commitsAfter) {
+    L.push(...restoreAdvice({ commit: cp.commit, commitsAfter: rel.commitsAfter, dirty, now }));
+  }
+  return L;
+}
+
+export {
+  git, gitContext, changeScale, changeHealth, detectChecks, ago, TEST_FILE,
+  uncommitted, checkpointRelation, backupBranchName, restoreAdvice, describeCheckpoint,
+};
 
 /* ══════════════════════════ 蓋章：--checkpoint（AC-1） ══════════════════════════ */
 
@@ -276,59 +398,41 @@ function render(ctx) {
 
   const cp = readCheckpoint(ctx);
   const dirty = uncommitted(ctx.root);
+  // ⚠️ L14:章只有在它指的版本還在這條分支的歷史上時才算數,詳見 checkpointRelation()。
+  const rel = cp ? checkpointRelation(ctx.root, cp.commit) : null;
+  const cpUsable = rel?.state === 'ok';
+  // 改動的基準只在這裡決定一次,下面全部沿用:章能用就比章,不能用就比上一次存檔(HEAD)。
+  // 以前這裡算了兩次(一次給還原點那段、一次給改動體檢),兩個數字有機會不一樣(老毛病 P2)。
+  const since = cpUsable ? cp.commit : undefined;
+  const h = changeHealth(ctx.root, since);
 
-  /* ── 還原點（AC-2 / AC-4 / AC-5） ── */
+  /* ── 還原點（AC-2 / AC-3 / AC-4 / AC-5 / L14） ── */
   if (!cp) {
     // AC-4：說「還不知道」,不說「你沒有能動的版本」
     console.log('🔍 還沒有還原點——這個工具還沒看過你跑檢查,所以**還不知道**哪個版本是綠的。');
     console.log('   （這不代表你沒有好版本,只代表我沒問到。）');
     console.log('\n   建立第一個：  pipeline-status --checkpoint');
     // AC-5 的「還沒進保險箱」跟有沒有章無關——沒章的時候一樣該講。
-    if (dirty) console.log(`\n   ⚠️ 另外:你有 ${dirty} 個檔案還沒存進保險箱(git commit)。`);
+    if (dirty === null) console.log('\n   ⚠️ 另外:問不到你有幾個檔案還沒存進保險箱(git commit)。');
+    else if (dirty) console.log(`\n   ⚠️ 另外:你有 ${dirty} 個檔案還沒存進保險箱(git commit)。`);
   } else {
-    // AC-5：永遠寫「檢查全綠」,永遠不寫「確定能動」
-    console.log(`🟢 最後一次檢查全綠：${cp.commit.slice(0, 7)}（${ago(cp.at)}）`);
-    console.log(`   通過的是：${cp.checks.join(' / ')}`);
-    console.log('   ⚠️ 檢查全綠不等於功能正確——測試沒測到的地方它不知道。');
-
-    // ⚠️ 又是它:`git diff` 看不到未追蹤的新檔案。
-    // 這裡漏掉的話會印出「之後有 2 個檔案被改過 / 其中 3 個還沒存進保險箱」——
-    // 3 大於 2,一眼就看得出是假的,而**一個算術對不起來的儀表板,你不會再信它第二次**。
-    const changed = git(['diff', '--name-only', cp.commit], ctx.root);
-    const untracked = git(['ls-files', '--others', '--exclude-standard'], ctx.root);
-    const n = changed === null ? null
-      : new Set([...changed.split('\n'), ...(untracked ?? '').split('\n')].filter(Boolean)).size;
-    if (n === null) console.log('\n   ⚠️ 問不到「蓋章之後改了什麼」。');
-    else if (n === 0) console.log('\n   ✅ 蓋章之後沒有任何檔案被改過。');
-    else console.log(`\n   ⚠️ 之後有 ${n} 個檔案被改過,這 ${n} 個沒有被檢查過。`);
-
-    if (dirty) console.log(`   ⚠️ 其中 ${dirty} 個還沒存進保險箱(git commit)。`);
-
-    /* ── 怎麼回去（AC-3）：先講會失去什麼,再給指令 ── */
-    if (n) {
-      console.log('');
-      if (dirty) {
-        console.log(`   ⚠️ 回去會丟掉你還沒存的 ${dirty} 個檔案。想留著先打：`);
-        console.log('        git stash push -u -m 我的備份');
-        console.log('      確定要回去：');
-      } else {
-        console.log('      要回到那個版本：');
-      }
-      console.log(`        git reset --hard ${cp.commit.slice(0, 7)}`);
-    }
+    // 文案在 describeCheckpoint():純函式,被測試釘住「章不能用時不准出現 reset --hard」
+    for (const line of describeCheckpoint({ cp, rel, dirty, files: h.files })) console.log(line);
   }
 
   /* ── 改動體檢（AC-7 / AC-8）：只報數字,不下判斷 ── */
-  const since = cp?.commit;
-  const h = changeHealth(ctx.root, since);
   const scale = changeScale(ctx.root);
   console.log(`\n━━ ${since ? '蓋章之後的改動' : '尚未提交的改動'} ━━`);
-  if (!h.files) {
+  if (cp && !cpUsable) console.log('   （章失效了,所以這裡比的是上一次存檔,不是章。）');
+  if (h.files === null) {
+    console.log('   問不到改動。');                // R1:沒問到 ≠ 沒有改動
+  } else if (!h.files) {
     console.log('   沒有改動。');
   } else {
     console.log(`   ${h.files} 個檔案${h.newFiles ? `(其中 ${h.newFiles} 個是新檔案)` : ''}`);
     // 新檔案還沒被 git 追蹤,算不出增減行數。照實說涵蓋範圍,不要給一個看起來完整的假總數。
-    console.log(`   已存在的檔案:+${h.added} −${h.removed} 行`);
+    if (h.added === null) console.log('   已存在的檔案:行數問不到');
+    else console.log(`   已存在的檔案:+${h.added} −${h.removed} 行`);
     // ⚠️ AC-7：比例尺來自這個專案自己的歷史。沒有「太多」這種話。
     if (scale) console.log(`   （這個專案平常 ${scale.median} 個檔案,最多到過 ${scale.max} 個）`);
     if (h.newDeps.length) {

@@ -5,13 +5,19 @@
  *    數量算錯、把「沒問到」當成「沒有」、拿雜訊當基準。
  *    純視覺的東西壞了看得見;這幾條壞了測試全綠、畫面照跑。
  */
-import { writeFileSync, appendFileSync } from 'node:fs';
+import { writeFileSync, mkdirSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import process from 'node:process';
-import { gitContext, changeScale, changeHealth, detectChecks, ago } from '../status.mjs';
+import {
+  gitContext, changeScale, changeHealth, detectChecks, ago,
+  uncommitted, checkpointRelation, describeCheckpoint,
+} from '../status.mjs';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 
-section('L2 回歸：改動計數必須看得到「還沒被 git 追蹤的新檔案」');
+const sha = (dir, ref = 'HEAD') => execFileSync('git', ['rev-parse', ref], { cwd: dir, encoding: 'utf8' }).trim();
+
+section('L2 回歸：改動計數必須看得到「還沒被 git 追蹤的新檔案」', 'P1');
 {
   // ⚠️ 這個 bug 踩過 2 次(docs/LESSONS.md L2)。漏掉的方向固定是
   //    讓改動看起來比實際小——也就是危險的那一邊。
@@ -22,6 +28,85 @@ section('L2 回歸：改動計數必須看得到「還沒被 git 追蹤的新檔
   eq('2 個檔案(1 改 + 1 新),不是 1 個', h.files, 2);
   eq('其中 1 個是新檔案', h.newFiles, 1);
   r.cleanup();
+}
+
+section('L2 第三次：git 的某一種問法看不到某一類改動', 'P1');
+{
+  // B1:git add 過的改動,沒帶 HEAD 的 git diff 完全看不到 → 畫面說「沒有改動」
+  const r = makeRepo({ files: { 'a.js': 'x\n' } });
+  writeFileSync(join(r.dir, 'a.js'), 'x\ny\n');
+  r.git('add', 'a.js');
+  eq('add 過的改動也算改動(不是「沒有改動」)', changeHealth(r.dir, null).files, 1);
+  // B2:整個新資料夾要一個檔案算一個,不是整個資料夾算 1
+  mkdirSync(join(r.dir, 'new'));
+  for (const f of ['1', '2', '3']) writeFileSync(join(r.dir, `new/${f}.js`), `${f}\n`);
+  eq('新資料夾裡 3 個檔案 → 還沒存進保險箱的是 4 個,不是 2 個', uncommitted(r.dir), 4);
+  // B3:只刪不加,shortstat 沒有「insertion」字樣
+  const r2 = makeRepo({ files: { 'a.js': '1\n2\n3\n' } });
+  writeFileSync(join(r2.dir, 'a.js'), '1\n');
+  const h2 = changeHealth(r2.dir, null);
+  eq('只刪不加:刪了 2 行(不是 0)', h2.removed, 2);
+  eq('只刪不加:加了 0 行', h2.added, 0);
+  r.cleanup(); r2.cleanup();
+}
+
+section('同一個畫面上的兩個數字必須一樣', 'P2');
+{
+  // 「還沒存進保險箱」跟「改動」以前是兩種問法算的,3 大於 2 那種畫面就是這樣來的
+  const r = makeRepo({ files: { 'a.js': 'x\n', 'b.js': 'y\n' } });
+  writeFileSync(join(r.dir, 'a.js'), 'x\nz\n'); r.git('add', 'a.js');   // add 過的
+  writeFileSync(join(r.dir, 'b.js'), 'y\nw\n');                          // 還沒 add 的
+  mkdirSync(join(r.dir, 'new'));                                          // 新資料夾
+  for (const f of ['1', '2', '3']) writeFileSync(join(r.dir, `new/${f}.js`), `${f}\n`);
+  const h = changeHealth(r.dir, null);
+  eq('「還沒存進保險箱」＝「改動」的檔案數', uncommitted(r.dir), h.files);
+  eq('而且是 5 個', h.files, 5);
+  eq('其中 3 個是新檔案', h.newFiles, 3);
+  r.cleanup();
+}
+
+section('L14：章跟現在的 HEAD 是什麼關係,決定能不能給回去的指令');
+{
+  const r = makeRepo({ files: { 'a.js': '1\n' } });
+  const c1 = sha(r.dir);
+  const same = checkpointRelation(r.dir, c1);
+  check('章就是現在 → ok,之後 0 次存檔', same.state === 'ok' && same.commitsAfter === 0, JSON.stringify(same));
+  for (let i = 0; i < 2; i++) {
+    writeFileSync(join(r.dir, `f${i}.js`), `${i}\n`); r.git('add', '-A'); r.git('commit', '-qm', `c${i}`);
+  }
+  const after = checkpointRelation(r.dir, c1);
+  check('章之後存了 2 次 → ok 且 commitsAfter=2', after.state === 'ok' && after.commitsAfter === 2, JSON.stringify(after));
+  // 歷史被改寫:amend 之後舊的 SHA 還在倉庫裡,但已經不在分支上——git diff 對它照樣算得出數字
+  const c3 = sha(r.dir);
+  r.git('commit', '--amend', '-qm', 'rewritten');
+  eq('歷史改寫過 → off-branch(不是 ok,也不是 gone)', checkpointRelation(r.dir, c3).state, 'off-branch');
+  eq('根本不存在的版本 → gone', checkpointRelation(r.dir, '0000000000000000000000000000000000000000').state, 'gone');
+  r.cleanup();
+}
+
+section('L14：章不能用的時候,畫面上不准出現 reset --hard');
+{
+  const cp = { commit: 'abcdef0123456789', at: new Date().toISOString(), checks: ['test'] };
+  const text = (args) => describeCheckpoint({ cp, dirty: 0, files: 5, ...args }).join('\n');
+
+  const off = text({ rel: { state: 'off-branch' } });
+  check('off-branch → 沒有 reset --hard', !off.includes('reset --hard'), off);
+  check('off-branch → 說「失效」,並給重蓋的指令', off.includes('失效') && off.includes('--checkpoint'), off);
+  check('gone → 沒有 reset --hard', !text({ rel: { state: 'gone' } }).includes('reset --hard'));
+  check('問不到關係 → 沒有 reset --hard(沒問到不准當成沒事)',
+        !text({ rel: { state: 'unknown' } }).includes('reset --hard'));
+
+  const ok2 = text({ rel: { state: 'ok', commitsAfter: 2 }, files: 3, now: new Date(2026, 8, 11, 9, 5) });
+  check('之後有 2 次存檔 → 講明會丟掉 2 次', ok2.includes('2 次存檔'), ok2);
+  check('先給備份分支(含日期時間),再給 reset',
+        ok2.includes('git branch 備份-2026-09-11-0905') && ok2.indexOf('git branch') < ok2.indexOf('reset --hard'), ok2);
+  const okDirty = text({ rel: { state: 'ok', commitsAfter: 0 }, dirty: 3, files: 3 });
+  check('有 3 個沒存的 → stash 在 reset 前面',
+        okDirty.includes('stash') && okDirty.indexOf('stash') < okDirty.indexOf('reset --hard'), okDirty);
+  const okNull = text({ rel: { state: 'ok', commitsAfter: 0 }, dirty: null, files: 3 });
+  check('問不到有沒有沒存的 → 說問不到,而且還是先給 stash', okNull.includes('問不到') && okNull.includes('stash'), okNull);
+  const clean = text({ rel: { state: 'ok', commitsAfter: 0 }, files: 0 });
+  check('章就是現在、什麼都沒改 → 沒有回去的指令(沒有地方可以回)', !clean.includes('reset --hard'), clean);
 }
 
 section('AC-7：樣本太少就不給比例尺（雜訊不能當基準）');
@@ -87,7 +172,6 @@ section('相依偵測不靠 package.json 的排版（L5）');
   // 壓成一行,沒有換行也沒有縮排——舊版的正則在這裡會安靜地認不到
   writeFileSync(join(r.dir, 'package.json'),
     JSON.stringify({ name: 'x', dependencies: { a: '^1.0.0', lodash: '^4.0.0' } }));
-  const head = r.git('rev-parse', 'HEAD');
   const h = changeHealth(r.dir, null);
   check('壓成一行也認得出新增的 lodash', h.newDeps.includes('lodash'), JSON.stringify(h.newDeps));
   check('原本就有的 a 不算新增', !h.newDeps.includes('a'));

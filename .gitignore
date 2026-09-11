@@ -9,5 +9,10 @@ logs/
 # 還原點:記的是「這台電腦上跑過檢查」,換一台機器那句話就不成立。
 checkpoints/
 
+# 感測器掛載點:`--on` 會把這台電腦的絕對路徑寫進去,Claude Code 自己也會往裡面寫權限設定。
+# 純本機資料。漏了它,主資料夾就永遠有一個「還沒 commit 的檔案」而蓋不了章——
+# 而蓋章被擋時建議的 `git add -A` 會把它存進去(2026-09-11 實測,見 docs/進行中/誠實修補.md E6)。
+.claude/settings.local.json
+
 node_modules/
 .DS_Store

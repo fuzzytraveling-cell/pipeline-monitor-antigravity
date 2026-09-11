@@ -1,14 +1,43 @@
 /** 零相依的測試小工具。刻意不裝測試框架——見 CLAUDE.md「不加任何 npm 相依」。 */
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const PATTERNS = join(dirname(fileURLToPath(import.meta.url)), '..', 'docs', 'FAILURE-PATTERNS.md');
 
 let failed = 0, passed = 0;
-export function section(t) { console.log(`\n■ ${t}`); }
+// 這一段測試釘的是哪一個老毛病(docs/FAILURE-PATTERNS.md 的代號)。
+// ⚠️ 那份文件自己不會被打開,所以接在這裡:紅的時候把對應那一行印在 ✗ 底下。
+let pattern = null;
+
+/** 找 docs/FAILURE-PATTERNS.md 裡 `## P1　…` 那一行。找不到回 null——呼叫端要把它當錯誤,不是當沒事。 */
+function patternHeading(id) {
+  try {
+    const re = new RegExp(`^##\\s*${id}(?![0-9])`);
+    return readFileSync(PATTERNS, 'utf8').split('\n').find((l) => re.test(l))?.replace(/^##\s*/, '') ?? null;
+  } catch { return null; }
+}
+
+export function section(t, patternId = null) {
+  console.log(`\n■ ${t}`);
+  pattern = null;
+  if (!patternId) return;
+  const heading = patternHeading(patternId);
+  // 標了一個文件裡沒有的代號 → 直接算失敗。文件跟測試脫節的那一刻就要紅,不能等有人發現。
+  check(`老毛病 ${patternId} 在 docs/FAILURE-PATTERNS.md 裡有一條`, heading !== null,
+        '先把它寫進 docs/FAILURE-PATTERNS.md,再在這裡標代號');
+  pattern = heading ? { heading, shown: false } : null;
+}
+
 export function check(label, ok, detail = '') {
   console.log(`  ${ok ? '✓' : '✗'} ${label}${ok || !detail ? '' : `\n      ${detail}`}`);
   ok ? passed++ : failed++;
+  if (!ok && pattern && !pattern.shown) {
+    pattern.shown = true;
+    console.log(`      ⚠️ 老毛病又來了:${pattern.heading}  → docs/FAILURE-PATTERNS.md`);
+  }
 }
 export function eq(label, actual, expected) {
   check(label, Object.is(actual, expected), `expected: ${expected}\n      actual:   ${actual}`);

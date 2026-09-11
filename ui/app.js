@@ -92,7 +92,7 @@ function projectList() {
       <h3>${esc(p.name)}</h3>
       <div class="mini">${mini}</div>
       <div class="meta">${(p.sessions ?? []).filter((s) => !s.closedAt).length} 個進行中的對話 ·
-        ${cp ? `還原點 ${ago(cp.at)}` : '還沒有還原點'}</div>
+        ${!cp ? '還沒有還原點' : cpOk(c) ? `還原點 ${ago(cp.at)}` : '還原點失效'}</div>
     </button>`;
   }).join('');
   return `<div class="block">
@@ -103,6 +103,9 @@ function projectList() {
 }
 
 /* ═══ 三張狀態卡 ═══ */
+/** 章能不能用:有章、而且它指的版本還在這條分支的歷史上(L14)。伺服器算好的,這裡只讀。 */
+const cpOk = (c) => !!c?.checkpoint && c?.checkpointRelation?.state === 'ok';
+
 function statRestore(c) {
   const cp = c.checkpoint;
   if (!cp) return `<div class="stat" data-tone="restore">
@@ -111,10 +114,26 @@ function statRestore(c) {
     <div class="sub">這不代表你沒有好版本,只代表還沒看過你跑檢查。</div>
     <div class="hint">在那個資料夾跑 <code>pipeline-status --checkpoint</code></div></div>`;
 
+  // ⚠️ L14:章指的版本不在這條分支上(歷史被改寫過)時,這張卡**不給**回去的指令。
+  //    2026-09-11 主資料夾就是這樣:章指著清歷史之前的版本,複製回去會跳到另一條歷史。
+  const rel = c.checkpointRelation;
+  if (!cpOk(c)) {
+    const why = rel?.state === 'gone' ? '它指的版本已經不存在了。'
+      : rel?.state === 'off-branch' ? '它指的版本不在目前這條分支的歷史上（歷史被改寫過，或分支換過）。'
+      : '問不到它跟現在的版本是什麼關係。';
+    return `<div class="stat" data-tone="restore">
+    <h3 class="ctitle">還原點</h3><div class="label">你回得去哪裡</div>
+    <div class="big">失效</div>
+    <div class="sub">${ago(cp.at)}蓋的章已經不能用：${esc(why)}</div>
+    <div class="hint">⚠️ 所以這裡<b>不給</b>回去的指令。重新蓋一個：<code>pipeline-status --checkpoint</code></div></div>`;
+  }
+
   // ⚠️ 一定要帶 cd。少了它,這一行會在終端機**當下所在的資料夾**執行——
   // 而 `git reset --hard` 跑錯資料夾會毀掉另一個專案的東西,還沒有 undo。
   // Oscar 2026-09-10 實際貼了才發現,這是我漏掉的,而且是危險的那一種。
-  const cmd = `cd ${JSON.stringify(c.path)} && git reset --hard ${cp.commit.slice(0, 7)}`;
+  // 章之後有存檔 → 先留一條備份分支再回去(L14)。用 && 串:備份沒成功就不會走到 reset。
+  const backup = rel.commitsAfter && c.backupBranch ? `git branch ${c.backupBranch} && ` : '';
+  const cmd = `cd ${JSON.stringify(c.path)} && ${backup}git reset --hard ${cp.commit.slice(0, 7)}`;
   // ⚠️ 不再把 SHA 當標題。`a79e8d7` 對使用者沒有意義——時間與版本號才有。
   // SHA 只留在「複製回去的指令」裡,因為 git 需要它。
   const pills = cp.checks.map((k) => `<span class="pill ok">${esc(k)}</span>`).join('');
@@ -127,6 +146,8 @@ function statRestore(c) {
     <button class="copy" data-copy="${esc(cmd)}">複製回去的指令</button>
     <div class="hint">⚠️ 這個網頁<b>不會</b>幫你還原。複製出來的指令<b>已經含 cd</b>,
       貼到終端機或直接貼給 Claude 都可以——貼給 Claude 的話它會先問過你才動手。
+      ${rel.commitsAfter ? `<b>蓋章之後你存了 ${rel.commitsAfter} 次</b>,指令會先把它們留在分支
+      <code>${esc(c.backupBranch ?? '')}</code> 上再回去。` : ''}
       <b>回去會丟掉還沒 commit 的東西。</b></div>
   </div>`;
 }
@@ -176,7 +197,7 @@ function statChanges(c) {
     <div class="big">問不到</div></div>`;
   if (!f.total) return `<div class="stat" data-tone="change"><h3 class="ctitle">未檢查清單</h3><div class="label">commit後還沒被檢查的檔案</div>
     <div class="big">沒有改動</div>
-    <div class="sub">${c.checkpoint ? '蓋章之後' : '相對於上一個存檔'}沒有任何檔案被動過。</div></div>`;
+    <div class="sub">${cpOk(c) ? '蓋章之後' : '相對於上一個存檔'}沒有任何檔案被動過。</div></div>`;
 
   const groups = f.groups.map((g) => `<div class="fgroup">
       <div class="dir">${esc(g.dir)}/</div>
@@ -185,7 +206,7 @@ function statChanges(c) {
     </div>`).join('');
 
   return `<div class="stat" data-tone="change">
-    <h3 class="ctitle">未檢查清單</h3><div class="label">${c.checkpoint ? 'commit後還沒被檢查的檔案' : '還沒存檔的改動'}</div>
+    <h3 class="ctitle">未檢查清單</h3><div class="label">${cpOk(c) ? 'commit後還沒被檢查的檔案' : '還沒存檔的改動'}</div>
     <div class="big"><span class="num">${f.total}</span><span class="unit">個檔案</span></div>
     ${f.newCount ? `<div class="sub">其中 ${f.newCount} 個是新建的。</div>` : ''}
     <div class="files">${groups}</div>
@@ -248,9 +269,11 @@ function overview(p) {
   const chip = (s) => `<a class="ochip" href="#/p/${encodeURIComponent(p.name)}/s/${encodeURIComponent(s.id)}">
       <span class="odot"></span>${esc((s.title ?? '（還沒有標題）').slice(0, 22))}</a>`;
 
-  const mid = card ? [
-    card.ladder?.uncommitted ? `${card.ladder.uncommitted} 個檔案沒存` : '都存好了',
-    card.checkpoint ? `還原點 ${ago(card.checkpoint.at)}` : '還沒有還原點',
+  // ⚠️ 資料夾不見了的卡沒有任何數字——不能拿 undefined 印成「都存好了」(R1)
+  const mid = card?.gone ? ['那個資料夾已經不在了'] : card ? [
+    card.ladder?.uncommitted === null ? '問不到有沒有沒存的檔案'
+      : card.ladder?.uncommitted ? `${card.ladder.uncommitted} 個檔案沒存` : '都存好了',
+    !card.checkpoint ? '還沒有還原點' : cpOk(card) ? `還原點 ${ago(card.checkpoint.at)}` : '還原點失效',
     card.files?.total ? `${card.files.total} 個檔案還沒檢查` : '沒有待檢查的檔案',
   ] : ['還沒有資料'];
 
