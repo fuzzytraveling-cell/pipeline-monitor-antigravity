@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os';
 import { join, basename } from 'node:path';
 import process from 'node:process';
 import { collectAll } from '../lib/collect.mjs';
+import { safeName } from '../lib/events.mjs';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 
 /** 造一個只有一個章的假 monitor 資料夾,章指向 repo 的某個 commit */
@@ -55,6 +56,28 @@ section('L14：章之後有存檔 → 卡片帶備份分支名');
   check('備份分支名以「備份-」開頭', typeof card?.backupBranch === 'string' && card.backupBranch.startsWith('備份-'),
         String(card?.backupBranch));
   rmSync(monitorDir, { recursive: true, force: true }); r.cleanup();
+}
+
+section('C3：中文名的專案在網頁上要找得到,而且顯示真的名字', 'P2');
+{
+  // safeName 之後全是底線 → 以前被「跳過 _ 開頭」那條規則整個吃掉;顯示也要用真的資料夾名,不是檔名
+  const parent = mkdtempSync(join(tmpdir(), 'pm-c3-'));
+  const name = '示範 專案';
+  const dir = join(parent, name);
+  mkdirSync(dir);
+  execFileSync('git', ['init', '-q'], { cwd: dir });
+  execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=T', 'commit', '-q', '--allow-empty', '-m', 'init'], { cwd: dir });
+  const root = out(dir, 'rev-parse', '--show-toplevel');
+  const monitorDir = mkdtempSync(join(tmpdir(), 'pm-monitor-'));
+  mkdirSync(join(monitorDir, 'logs'));
+  writeFileSync(join(monitorDir, 'logs', `${safeName(name)}.jsonl`),
+    JSON.stringify({ ts: new Date().toISOString(), hook: 'UserPromptSubmit', session: 's1', cwd: root, prompt: 'hi' }) + '\n');
+  const all = collectAll({ monitorDir }).projects;
+  const p = all.find((x) => x.name === safeName(name));
+  check('案件有出現(不是被 _ 開頭的規則吃掉)', !!p, JSON.stringify(all.map((x) => x.name)));
+  eq('顯示的是真的資料夾名', p?.displayName, name);
+  eq('對話掛在它的卡上', p?.sessions?.[0]?.card?.path, root);
+  rmSync(monitorDir, { recursive: true, force: true }); rmSync(parent, { recursive: true, force: true });
 }
 
 process.exit(summary());

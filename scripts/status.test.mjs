@@ -5,7 +5,7 @@
  *    數量算錯、把「沒問到」當成「沒有」、拿雜訊當基準。
  *    純視覺的東西壞了看得見;這幾條壞了測試全綠、畫面照跑。
  */
-import { writeFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { writeFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, basename, dirname } from 'node:path';
@@ -244,6 +244,36 @@ section('D2：整支 CLI 跑一次——故障記號不蓋掉紀錄;設定找不
   check('不再把整區蓋成「紀錄檔存在,但裡面沒有東西」', !out.includes('裡面沒有東西'), out);
   check('設定裡沒掛、紀錄裡有 → 感測器那行說「它在記」', out.includes('它在記'), out);
   for (const d of [logDir, home]) rmSync(d, { recursive: true, force: true });
+  r.cleanup();
+}
+
+section('C2：在子資料夾跑,專案名不准變成上一層', 'P2');
+{
+  // git 從子資料夾回的 --git-common-dir 是相對於**執行位置**的 '../.git';以前接在 root 後面 → 變上一層的名字
+  const r = makeRepo({ files: { 'src/a.js': '1\n' } });
+  const expect = basename(execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: r.dir, encoding: 'utf8' }).trim());
+  eq('根目錄 → 專案名 = 資料夾名', gitContext(r.dir).project, expect);
+  eq('src/ 裡 → 一樣(不是上一層)', gitContext(join(r.dir, 'src')).project, expect);
+  // worktree 的子資料夾走另一條路(--git-common-dir 回絕對路徑),也要對
+  const wtParent = mkdtempSync(join(tmpdir(), 'pm-wt-'));
+  const wt = join(wtParent, 'wt');
+  execFileSync('git', ['worktree', 'add', '-q', wt, '-b', 'side'], { cwd: r.dir, stdio: 'ignore' });
+  eq('worktree 的 src/ 裡 → 仍是主專案的名字', gitContext(join(wt, 'src')).project, expect);
+  execFileSync('git', ['worktree', 'remove', '--force', wt], { cwd: r.dir, stdio: 'ignore' });
+  rmSync(wtParent, { recursive: true, force: true }); r.cleanup();
+}
+
+section('E1：透過捷徑(symlink)執行也要有輸出——L1 的同一族', 'P3');
+{
+  // npm link／npx 就是這種方式:argv[1] 是捷徑,import.meta.url 是真實路徑,直接比對永遠 false → 零輸出零錯誤
+  const r = makeRepo({ files: { 'a.js': '1\n' } });
+  const bin = mkdtempSync(join(tmpdir(), 'pm-bin-'));
+  const home = mkdtempSync(join(tmpdir(), 'pm-home-'));
+  symlinkSync(join(ROOT, 'status.mjs'), join(bin, 'pipeline-status'));
+  const out = execFileSync('node', [join(bin, 'pipeline-status')],
+    { cwd: r.dir, encoding: 'utf8', env: { ...process.env, HOME: home } });
+  check('有印東西(不是安靜地什麼都不做)', out.includes('━━'), JSON.stringify(out.slice(0, 80)));
+  for (const d of [bin, home]) rmSync(d, { recursive: true, force: true });
   r.cleanup();
 }
 

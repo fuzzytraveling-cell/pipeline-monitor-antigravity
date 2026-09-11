@@ -89,7 +89,7 @@ function projectList() {
       .map((s) => `<span data-s="${stageState(s)}"></span>`).join('');
     const cp = c?.checkpoint;
     return `<button class="pcard" data-go="${esc(p.name)}">
-      <h3>${esc(p.name)}</h3>
+      <h3>${esc(p.displayName ?? p.name)}</h3>
       <div class="mini">${mini}</div>
       <div class="meta">${(p.sessions ?? []).filter((s) => !s.closedAt).length} 個進行中的對話 ·
         ${!cp ? '還沒有還原點' : cpOk(c) ? `還原點 ${ago(cp.at)}` : '還原點失效'}</div>
@@ -193,9 +193,11 @@ function statLadder(c) {
 
 function statChanges(c) {
   const f = c.files;
-  if (!f) return `<div class="stat" data-tone="change"><h3 class="ctitle">未檢查清單</h3><div class="label">commit後還沒被檢查的檔案</div>
+  // 「commit 後還沒被檢查」預設了有一個能用的章;沒有章(或章失效)時,這張卡講的是「還沒存檔的改動」
+  const label = cpOk(c) ? 'commit後還沒被檢查的檔案' : '還沒存檔的改動';
+  if (!f) return `<div class="stat" data-tone="change"><h3 class="ctitle">未檢查清單</h3><div class="label">${label}</div>
     <div class="big">問不到</div></div>`;
-  if (!f.total) return `<div class="stat" data-tone="change"><h3 class="ctitle">未檢查清單</h3><div class="label">commit後還沒被檢查的檔案</div>
+  if (!f.total) return `<div class="stat" data-tone="change"><h3 class="ctitle">未檢查清單</h3><div class="label">${label}</div>
     <div class="big">沒有改動</div>
     <div class="sub">${cpOk(c) ? '蓋章之後' : '相對於上一個存檔'}沒有任何檔案被動過。</div></div>`;
 
@@ -206,7 +208,7 @@ function statChanges(c) {
     </div>`).join('');
 
   return `<div class="stat" data-tone="change">
-    <h3 class="ctitle">未檢查清單</h3><div class="label">${cpOk(c) ? 'commit後還沒被檢查的檔案' : '還沒存檔的改動'}</div>
+    <h3 class="ctitle">未檢查清單</h3><div class="label">${label}</div>
     <div class="big"><span class="num">${f.total}</span><span class="unit">個檔案</span></div>
     ${f.newCount ? `<div class="sub">其中 ${f.newCount} 個是新建的。</div>` : ''}
     <div class="files">${groups}</div>
@@ -288,7 +290,7 @@ function overview(p) {
       <span class="odot"></span>${esc((s.title ?? '（還沒有標題）').slice(0, 22))}</a>`;
 
   // ⚠️ 資料夾不見了的卡沒有任何數字——不能拿 undefined 印成「都存好了」(R1)
-  const mid = card?.gone ? ['那個資料夾已經不在了'] : card ? [
+  const mid = card?.gone ? ['那個資料夾已經不在了'] : card?.notGit ? ['這個資料夾不是 git 專案'] : card ? [
     card.ladder?.uncommitted === null ? '問不到有沒有沒存的檔案'
       : card.ladder?.uncommitted ? `${card.ladder.uncommitted} 個檔案沒存` : '都存好了',
     !card.checkpoint ? '還沒有還原點' : cpOk(card) ? `還原點 ${ago(card.checkpoint.at)}` : '還原點失效',
@@ -398,13 +400,15 @@ function render() {
     $crumb.innerHTML = '<span>案件</span>';
     $app.innerHTML = projectList();
   } else if (r.view === 'project') {
-    $crumb.innerHTML = link('#/', '案件') + `<span>${esc(r.project)}</span>`;
+    // 路由用的是檔名(safeName 過的);麵包屑給人看,要用真的資料夾名
+    const p = latest?.projects?.find((x) => x.name === r.project);
+    $crumb.innerHTML = link('#/', '案件') + `<span>${esc(p?.displayName ?? r.project)}</span>`;
     $app.innerHTML = projectPage(r.project);
   } else {
     const p = latest?.projects?.find((x) => x.name === r.project);
     const s = p?.sessions.find((x) => x.id === r.session);
     $crumb.innerHTML = link('#/', '案件')
-      + link(`#/p/${encodeURIComponent(r.project)}`, r.project)
+      + link(`#/p/${encodeURIComponent(r.project)}`, p?.displayName ?? r.project)
       + `<span>${esc((s?.title ?? '對話').slice(0, 20))}</span>`;
     $app.innerHTML = sessionPage(r.project, r.session);
   }

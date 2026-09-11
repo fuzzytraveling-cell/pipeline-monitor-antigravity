@@ -8,13 +8,14 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
-import { readEvents, loadStages } from '../lib/events.mjs';
+import { readEvents, loadStages, safeName } from '../lib/events.mjs';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-/** 把 payload 餵給 hook.sh,在自己的暫存 logs 資料夾裡跑,回傳 {stdout, code, lines} */
-function runHook(payload) {
+/** 把 payload 餵給 hook.sh,在自己的暫存 logs 資料夾裡跑,回傳 {stdout, code, lines, logDir}。
+ *  keep=true 時不刪暫存資料夾(呼叫端要自己看檔名),用完自己 rm。 */
+function runHook(payload, { keep = false } = {}) {
   const logDir = mkdtempSync(join(tmpdir(), 'pm-log-'));
   let code = 0, stdout = '';
   try {
@@ -29,8 +30,8 @@ function runHook(payload) {
   const lines = readdirSync(logDir)
     .flatMap((f) => readFileSync(join(logDir, f), 'utf8').split('\n'))
     .filter(Boolean);
-  rmSync(logDir, { recursive: true, force: true });
-  return { stdout, code, lines };
+  if (!keep) rmSync(logDir, { recursive: true, force: true });
+  return { stdout, code, lines, logDir };
 }
 
 const SAMPLE = (over = {}) => ({
@@ -138,6 +139,26 @@ section('E3：記的是使用者說的話,不是系統塞在前面的說明');
   const plain = runHook({ ...base, prompt: '沒有前綴的訊息' });
   eq('沒有前綴的照舊', JSON.parse(plain.lines[0]).prompt, '沒有前綴的訊息');
   r.cleanup();
+}
+
+section('C1：專案名有空白和中文,hook 寫的檔名跟讀取端找的要一樣（真的跑 hook.sh）', 'P2');
+{
+  // hook.sh 用 tr 把不安全字元換成 _(逐位元組);讀取端以前拿原名去找 → 永遠「還沒有紀錄」。
+  // 這條測試是 sh 跟 node 兩邊唯一的共識來源:改任何一邊,這裡會紅。
+  const parent = mkdtempSync(join(tmpdir(), 'pm-c1-'));
+  const name = 'TutorPod AI 規劃中';
+  const dir = join(parent, name);
+  mkdirSync(dir);
+  execFileSync('git', ['init', '-q'], { cwd: dir });
+  const out = runHook({ hook_event_name: 'UserPromptSubmit', session_id: 's1', prompt_id: 'p1', cwd: dir, prompt: 'hi' },
+                      { keep: true });
+  const written = readdirSync(out.logDir);
+  eq('hook 寫出的檔名 = safeName(專案名) + .jsonl', written[0], `${safeName(name)}.jsonl`);
+  const r = readEvents(out.logDir, name);
+  eq('讀取端拿原名去找,找得到(不是 no-file)', r.state, 'ok');
+  eq('而且就是那一筆', r.events.length, 1);
+  eq('中文一個字換成 3 個底線(逐位元組,跟 LC_ALL=C 的 tr 一樣)', safeName('中'), '___');
+  rmSync(out.logDir, { recursive: true, force: true }); rmSync(parent, { recursive: true, force: true });
 }
 
 section('D2：故障記號是警告,不是把整區蓋掉的理由');

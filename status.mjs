@@ -14,12 +14,12 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
-import { join, dirname, basename } from 'node:path';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, realpathSync } from 'node:fs';
+import { join, dirname, basename, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { appendFileSync } from 'node:fs';
-import { readEvents, loadStages, lastRunPerStage } from './lib/events.mjs';
+import { readEvents, loadStages, lastRunPerStage, safeName, logFileOf } from './lib/events.mjs';
 import { mount, unmount, mountState } from './lib/mount.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -43,6 +43,11 @@ function git(args, cwd) {
   }
 }
 
+/** 真實路徑;解析不了(不存在)就原樣回去。 */
+function real(p) {
+  try { return realpathSync(p); } catch { return p; }
+}
+
 /** 這是不是一個 git 專案（AC-10：不是也不准當機） */
 function gitContext(cwd) {
   const commonDir = git(['rev-parse', '--git-common-dir'], cwd);
@@ -51,9 +56,11 @@ function gitContext(cwd) {
   // 專案身分用 --git-common-dir：worktree 會解析到主 repo 的 .git，
   // 所以三個 worktree 算同一個專案（它們本來就是）。
   const root = git(['rev-parse', '--show-toplevel'], cwd) ?? cwd;
-  // ⚠️ 一般 repo 的 --git-common-dir 回的是**相對路徑** '.git',只有 worktree 才回絕對路徑。
-  // 直接拿去算 basename 會得到 '.'——實測踩到。統一解析成絕對路徑再算。
-  const absCommon = commonDir.startsWith('/') ? commonDir : join(root, commonDir);
+  // ⚠️ 一般 repo 的 --git-common-dir 回的是**相對路徑**,而且是相對於**執行的位置**,不是專案根目錄:
+  // 在根目錄跑是 '.git',在 src/ 裡跑是 '../.git'。第一版把它接在 root 後面,從子資料夾跑就變成
+  // 上一層的名字(「TutorPod AI v4」,2026-09-11 實測,誠實修補 C2)。只有 worktree 才回絕對路徑。
+  // 解析完再走一次 realpath:root 是 git 給的真實路徑,兩邊拼法要一致,mountState 才分得出「這裡」跟「主資料夾」。
+  const absCommon = real(resolve(cwd, commonDir));
   const head = git(['rev-parse', 'HEAD'], cwd);          // null = 一個 commit 都還沒有
   // ⚠️ 一個 commit 都沒有時 `rev-parse --abbrev-ref HEAD` 會失敗 → 我們回 null,
   // 而 null 直接印到畫面上就是「━━ empty · null ━━」。實測踩到。
@@ -76,8 +83,8 @@ function gitContext(cwd) {
 /* ────────────────────────── 章（AC-1 / AC-4 / AC-6） ────────────────────────── */
 
 function checkpointPath(ctx) {
-  const safe = `${ctx.project}__${ctx.branch}`.replace(/[^\w.-]+/g, '_');
-  return join(CHECKPOINT_DIR, `${safe}.json`);
+  // 跟紀錄檔同一條規則(safeName)。網頁拿紀錄檔名跟章檔名對專案——規則不同,中文名的專案就變兩張卡(誠實修補 C3)
+  return join(CHECKPOINT_DIR, `${safeName(ctx.project)}__${safeName(ctx.branch)}.json`);
 }
 
 function readCheckpoint(ctx) {
@@ -605,7 +612,7 @@ function doClear(ctx, stageId) {
     return 1;
   }
   try {
-    appendFileSync(join(LOG_DIR, `${ctx.project}.jsonl`), JSON.stringify({
+    appendFileSync(logFileOf(LOG_DIR, ctx.project), JSON.stringify({
       ts: new Date().toISOString(), event: 'stage_cleared', stage: st.id,
       cwd: ctx.root, head: ctx.head?.slice(0, 7), source: 'human',
     }) + '\n');
@@ -656,4 +663,10 @@ function main() {
 // 使用者的路徑只要有一個空白,這個判斷就永遠 false,而程式**安靜地什麼都不做**。
 // 實測就是這樣:「TutorPod AI」有空白,第一次執行零輸出零錯誤。
 // 這正是本專案 R1 在講的形狀——沒壞掉的樣子,但什麼都沒發生。
-if (fileURLToPath(import.meta.url) === process.argv[1]) process.exit(main());
+// ⚠️ 第二次(2026-09-11,誠實修補 E1):透過捷徑(symlink、npm link、npx)執行時,argv[1] 是捷徑的路徑,
+// import.meta.url 是真實路徑——同一個形狀,換了一個原因。所以兩邊都解析成真實路徑再比(老毛病 P3)。
+function isMain() {
+  try { return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1] ?? ''); }
+  catch { return false; }
+}
+if (isMain()) process.exit(main());

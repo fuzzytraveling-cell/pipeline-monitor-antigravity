@@ -36,7 +36,8 @@
 
 **哪裡會再犯**：hook.sh（sh）與 status.mjs（node）要對同一件事有共識的任何地方；
 同一個畫面上兩個看起來應該相等的數字。
-**釘住它的測試**：`scripts/status.test.mjs` 標 P2 的段落。
+兩種語言各寫一次的規則，一定要有一條**真的跑兩邊**的測試釘住——翻譯得再像也是兩份。
+**釘住它的測試**：`scripts/status.test.mjs` 標 P2 的段落；`scripts/sensor.test.mjs` 真的跑 hook.sh 對 `safeName()` 的那段。
 
 ---
 

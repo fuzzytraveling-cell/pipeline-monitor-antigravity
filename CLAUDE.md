@@ -94,7 +94,7 @@
 | **③ 畫面要做什麼、不做什麼** | [`docs/進行中/pipeline-ui.md`](docs/進行中/pipeline-ui.md)——**施作中** |
 | 想把感測器裝到**新的專案** | 在那個資料夾跑 `pipeline-status --on`（拆掉是 `--off`）。做法與已處理的坑見 [`docs/升級摘要/sensor-install.md`](docs/升級摘要/sensor-install.md) |
 | 做畫面／碰任何顏色、字體、間距 | [`docs/DESIGN.md`](docs/DESIGN.md)——設計系統的唯一出處。實際的 token 檔在 `ui設計規格/`（`variables.css`／`tokens.json`），**畫面直接 import 那份，不要抄一份數值進程式碼** |
-| **修「畫面說謊」的 16 個問題（三批）** | [`docs/進行中/誠實修補.md`](docs/進行中/誠實修補.md)——**施作中**。碰還原點的「回去」指令、改動計數、感測器狀態之前先讀它的分組 |
+| 碰還原點的「回去」指令、改動計數、感測器狀態、專案名→檔名 | [`docs/升級摘要/誠實修補.md`](docs/升級摘要/誠實修補.md)——2026-09-11 三批修完的 16 個「畫面說謊」問題，分組、根源與施作紀錄都在裡面 |
 | 犯過的錯**又**出現、或想知道有哪些老毛病 | [`docs/FAILURE-PATTERNS.md`](docs/FAILURE-PATTERNS.md)——四種會一再回來的形狀。測試的 `section()` 用它的代號標記，紅的時候會印出來 |
 
 ## 工作項的狀態就是路徑

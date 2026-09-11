@@ -38,7 +38,10 @@ case "$COMMON" in
   /*)   PROJECT=$(basename "$(dirname "$COMMON")") ;;
   *)    PROJECT=$(basename "$(git -C "$CWD" rev-parse --show-toplevel 2>/dev/null)") ;;
 esac
-PROJECT=$(printf '%s' "$PROJECT" | tr -c 'A-Za-z0-9._-' '_')
+# ⚠️ LC_ALL=C:讓 tr 逐**位元組**換,不受 hook 跑在哪種 locale 影響(UTF-8 下 BSD tr 會把中文當一個字)。
+#    這條規則在 lib/events.mjs 的 safeName() 有一份逐位元組的 JS 翻譯——讀取端靠它找到這個檔案。
+#    改這裡要一起改那邊;scripts/sensor.test.mjs 會真的跑這支,對兩邊的答案(誠實修補 C1)。
+PROJECT=$(printf '%s' "$PROJECT" | LC_ALL=C tr -c 'A-Za-z0-9._-' '_')
 HEAD=$(git -C "$CWD" rev-parse --short HEAD 2>/dev/null)
 
 # ⚠️ AC-4:單行必須 < 4096 bytes,超過 O_APPEND 就不再保證原子性,
