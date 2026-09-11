@@ -17,5 +17,8 @@ checkpoints/
 # 退出記號:「這個專案不要記」是這台電腦上的決定,換一台就不成立。儀表板的按鈕會放這個檔。
 .claude/pipeline-monitor.off
 
+# --on/--off 動設定檔之前留的備份。它是退路,不是程式;留著但不進版控。
+.claude/settings.local.json.bak-*
+
 node_modules/
 .DS_Store

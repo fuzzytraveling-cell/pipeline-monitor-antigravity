@@ -15,7 +15,10 @@ import { section, check, summary } from './_harness.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 // 程式自己會寫出來的東西(資料夾以 / 結尾)。**新增任何會寫檔的功能時,要同步加進這個清單。**
-const MUST_NEVER_BE_TRACKED = ['logs/', 'checkpoints/', '.claude/settings.local.json', '.claude/pipeline-monitor.off'];
+const MUST_NEVER_BE_TRACKED = [
+  'logs/', 'checkpoints/', '.claude/settings.local.json', '.claude/pipeline-monitor.off',
+  '.claude/settings.local.json.bak-*',   // --on/--off 留的備份;2026-09-11 它讓主資料夾又蓋不了章
+];
 
 section('程式產生的私人資料絕不准進版控', 'P3');
 for (const p of MUST_NEVER_BE_TRACKED) {
@@ -26,8 +29,8 @@ for (const p of MUST_NEVER_BE_TRACKED) {
   check(`${p} 沒有被 git 追蹤`, tracked === '',
     `這些檔案已經在版控裡:\n      ${tracked.split('\n').join('\n      ')}`);
 
-  // 資料夾要拿一個假想的檔案去問,git 才會回答「這底下的東西會被忽略」
-  const probe = p.endsWith('/') ? `${p}x` : p;
+  // 資料夾要拿一個假想的檔案去問,git 才會回答「這底下的東西會被忽略」;萬用字元也換成一個具體的名字
+  const probe = p.endsWith('/') ? `${p}x` : p.replace('*', 'x');
   let ignored = false;
   try {
     execFileSync('git', ['check-ignore', '-q', probe], { cwd: ROOT, stdio: 'ignore' });
