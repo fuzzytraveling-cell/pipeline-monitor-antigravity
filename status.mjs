@@ -688,6 +688,7 @@ function describeTier(t) {
     L.push('      為了不亂分,這次不分級。');   // R1:讀不懂 ≠ 沒設定 ≠ T0
     return L;
   }
+  if (t.state === 'no-base') { L.push('   這個專案還沒有任何 commit,沒有基準可以算「這次改動」。先 git commit 一次。'); return L; }
   if (t.state === 'unknown') { L.push('   問不到改動,分不了級。'); return L; }
   if (t.state === 'no-change') {
     L.push('   這次沒有改動,沒有東西要分級。');

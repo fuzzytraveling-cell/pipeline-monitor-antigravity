@@ -229,6 +229,7 @@ function statTier(c, p) {
   if (t.state === 'off') return card('change', '不分級',
     `你${t.off?.at ? ago(t.off.at) : ''}說這個專案不用分級${t.off?.why ? `（${esc(t.off.why)}）` : ''}。要恢復：<code>pipeline-status --tier-init</code>`);
   if (t.state === 'broken') return card('alert', '讀不懂', `分級設定讀不懂：${esc(t.why ?? '')}。為了不亂分，這次不分級。`);
+  if (t.state === 'no-base') return card('change', '沒有基準', '這個專案還沒有任何 commit，沒有基準可以算「這次改動」。先 git commit 一次。');
   if (t.state === 'unknown') return card('change', '問不到', '問不到改動，分不了級。');
   const emptyWarn = t.dangerEmpty
     ? `<div class="hint">⚠️ 危險清單是空的，所以永遠不會出現 ${esc(t.levels?.danger?.id ?? '第三級')}。${hint}</div>` : '';

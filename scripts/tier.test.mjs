@@ -114,6 +114,8 @@ section('describeTier:沒設定不准寫成最低那級;需要那幾行只有 ok
   const base = { state: 'ok', dangerEmpty: false, levels: LEVELS, candidates: [], manualIgnored: null };
   const unset = describeTier({ state: 'unset' }).join('\n');
   check('unset → 「還沒設定」,而且沒有 T0', unset.includes('還沒設定') && !unset.includes(T0), unset);
+  const nobase = describeTier({ state: 'no-base' }).join('\n');
+  check('還沒有 commit → 說「沒有基準」,不說「問不到」', nobase.includes('沒有基準') && !nobase.includes('問不到'), nobase);
   const broken = describeTier({ state: 'broken', why: 'x', from: 'f' }).join('\n');
   check('broken → 「讀不懂」「不分級」', broken.includes('讀不懂') && broken.includes('不分級'));
   const t1 = describeTier({ ...base, machine: { rank: 1, id: T1, hits: { code: ['src/a.js'], danger: [] } }, manual: null,
