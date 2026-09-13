@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { appendFileSync } from 'node:fs';
 import { readEvents, loadStages, lastRunPerStage, safeName, logFileOf } from './lib/events.mjs';
+import { buildTier, readTierConfig, writeTierConfig, proposeCodeArea } from './lib/tier.mjs';
 import {
   mount, unmount, mountState, pluginState, installPlugin, uninstallPlugin, optIn, optOut, hookPathsIn,
 } from './lib/mount.mjs';
@@ -184,15 +185,20 @@ function changeHealth(cwd, since) {
   const tests = modifiedTests ? modifiedTests.split('\n').filter((f) => f && TEST_FILE.test(f)) : [];
   // ⚠️ 問不到就是 null,不是 0(R1)。呼叫端要說「問不到改動」,不准印成「沒有改動」。
   if (names === null || untracked === null) {
-    return { files: null, newFiles: null, added: null, removed: null, modifiedTests: tests, newDeps };
+    return { files: null, newFiles: null, list: null, touchedTests: null, added: null, removed: null, modifiedTests: tests, newDeps };
   }
-  const newFiles = untracked.split('\n').filter(Boolean).length;
+  const newList = untracked.split('\n').filter(Boolean);
+  // 這次動到的每一個檔案(已追蹤的 diff ＋ 新檔案)。分級只看這份清單落在哪裡(lib/tier.mjs)。
+  const list = [...new Set([...names.split('\n').filter(Boolean), ...newList])];
+  const newFiles = newList.length;
   const files = names.split('\n').filter(Boolean).length + newFiles;
+  // 「補測試」要的是這次有沒有**新增或修改**任何測試檔(A 或 M,含還沒追蹤的)——跟只認 M 的 modifiedTests 不同
+  const touchedTests = list.filter((f) => TEST_FILE.test(f)).length;
   // ⚠️ 加減分開讀。只刪不加時 shortstat 沒有「insertion」字樣,
   // 兩個塞在同一條規則裡就整個對不上,印成 +0 −0(2026-09-11 實測)。
   const added = stat === null ? null : Number(stat.match(/(\d+) insertion/)?.[1] ?? 0);
   const removed = stat === null ? null : Number(stat.match(/(\d+) deletion/)?.[1] ?? 0);
-  return { files, newFiles, added, removed, modifiedTests: tests, newDeps };
+  return { files, newFiles, list, touchedTests, added, removed, modifiedTests: tests, newDeps };
 }
 
 /* ────────────────────────── 小工具 ────────────────────────── */
@@ -397,7 +403,7 @@ function describeCheckFailure(script, fail) {
 export {
   git, gitContext, changeScale, changeHealth, detectChecks, ago, TEST_FILE,
   uncommitted, checkpointRelation, backupBranchName, restoreAdvice, describeCheckpoint,
-  describeSensor, describeCheckFailure,
+  describeSensor, describeCheckFailure, describeTier,
 };
 
 /* ══════════════════════════ 蓋章：--checkpoint（AC-1） ══════════════════════════ */
@@ -483,9 +489,8 @@ function renderSensor(ctx, ev) {
   for (const line of lines) console.log(line);
 }
 
-function render(ctx, ev) {
-  renderSensor(ctx, ev);
-
+/** 還原點與改動的事實,一次算好。畫面(render)與分級(--tier)都吃這一份——兩邊才不會各算各的(老毛病 P2)。 */
+function gatherChange(ctx) {
   const cp = readCheckpoint(ctx);
   const dirty = uncommitted(ctx.root);
   // ⚠️ L14:章只有在它指的版本還在這條分支的歷史上時才算數,詳見 checkpointRelation()。
@@ -494,7 +499,12 @@ function render(ctx, ev) {
   // 改動的基準只在這裡決定一次,下面全部沿用:章能用就比章,不能用就比上一次存檔(HEAD)。
   // 以前這裡算了兩次(一次給還原點那段、一次給改動體檢),兩個數字有機會不一樣(老毛病 P2)。
   const since = cpUsable ? cp.commit : undefined;
-  const h = changeHealth(ctx.root, since);
+  return { cp, dirty, rel, cpUsable, since, h: changeHealth(ctx.root, since) };
+}
+
+function render(ctx, ev, info) {
+  renderSensor(ctx, ev);
+  const { cp, dirty, rel, cpUsable, since, h } = info;
 
   /* ── 還原點（AC-2 / AC-3 / AC-4 / AC-5 / L14） ── */
   if (!cp) {
@@ -541,8 +551,21 @@ function render(ctx, ev) {
 
 /* ══════════════════════════ 關卡（需要感測器） ══════════════════════════ */
 
-function renderStages(ctx, ev) {
-  const { stages } = loadStages(HERE, ctx.root);
+/** 五關的事實,一次算好:關卡清單、每關最後一次紀錄、人蓋的結案。五關那段與分級那段共用。 */
+function stageFacts(ctx, ev) {
+  const { stages } = loadStages(HERE, ctx.root, ctx.mainRoot);
+  const { perStage, sawAnyEventHere } = lastRunPerStage(ev.events, stages, ctx.root);
+  // 人蓋的「結案」事件(AC-9)。source:'human' 是刻意標的——
+  // 它跟感測器觀察到的事實不同級,永遠不要混在一起。
+  const cleared = new Map();
+  for (const e of ev.events) {
+    if (e.event === 'stage_cleared' && e.cwd === ctx.root) cleared.set(e.stage, e);
+  }
+  return { stages, perStage, cleared, sawAnyEventHere };
+}
+
+function renderStages(ctx, ev, facts) {
+  const { stages, perStage, cleared, sawAnyEventHere } = facts;
   if (!stages.length) return;
 
   const { state, events, broken } = ev;
@@ -568,7 +591,6 @@ function renderStages(ctx, ev) {
     console.log(`   ⚠️ 感測器回報過 ${broken.length} 次故障${last ? `（最近一次 ${ago(last)}）` : ''},那段期間可能有漏記。`);
   }
 
-  const { perStage, sawAnyEventHere } = lastRunPerStage(events, stages, ctx.root);
   // ⚠️ 感測器**有一個開始的日期**。在那之前跑過的事情它一輩子都不會知道。
   // 把那段期間講成「沒跑過」就是 A1:把「沒問到」編碼成「答案是沒有」。
   // 實測就是這樣抓到的:/spec 今天稍早真的跑過,但感測器是之後才裝的,
@@ -578,13 +600,6 @@ function renderStages(ctx, ev) {
     console.log('   🔍 有紀錄,但沒有一筆來自這個 worktree。');
     console.log(`      （目前在 ${ctx.branch}）`);
     return;
-  }
-
-  // 人蓋的「結案」事件(AC-9)。source:'human' 是刻意標的——
-  // 它跟感測器觀察到的事實不同級,永遠不要混在一起。
-  const cleared = new Map();
-  for (const e of events) {
-    if (e.event === 'stage_cleared' && e.cwd === ctx.root) cleared.set(e.stage, e);
   }
 
   let anyOpen = false;
@@ -618,7 +633,7 @@ function renderStages(ctx, ev) {
 
 /** 人蓋的結案章(AC-9)。⚠️ 寫進同一份 append-only 紀錄,但標明 source:'human'。 */
 function doClear(ctx, stageId) {
-  const { stages } = loadStages(HERE, ctx.root);
+  const { stages } = loadStages(HERE, ctx.root, ctx.mainRoot);
   const st = stages.find((x) => x.id.toLowerCase() === String(stageId).toLowerCase());
   if (!st) {
     console.log(`認不出關卡「${stageId}」。這個專案的關卡是：${stages.map((x) => x.id).join(' / ')}`);
@@ -635,6 +650,172 @@ function doClear(ctx, stageId) {
   }
   console.log(`✅ 記下了：你說 ${st.id} ${st.name} 處理完了（${ctx.head?.slice(0, 7)}）`);
   console.log('   ⚠️ 這是「你說的」,不是系統驗證的——畫面上會照實這樣寫。');
+  return 0;
+}
+
+/* ══════════════════════════ 分級（lib/tier.mjs 算,這裡只印與寫） ══════════════════════════ */
+
+function tierOf(ctx, ev, info, facts) {
+  return buildTier({
+    root: ctx.root, mainRoot: ctx.mainRoot, monitorDir: HERE, health: info.h,
+    stages: facts.stages, perStage: facts.perStage, cleared: facts.cleared,
+    events: ev.events, cwd: ctx.root, cpUsable: info.cpUsable, cpAt: info.cp?.at ?? null,
+    head: ctx.head?.slice(0, 7) ?? null,
+  });
+}
+
+const SETUP_HINT = '在這個專案的對話裡說「幫我設定分級」,Claude 會提清單給你確認;不需要的話說「這個專案不用分級」。';
+
+/**
+ * 分級那一段的文案。純函式,吃 buildTier() 的物件,被 scripts/tier.test.mjs 釘住。
+ * ⚠️ 三條紅線逐條套過:沒設定＝「還沒設定」不是「T0」(R1);「需要」那幾行只講有沒有紀錄,不講通過(R2);
+ *    每個數字都是 git 或紀錄檔查得到的(R3)。
+ */
+function describeTier(t) {
+  const L = [];
+  const emptyWarn = () => `   ⚠️ 危險清單是空的,所以永遠不會出現 ${t.levels?.danger?.id ?? '第三級'}。${SETUP_HINT}`;
+  if (t.state === 'unset') {
+    L.push('   還沒設定分級。', `   ${SETUP_HINT}`, '   （或自己來：pipeline-status --tier-init）');
+    return L;
+  }
+  if (t.state === 'off') {
+    const when = t.off?.at ? `（${ago(t.off.at)}${t.off.why ? `,${t.off.why}` : ''}）` : '';
+    L.push(`   已設定為不分級${when}。要恢復：pipeline-status --tier-init`);
+    return L;
+  }
+  if (t.state === 'broken') {
+    L.push(`   ⚠️ 分級設定讀不懂（${t.from ?? '.claude/pipeline-stages.json'}）：${t.why ?? ''}`);
+    L.push('      為了不亂分,這次不分級。');   // R1:讀不懂 ≠ 沒設定 ≠ T0
+    return L;
+  }
+  if (t.state === 'unknown') { L.push('   問不到改動,分不了級。'); return L; }
+  if (t.state === 'no-change') {
+    L.push('   這次沒有改動,沒有東西要分級。');
+    if (t.dangerEmpty) L.push(emptyWarn());
+    return L;
+  }
+
+  const { machine, manual, final } = t;
+  const dangerHits = machine.hits.danger;
+  const why = machine.rank === 2
+    ? `碰到危險清單：${dangerHits.slice(0, 3).join('、')}${dangerHits.length > 3 ? `…共 ${dangerHits.length} 個` : ''}`
+    : machine.rank === 1 ? `碰到程式區 ${machine.hits.code.length} 個檔` : '沒碰到程式區';
+  if (manual) L.push(`   機器算 ${machine.id}（${why}）,你說 ${manual.id}（理由：${manual.why}）· ${ago(manual.ts)}`);
+  else L.push(`   至少 ${final.id}（${why}）`);
+  if (t.manualIgnored) {
+    L.push(`   （你 ${ago(t.manualIgnored.ts)}說的 ${t.manualIgnored.id} 沒有比機器算的高,不採用。）`);
+  }
+
+  if (t.requirements.length) {
+    L.push('   需要：');
+    for (const r of t.requirements) {
+      // ✅ 只代表「有紀錄而且你說處理完了」;⏸ 有紀錄沒結案;⚠️ 沒有紀錄;❔ 問不到／不適用
+      const mark = r.state === 'ok' ? '✅' : r.state === 'ran' ? '⏸' : r.state === 'missing' ? '⚠️' : '❔';
+      const when = r.ts ? `${ago(r.ts)}` : '';
+      L.push(`        ${r.label.padEnd(8, '　')} ${mark} ${when}${r.detail}`);
+    }
+  } else {
+    L.push('   需要：現有的檢查就好（看上面的還原點）');
+  }
+  if (t.dangerEmpty) L.push(emptyWarn());
+  if (t.candidates.length) {
+    L.push(`   ⚠️ 這次動到的檔案裡,有 ${t.candidates.length} 個名字像會存東西、但不在危險清單：`);
+    for (const f of t.candidates.slice(0, 5)) L.push(`        ${f}`);
+    L.push('      （只是提醒。改錯會靜默丟資料的話,加進 .claude/pipeline-stages.json 的 tiers.danger。）');
+  }
+  L.push('   ⚠️ 這是下限:檔名看不出你改了一個字還是重寫。');
+  if (manual) L.push('   收回你調的：pipeline-status --tier-retract');
+  else if (t.upgradable.length) L.push(`   要調高：pipeline-status --tier ${t.upgradable[0]} "理由"`);
+  return L;
+}
+
+function renderTier(ctx, ev, info, facts) {
+  console.log('\n━━ 分級 ━━');
+  for (const line of describeTier(tierOf(ctx, ev, info, facts))) console.log(line);
+}
+
+/** 人蓋的章(結案、調高分級),全部走這裡:同一份 append-only 紀錄,標明 source:'human'。 */
+function appendHuman(ctx, obj) {
+  appendFileSync(logFileOf(LOG_DIR, ctx.project), JSON.stringify({
+    ts: new Date().toISOString(), ...obj, cwd: ctx.root, head: ctx.head?.slice(0, 7), source: 'human',
+  }) + '\n');
+}
+
+const isIgnored = (root, file) => gitExit(['check-ignore', '-q', file], root) === 0;
+
+/** --tier-init [資料夾…]:提議程式區、寫出骨架(危險清單空的)。已經設定過就只回報。 */
+function doTierInit(ctx, dirs) {
+  const cfg = readTierConfig(ctx.root, ctx.mainRoot, HERE);
+  if (cfg.state === 'broken') {
+    console.log(`⚠️ 分級設定讀不懂（${cfg.from}）：${cfg.why}。先修好那個檔案,這次不動它。`);
+    return 1;
+  }
+  if (cfg.state === 'ok') {
+    console.log(`已經設定過了（${cfg.from}）：程式區 ${cfg.config.code.join('、')}；危險清單 ${cfg.config.danger.length} 個。`);
+    if (!cfg.config.danger.length) console.log(`⚠️ 危險清單是空的,所以永遠不會出現 ${cfg.config.levels.danger.id}。${SETUP_HINT}`);
+    return 0;
+  }
+  const proposal = dirs.length
+    ? { dirs: dirs.map((d) => `${d.replace(/^\.\//, '').replace(/\/+$/, '')}/`), why: '你指定的' }
+    : proposeCodeArea(ctx.root);
+  if (!proposal) {
+    console.log('認不出這個專案的程式區（package.json 沒指向哪裡、也找不到放程式檔的資料夾）。');
+    console.log('   自己指定：  pipeline-status --tier-init src/');
+    return 1;
+  }
+  const r = writeTierConfig(ctx.root, { code: proposal.dirs, danger: [] });
+  if (!r.ok) { console.log(`❌ ${r.why}（${r.path}）`); return 1; }
+  console.log(`✅ 寫好了：${r.path}`);
+  console.log(`   程式區：${proposal.dirs.join('、')}（${proposal.why}）——不對的話直接改那個檔的 tiers.code`);
+  console.log('   危險清單：空的。⚠️ 所以永遠不會出現第三級——只有人判斷得了「改錯會不會靜默丟資料」。');
+  console.log(`   ${SETUP_HINT}`);
+  if (isIgnored(ctx.root, '.claude/pipeline-stages.json')) {
+    console.log('\n⚠️ 這個檔案被 .gitignore 擋著,**不會進版控**——換一台電腦、或在 worktree 裡,分級就不見了。');
+    console.log('   分級是專案的政策,建議進版控：在 .gitignore 加一行  !.claude/pipeline-stages.json');
+  }
+  return 0;
+}
+
+function doTierOff(ctx, why) {
+  const r = writeTierConfig(ctx.root, { off: true, at: new Date().toISOString(), why: why || null });
+  if (!r.ok) { console.log(`❌ ${r.why}（${r.path}）`); return 1; }
+  console.log(`✅ 記下了：這個專案不分級${why ? `（${why}）` : ''}。對話開始時不會再提醒。`);
+  console.log('   要恢復：  pipeline-status --tier-init');
+  return 0;
+}
+
+/** --tier <等級> "<理由>":只准往上。理由必填——沒理由的調高跟誤按分不出來。 */
+function doTierSet(ctx, ev, info, facts, id, why) {
+  const t = tierOf(ctx, ev, info, facts);
+  if (t.state !== 'ok') { for (const line of describeTier(t)) console.log(line); return 1; }
+  if (!id) { console.log(`要調到哪一級？  pipeline-status --tier ${t.upgradable[0] ?? '<等級>'} "理由"`); return 1; }
+  if (!why) { console.log('理由必填：  pipeline-status --tier ' + id + ' "為什麼這次要更小心"'); return 1; }
+  if (!t.upgradable.includes(id)) {
+    console.log(`只能調到比機器算的（${t.machine.id}）高的等級${t.upgradable.length ? `：${t.upgradable.join(' / ')}` : '——已經是最高了'}。`);
+    console.log('   往下調沒有指令,要改 .claude/pipeline-stages.json——不方便是故意的。');
+    return 1;
+  }
+  try {
+    appendHuman(ctx, { event: 'tier_set', level: id, why: why.slice(0, 200) });
+  } catch (e) {
+    console.log(`❌ 沒記成功：${e.message}`);
+    return 1;
+  }
+  console.log(`✅ 記下了：你說這次算 ${id}（${why.slice(0, 200)}）。機器算的是 ${t.machine.id}。`);
+  console.log('   ⚠️ 這是「你說的」,畫面上會照實這樣寫。基準換了（蓋章,或沒章時存檔）就歸零。');
+  return 0;
+}
+
+function doTierRetract(ctx, ev, info, facts) {
+  const t = tierOf(ctx, ev, info, facts);
+  if (t.state !== 'ok' || !t.manual) { console.log('沒有你調高的等級可以收回。'); return 1; }
+  try {
+    appendHuman(ctx, { event: 'tier_retracted' });
+  } catch (e) {
+    console.log(`❌ 沒記成功：${e.message}`);
+    return 1;
+  }
+  console.log(`✅ 收回了：回到機器算的 ${t.machine.id}。`);
   return 0;
 }
 
@@ -672,9 +853,14 @@ function doMount(ctx, on) {
 }
 
 function main() {
+  const argv = process.argv.slice(2);
+  const at = (flag) => argv.indexOf(flag);
+  // 旗標後面的自由文字(理由、資料夾),遇到下一個旗標就停
+  const after = (flag) => argv.slice(at(flag) + 1).filter((a) => !a.startsWith('--'));
+
   // plugin 的裝／拆不需要站在 git 專案裡
-  if (process.argv.includes('--install') || process.argv.includes('--uninstall')) {
-    const r = process.argv.includes('--install') ? installPlugin() : uninstallPlugin();
+  if (at('--install') !== -1 || at('--uninstall') !== -1) {
+    const r = at('--install') !== -1 ? installPlugin() : uninstallPlugin();
     for (const line of r.out) console.log(line);
     return r.ok ? 0 : 1;
   }
@@ -685,21 +871,35 @@ function main() {
     console.log(`（目前位置：${cwd}）`);
     return 0;
   }
-  if (process.argv.includes('--on') || process.argv.includes('--off')) return doMount(ctx, process.argv.includes('--on'));
-  // 紀錄只讀一次:感測器那行(活著嗎)跟五關那段(跑過什麼)共用同一份
+  if (at('--on') !== -1 || at('--off') !== -1) return doMount(ctx, at('--on') !== -1);
+  // 分級的設定不需要有 commit
+  if (at('--tier-init') !== -1) return doTierInit(ctx, after('--tier-init'));
+  if (at('--tier-off') !== -1) return doTierOff(ctx, after('--tier-off').join(' '));
+
+  // 紀錄只讀一次:感測器那行(活著嗎)、五關那段(跑過什麼)、分級(人調的)共用同一份
   const ev = readEvents(LOG_DIR, ctx.project);
-  if (!ctx.hasCommits && !process.argv.includes('--checkpoint')) {
+  if (!ctx.hasCommits && at('--checkpoint') === -1) {
     renderSensor(ctx, ev);
     console.log('這個專案還沒有任何 commit,所以還沒有版本可以回去。');
     return 0;
   }
 
-  const clearAt = process.argv.indexOf('--clear');
-  if (clearAt !== -1) return doClear(ctx, process.argv[clearAt + 1]);
-  if (process.argv.includes('--checkpoint')) return doCheckpoint(ctx);
-  const code = render(ctx, ev);
-  renderStages(ctx, ev);
-  return code;
+  if (at('--clear') !== -1) return doClear(ctx, argv[at('--clear') + 1]);
+  if (at('--checkpoint') !== -1) return doCheckpoint(ctx);
+
+  // 事實各算一次,三段畫面共用
+  const info = gatherChange(ctx);
+  const facts = stageFacts(ctx, ev);
+  if (at('--tier-retract') !== -1) return doTierRetract(ctx, ev, info, facts);
+  if (at('--tier') !== -1) {
+    const [id, ...why] = after('--tier');
+    return doTierSet(ctx, ev, info, facts, id, why.join(' '));
+  }
+
+  render(ctx, ev, info);
+  renderStages(ctx, ev, facts);
+  renderTier(ctx, ev, info, facts);
+  return 0;
 }
 
 // ⚠️ 不要寫成 `import.meta.url === \`file://${process.argv[1]}\``——

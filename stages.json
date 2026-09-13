@@ -4,10 +4,52 @@
   "_說明3": "type=browser + tools(正則,比工具名):認的是「開了瀏覽器做動作」,永遠不是「驗收通過」。",
   "_覆寫": "專案可放 .claude/pipeline-stages.json 覆寫,格式相同。",
   "stages": [
-    { "id": "A", "name": "寫規格",   "skill": "spec" },
-    { "id": "B", "name": "寫程式",   "type": "main-conversation" },
-    { "id": "C", "name": "打掃",     "skill": "cleanup" },
-    { "id": "D", "name": "魔鬼教官", "skill": "chaos-check" },
-    { "id": "E", "name": "驗收",     "type": "browser", "tools": "^mcp__(Claude_Browser|claude-in-chrome)__" }
-  ]
+    {
+      "id": "A",
+      "name": "寫規格",
+      "skill": "spec"
+    },
+    {
+      "id": "B",
+      "name": "寫程式",
+      "type": "main-conversation"
+    },
+    {
+      "id": "C",
+      "name": "打掃",
+      "skill": "cleanup"
+    },
+    {
+      "id": "D",
+      "name": "魔鬼教官",
+      "skill": "chaos-check"
+    },
+    {
+      "id": "E",
+      "name": "驗收",
+      "type": "browser",
+      "tools": "^mcp__(Claude_Browser|claude-in-chrome)__"
+    }
+  ],
+  "_說明4": "分級(tiers)的三級預設值住在 tierLevels:none=沒碰到程式區、code=碰到程式區、danger=碰到危險清單。requires 是關卡代號,或 tests(這次必須有新增或修改的測試檔)。專案的 .claude/pipeline-stages.json 可用 tiers.levels 覆寫。",
+  "tierLevels": {
+    "none": {
+      "id": "T0",
+      "requires": []
+    },
+    "code": {
+      "id": "T1",
+      "requires": [
+        "D"
+      ]
+    },
+    "danger": {
+      "id": "T2",
+      "requires": [
+        "A",
+        "D",
+        "tests"
+      ]
+    }
+  }
 }

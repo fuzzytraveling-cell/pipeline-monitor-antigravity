@@ -168,11 +168,16 @@ section('接點清單只有一份:舊接法接的事件 = plugin 的 hooks/hooks
   const d = settings(r.dir);
   for (const [evt, entries] of Object.entries(spec)) {
     for (const e of entries) {
-      check(`${evt} matcher="${e.matcher ?? ''}" 舊接法也有`, d.hooks[evt]?.some((x) => x.matcher === (e.matcher ?? '')));
+      const script = e.hooks[0].command.match(/\$\{CLAUDE_PLUGIN_ROOT\}\/([^"]+)"/)?.[1];
+      const mine = d.hooks[evt]?.find((x) => x.matcher === (e.matcher ?? '') && x.hooks?.[0]?.command?.includes('pipeline-monitor'));
+      check(`${evt} matcher="${e.matcher ?? ''}" 舊接法也有,而且跑同一支腳本(${script})`,
+        !!mine && mine.hooks[0].command.endsWith(`/${script}"`), mine?.hooks?.[0]?.command ?? '(沒有)');
     }
   }
-  check('hooks.json 的指令都指向 ${CLAUDE_PLUGIN_ROOT}/hook.sh(搬家不會斷)',
-    Object.values(spec).flat().every((e) => e.hooks.every((h) => h.command === 'sh "${CLAUDE_PLUGIN_ROOT}/hook.sh"')));
+  check('hooks.json 的指令都指向 ${CLAUDE_PLUGIN_ROOT}/<腳本>.sh(搬家不會斷)',
+    Object.values(spec).flat().every((e) => e.hooks.every((h) => /^sh "\$\{CLAUDE_PLUGIN_ROOT\}\/[a-z]+\.sh"$/.test(h.command))));
+  check('對話開始的提醒接在 SessionStart → remind.sh(跟感測器 hook.sh 是分開的兩支)',
+    (spec.SessionStart ?? []).some((e) => e.hooks[0].command.endsWith('/remind.sh"')));
   check('E 驗收要接得到瀏覽器工具', (spec.PreToolUse ?? []).some((e) => /Claude_Browser/.test(e.matcher ?? '')));
   r.cleanup();
 }

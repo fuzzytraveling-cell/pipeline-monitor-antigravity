@@ -4,7 +4,7 @@
  * ⚠️ 刻意**不測長相**。樣式壞了看得見;下面這幾條壞了畫面照跑、測試全綠,
  *    而使用者會照著三小時前的資料做決定。
  */
-import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync } from 'node:fs';
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync, copyFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, dirname, basename } from 'node:path';
@@ -134,6 +134,46 @@ section('退出按鈕只准對儀表板列得出來的專案動手（root 是瀏
   check('記號檔拿掉了', !existsSync(join(root, '.claude', 'pipeline-monitor.off')));
   server.close();
   for (const d of [monitorDir, stranger]) rmSync(d, { recursive: true, force: true });
+  r.cleanup();
+}
+
+section('調高分級的按鈕:只准對認識的工作區、只准往上、理由必填;收回只收回自己調的');
+{
+  const r = makeRepo({ pkg: { name: 'x' }, files: { 'src/a.js': '1\n', 'README.md': 'r\n' } });
+  const out = (...a) => execFileSync('git', a, { cwd: r.dir, encoding: 'utf8' }).trim();
+  const root = out('rev-parse', '--show-toplevel');
+  const name = basename(root);
+  mkdirSync(join(root, '.claude'), { recursive: true });
+  writeFileSync(join(root, '.claude', 'pipeline-stages.json'), JSON.stringify({ tiers: { code: ['src/'], danger: [] } }));
+  writeFileSync(join(root, 'src', 'a.js'), '2\n');   // 碰到程式區 → 機器算第二級
+  const monitorDir = mkdtempSync(join(tmpdir(), 'pm-monitor-'));
+  mkdirSync(join(monitorDir, 'checkpoints')); mkdirSync(join(monitorDir, 'logs'));
+  copyFileSync(join(ROOT, 'stages.json'), join(monitorDir, 'stages.json'));   // 三級的預設值住在這裡
+  writeFileSync(join(monitorDir, 'checkpoints', `${name}__main.json`), JSON.stringify({
+    commit: out('rev-parse', 'HEAD'), branch: 'main', worktree: root, at: new Date().toISOString(), checks: ['test'],
+  }));
+  const server = createApp({ monitorDir });
+  await new Promise((res) => server.listen(0, '127.0.0.1', res));
+  const { port } = server.address();
+  const post = (body) => fetch(`http://127.0.0.1:${port}/api/tier`,
+    { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const tier = async () => (await (await fetch(`http://127.0.0.1:${port}/api/status`)).json())
+    .projects.find((x) => x.name === name)?.cards?.[0]?.tier;
+  eq('機器算第二級(碰到程式區)', (await tier())?.machine?.id, 'T1');
+  eq('不認識的工作區 → 400', (await post({ project: name, cwd: '/不存在', level: 'T2', why: 'x' })).status, 400);
+  eq('沒理由 → 400', (await post({ project: name, cwd: root, level: 'T2', why: '  ' })).status, 400);
+  eq('調到不比機器高的 → 400', (await post({ project: name, cwd: root, level: 'T1', why: 'x' })).status, 400);
+  eq('T2 ＋ 理由 → 200', (await post({ project: name, cwd: root, level: 'T2', why: '重寫了整個上傳流程' })).status, 200);
+  const after = await tier();
+  check('畫面上變成「你說 T2」,機器算的還是 T1', after?.manual?.id === 'T2' && after?.machine?.id === 'T1', JSON.stringify(after?.manual));
+  eq('收回 → 200', (await post({ project: name, cwd: root, retract: true })).status, 200);
+  eq('收回後沒有你說的', (await tier())?.manual, null);
+  eq('再收回一次 → 400(沒有東西可以收)', (await post({ project: name, cwd: root, retract: true })).status, 400);
+  const log = readFileSync(join(monitorDir, 'logs', `${name}.jsonl`), 'utf8');
+  check('紀錄裡兩行都是 source:human', log.includes('"event":"tier_set"') && log.includes('"event":"tier_retracted"') && !log.includes('"source":"sensor"'));
+  check('沒有寫進真的 logs/', !existsSync(join(ROOT, 'logs', `${name}.jsonl`)));
+  server.close();
+  rmSync(monitorDir, { recursive: true, force: true });
   r.cleanup();
 }
 

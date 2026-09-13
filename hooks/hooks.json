@@ -1,7 +1,11 @@
 {
   "_說明": "感測器的接點,**唯一的一份**。舊接法(pipeline-status --on)也是從這裡讀,把 ${CLAUDE_PLUGIN_ROOT} 換成安裝位置。",
   "_說明2": "PreToolUse 多接瀏覽器工具:E 驗收記的是「開了瀏覽器做動作」,永遠不是「驗收通過」(R2)。",
+  "_說明3": "SessionStart 接的是 remind.sh(不是 hook.sh):對話開始時、專案還沒設定分級 → 給 Claude 一行提示。兩支契約相反,刻意分開。",
   "hooks": {
+    "SessionStart": [
+      { "matcher": "", "hooks": [{ "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/remind.sh\"" }] }
+    ],
     "UserPromptSubmit": [
       { "matcher": "", "hooks": [{ "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hook.sh\"" }] }
     ],

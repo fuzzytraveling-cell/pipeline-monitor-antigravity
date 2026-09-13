@@ -53,7 +53,9 @@ async function poll() {
   try {
     const r = await fetch('/api/status', { cache: 'no-store' });
     if (!r.ok) throw new Error(String(r.status));
-    latest = await r.json(); connected = true; render();
+    latest = await r.json(); connected = true;
+    // 使用者正在分級表單裡打理由時,這一輪不重畫——重畫會把打到一半的字洗掉(2026-09-13 實測)。資料照抓,下一輪再畫。
+    if (!document.activeElement?.closest?.('[data-tier-form]')) render();
   } catch { connected = false; }   // AC-2:不准靜靜停止更新
   paintFreshness();
 }
@@ -212,6 +214,58 @@ function statChanges(c) {
     ${c.scale ? `<div class="hint">參考:這個專案一次改動通常 ${c.scale.median} 個檔案,
       最多到過 ${c.scale.max} 個。</div>` : ''}
   </div>`;
+}
+
+/* ═══ 分級:伺服器(lib/tier.mjs)算好,這裡只畫。跟終端機的 describeTier 說同一句話。 ═══ */
+function statTier(c, p) {
+  const t = c.tier;
+  if (!t) return '';
+  const card = (tone, big, sub, extra = '') => `<div class="stat" data-tone="${tone}">
+    <h3 class="ctitle">分級</h3><div class="label">這次要多小心</div>
+    <div class="big">${big}</div>${sub ? `<div class="sub">${sub}</div>` : ''}${extra}</div>`;
+  const hint = '在這個專案的對話裡說「<b>幫我設定分級</b>」，Claude 會提清單給你確認；不需要的話說「這個專案不用分級」。';
+  // ⚠️ 沒設定 ≠ T0(R1);讀不懂 ≠ 沒設定。四種各自一張臉。
+  if (t.state === 'unset') return card('change', '還沒設定', hint);
+  if (t.state === 'off') return card('change', '不分級',
+    `你${t.off?.at ? ago(t.off.at) : ''}說這個專案不用分級${t.off?.why ? `（${esc(t.off.why)}）` : ''}。要恢復：<code>pipeline-status --tier-init</code>`);
+  if (t.state === 'broken') return card('alert', '讀不懂', `分級設定讀不懂：${esc(t.why ?? '')}。為了不亂分，這次不分級。`);
+  if (t.state === 'unknown') return card('change', '問不到', '問不到改動，分不了級。');
+  const emptyWarn = t.dangerEmpty
+    ? `<div class="hint">⚠️ 危險清單是空的，所以永遠不會出現 ${esc(t.levels?.danger?.id ?? '第三級')}。${hint}</div>` : '';
+  if (t.state === 'no-change') return card('safe', '沒有改動', '這次沒有改動，沒有東西要分級。', emptyWarn);
+
+  const { machine, manual, final } = t;
+  const dh = machine.hits.danger;
+  const why = machine.rank === 2 ? `碰到危險清單：${dh.slice(0, 3).map(esc).join('、')}${dh.length > 3 ? `…共 ${dh.length} 個` : ''}`
+    : machine.rank === 1 ? `碰到程式區 ${machine.hits.code.length} 個檔` : '沒碰到程式區';
+  const sub = manual
+    ? `機器算 ${esc(machine.id)}（${why}），<b>你說 ${esc(manual.id)}</b>（理由：${esc(manual.why)}）· ${ago(manual.ts)}`
+    : `至少 ${esc(final.id)}：${why}`;
+  // ✅ 只代表「有紀錄而且你說處理完了」;⏸ 有紀錄沒結案;⚠️ 沒有紀錄;❔ 問不到／不適用。沒有「通過」這種狀態(R2)。
+  const reqs = t.requirements.length
+    ? `<ul class="reqs">${t.requirements.map((r) => {
+        const mark = r.state === 'ok' ? '✅' : r.state === 'ran' ? '⏸' : r.state === 'missing' ? '⚠️' : '❔';
+        return `<li data-state="${r.state}">${mark} ${esc(r.label)}：${r.ts ? ago(r.ts) : ''}${esc(r.detail)}</li>`;
+      }).join('')}</ul>`
+    : '<div class="sub">需要：現有的檢查就好（看左邊的還原點）。</div>';
+  const cand = t.candidates.length
+    ? `<div class="hint">⚠️ 這次動到的檔案裡，有 ${t.candidates.length} 個名字像會存東西、但不在危險清單：${
+        t.candidates.slice(0, 3).map(esc).join('、')}。只是提醒，改錯會靜默丟資料的話再加進去。</div>` : '';
+  const ignored = t.manualIgnored
+    ? `<div class="hint">你${ago(t.manualIgnored.ts)}說的 ${esc(t.manualIgnored.id)} 沒有比機器算的高，不採用。</div>` : '';
+  // 調高:只列比機器算的高的等級,理由必填。收回:只收回你自己調的,回到機器算的——沒有任何按鈕能低於機器算的。
+  const control = manual
+    ? `<button class="mini-btn" data-tier-retract data-proj="${esc(p.name)}" data-cwd="${esc(c.path)}">收回</button>`
+    : t.upgradable.length
+      ? `<form class="tierform" data-tier-form data-proj="${esc(p.name)}" data-cwd="${esc(c.path)}">
+          <select name="level">${t.upgradable.map((id) => `<option value="${esc(id)}">${esc(id)}</option>`).join('')}</select>
+          <input name="why" placeholder="理由（必填）" required maxlength="200">
+          <button class="mini-btn" type="submit">調高</button></form>`
+      : '';
+  const tone = t.requirements.some((r) => r.state === 'missing') ? 'alert' : 'safe';
+  return card(tone, esc(manual ? manual.id : final.id), sub,
+    `${reqs}${ignored}${emptyWarn}${cand}
+    <div class="hint muted">⚠️ 這是下限：檔名看不出你改了一個字還是重寫。只能往上調。</div>${control}`);
 }
 
 /** 感測器那一行(誠實修補 D3):「掛在哪」看設定,「活著嗎」看紀錄。跟終端機版說同一句話。 */
@@ -387,7 +441,7 @@ function sessionPage(name, sid) {
       <p class="section-note">${esc(c.branch ?? '沒有分支')} · ${s.prompts} 則訊息 ·
         最後動作 ${ago(s.lastTs)}${s.closedAt ? ` · 已於 ${ago(s.closedAt)}結案` : ''}</p>
       ${warn}
-      <div class="stats">${statRestore(c)}${statLadder(c)}${statChanges(c)}</div>
+      <div class="stats">${statRestore(c)}${statLadder(c)}${statChanges(c)}${statTier(c, p)}</div>
     </div>
     <div class="block">
       <h2 class="section serif">My Agent work flow</h2>
@@ -459,6 +513,30 @@ document.addEventListener('click', async (e) => {
       await poll();
     } catch { oo.disabled = false; }
   }
+});
+// 調高分級(表單:等級＋理由)／收回。兩個都只是多記一行,伺服器會擋掉不認識的工作區與不比機器高的等級。
+document.addEventListener('submit', async (e) => {
+  const f = e.target.closest('[data-tier-form]');
+  if (!f) return;
+  e.preventDefault();
+  const btn = f.querySelector('button[type="submit"]');
+  btn.disabled = true;
+  try {
+    await fetch('/api/tier', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ project: f.dataset.proj, cwd: f.dataset.cwd, level: f.level.value, why: f.why.value }) });
+    document.activeElement?.blur?.();   // 游標還在表單裡的話,poll() 會為了不洗掉打到一半的字而跳過重畫——送出了就該畫
+    await poll();
+  } catch { btn.disabled = false; }
+});
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-tier-retract]');
+  if (!b) return;
+  b.disabled = true;
+  try {
+    await fetch('/api/tier', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ project: b.dataset.proj, cwd: b.dataset.cwd, retract: true }) });
+    await poll();
+  } catch { b.disabled = false; }
 });
 window.addEventListener('hashchange', render);
 

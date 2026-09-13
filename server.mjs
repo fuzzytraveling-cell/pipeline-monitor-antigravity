@@ -18,8 +18,6 @@ import { logFileOf } from './lib/events.mjs';
 import { optIn, optOut } from './lib/mount.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-// 跟 hook.sh／status.mjs／collect.mjs 看同一個地方(同一個環境變數),寫的跟讀的才是同一份(老毛病 P2)
-const LOG_DIR = process.env.PIPELINE_MONITOR_LOG_DIR ?? join(HERE, 'logs');
 const HOST = '127.0.0.1';          // ⚠️ 不要參數化。見上面。
 // PORT 是給開發工具用的通用慣例(預覽伺服器會派一個空的埠);PIPELINE_MONITOR_PORT 優先。
 const PORT = Number(process.env.PIPELINE_MONITOR_PORT ?? process.env.PORT ?? 4319);
@@ -54,6 +52,9 @@ function readBody(req, cb) {
 
 /** monitorDir 可以注入,測試才能在自己的暫存資料夾裡跑;預設就是這個資料夾。 */
 export function createApp({ monitorDir = HERE } = {}) {
+  // 跟 hook.sh／status.mjs／collect.mjs 看同一個地方(同一個環境變數),寫的跟讀的才是同一份(老毛病 P2)。
+  // 跟著 monitorDir 走,測試才能在自己的暫存資料夾裡寫,不會碰到真的紀錄。
+  const LOG_DIR = process.env.PIPELINE_MONITOR_LOG_DIR ?? join(monitorDir, 'logs');
   return createServer((req, res) => {
     const url = new URL(req.url, `http://${HOST}`);
     const json = (code, obj) => { res.writeHead(code, TYPES['.json']); res.end(JSON.stringify(obj)); };
@@ -87,6 +88,39 @@ export function createApp({ monitorDir = HERE } = {}) {
             ts: new Date().toISOString(),
             event: undo ? 'session_reopened' : 'session_closed',
             session, cwd: cwd ?? null, source: 'human',
+          }) + '\n');
+          json(200, { ok: true });
+        } catch (e) {
+          json(400, { error: String(e?.message ?? e) });
+        }
+      });
+      return;
+    }
+
+    // 調高分級／收回:記一行「你說這次算 T2,因為…」(source:'human'),跟結案同一種 append-only 紀錄。
+    // ⚠️ 只准對儀表板列得出來的工作區;只准調到 upgradable 裡的等級(比機器算的高);理由必填——
+    //    沒理由的調高跟誤按分不出來,而畫面就是要把理由印給以後的你看。
+    if (url.pathname === '/api/tier' && req.method === 'POST') {
+      if (!sameOrigin(req)) return json(403, { error: 'cross-origin' });
+      readBody(req, (body) => {
+        try {
+          const { project, cwd, level, why, retract } = JSON.parse(body || '{}');
+          const p = collectAll({ monitorDir }).projects.find((x) => x.name === project);
+          const card = p?.cards.find((c) => c.path === cwd && !c.gone && !c.notGit);
+          if (!card) throw new Error('不認識這個工作區');
+          const t = card.tier;
+          if (retract) {
+            if (!t?.manual) throw new Error('沒有你調高的等級可以收回');
+          } else {
+            if (!String(why ?? '').trim()) throw new Error('理由必填');
+            if (!t?.upgradable?.includes(level)) throw new Error('只能調到比機器算的高的等級');
+          }
+          mkdirSync(LOG_DIR, { recursive: true });
+          appendFileSync(logFileOf(LOG_DIR, project), JSON.stringify({
+            ts: new Date().toISOString(),
+            event: retract ? 'tier_retracted' : 'tier_set',
+            ...(retract ? {} : { level, why: String(why).trim().slice(0, 200) }),
+            cwd, head: card.head ?? null, source: 'human',
           }) + '\n');
           json(200, { ok: true });
         } catch (e) {
