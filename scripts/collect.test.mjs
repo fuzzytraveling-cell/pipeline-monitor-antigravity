@@ -79,7 +79,7 @@ section('L14：章之後有存檔 → 卡片帶備份分支名');
   rmSync(monitorDir, { recursive: true, force: true }); r.cleanup();
 }
 
-section('F：三階梯不准把「沒有東西要做」畫成「做完了」');
+section('F：三階梯不准把「沒有東西要做」畫成「做完了」,也不准反過來', 'P5');
 {
   // 2026-09-11 Oscar:新開的分支一個字都沒改,三階梯亮了兩格。燈亮=「有東西,而且走到這一步」,空的分支一格都不該亮。
   const L = (o) => ({ uncommitted: 0, unmerged: 0, onMain: false, mainName: 'main', mainHasUpstream: false, mainUnpushed: null, ...o });
@@ -97,8 +97,15 @@ section('F：三階梯不准把「沒有東西要做」畫成「做完了」');
   eq('有 3 個沒存 → commit 是 pending', ladderSteps(L({ uncommitted: 3 }))[0].state, 'pending');
   const merged = ladderSteps(L({ atMainTip: false }));
   eq('差 0 個但 main 往前走了 → 早就併進去了(done)', merged[1].state, 'done');
+  // 2026-09-15 Oscar:「為什麼 merge 沒亮?」——快轉合併之後分支尖端=main 尖端,跟空分支長得一樣。證據在 reflog,不在 ref
   const tip = ladderSteps(L({ atMainTip: true }));
-  check('差 0 個而且就是 main 的尖端 → 沒有東西要併(none),文案不再說分不出來', tip[1].state === 'none' && !tip[1].text.includes('分不出來'), tip[1].text);
+  check('差 0 個、就是 main 的尖端、沒有別的證據 → 照實說分不出來(none)', tip[1].state === 'none' && tip[1].text.includes('分不出來'), tip[1].text);
+  const empty = ladderSteps(L({ atMainTip: true, branchMoved: false }));
+  check('分支自己的紀錄只有「開出來」那筆 → 空的分支(none),不說分不出來', empty[1].state === 'none' && empty[1].text.includes('空') && !empty[1].text.includes('分不出來'), empty[1].text);
+  const ff = ladderSteps(L({ atMainTip: true, mergedIntoMain: true, branchMoved: true }));
+  check('main 的紀錄有「merge 這條分支」→ 併進去了(done),而且說是快轉', ff[1].state === 'done' && ff[1].text.includes('快轉'), ff[1].text);
+  const emptyBehind = ladderSteps(L({ atMainTip: false, branchMoved: false }));
+  eq('空的分支、main 自己往前走了 → 還是 none,不是 done', emptyBehind[1].state, 'none');
   const main = ladderSteps(L({ onMain: true, mainHasUpstream: true, mainUnpushed: 0 }));
   eq('在 main 上、乾淨 → commit done', main[0].state, 'done');
   eq('在 main 上 → merge 不適用(none),不是 done', main[1].state, 'none');
@@ -109,13 +116,21 @@ section('F：三階梯不准把「沒有東西要做」畫成「做完了」');
 
   // 真的 git:從主線開一條新分支、什麼都不做 → 卡片上的三格一格都不亮
   const r = makeRepo({ files: { 'a.js': '1\n' } });
+  const base = out(r.dir, 'rev-parse', '--abbrev-ref', 'HEAD');   // main 或 master,看這台機器的 git 設定
   r.git('checkout', '-q', '-b', 'feature');
   const root = out(r.dir, 'rev-parse', '--show-toplevel');
   const monitorDir = monitorWith(root, out(r.dir, 'rev-parse', 'HEAD'));   // 章在 HEAD,只是讓卡片出現
   const steps = collectAll({ monitorDir }).projects[0]?.cards?.[0]?.ladder?.steps;
   check('真的空分支:三格沒有 done', Array.isArray(steps) && steps.length === 3 && steps.every((s) => s.state !== 'done'),
         JSON.stringify(steps));
-  rmSync(monitorDir, { recursive: true, force: true }); r.cleanup();
+  check('真的空分支:merge 那格說它是空的,不說分不出來', !!steps?.[1]?.text.includes('空') && !steps?.[1]?.text.includes('分不出來'), steps?.[1]?.text);
+  // 真的 git:分支存了一筆、快轉併進 main、回到分支 → 尖端跟 main 一樣,但 merge 那格要亮「併進去了」
+  writeFileSync(join(r.dir, 'b.js'), '2\n'); r.git('add', '-A'); r.git('commit', '-qm', 'work');
+  r.git('checkout', '-q', base); r.git('merge', '-q', '--ff-only', 'feature'); r.git('checkout', '-q', 'feature');
+  const monitorDir2 = monitorWith(root, out(r.dir, 'rev-parse', 'HEAD'));
+  const ffSteps = collectAll({ monitorDir: monitorDir2 }).projects[0]?.cards?.[0]?.ladder?.steps;
+  check('真的快轉合併:merge 那格是 done,而且說是快轉', ffSteps?.[1]?.state === 'done' && ffSteps?.[1]?.text.includes('快轉'), JSON.stringify(ffSteps?.[1]));
+  rmSync(monitorDir, { recursive: true, force: true }); rmSync(monitorDir2, { recursive: true, force: true }); r.cleanup();
 }
 
 section('C3：中文名的專案在網頁上要找得到,而且顯示真的名字', 'P2');
