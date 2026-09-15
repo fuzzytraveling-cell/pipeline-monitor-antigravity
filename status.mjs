@@ -19,7 +19,7 @@ import { join, dirname, basename, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { appendFileSync } from 'node:fs';
-import { readEvents, loadStages, lastRunPerStage, safeName, logFileOf } from './lib/events.mjs';
+import { readEvents, loadStages, lastRunPerStage, runsPerStage, roundView, safeName, logFileOf } from './lib/events.mjs';
 import { buildTier, readTierConfig, writeTierConfig, proposeCodeArea } from './lib/tier.mjs';
 import { monitorHome } from './lib/paths.mjs';
 import { skillAvailable } from './lib/skills.mjs';
@@ -607,36 +607,37 @@ function renderStages(ctx, ev, facts, info = {}) {
     return;
   }
 
+  // 這一輪跑到哪(lib/events.mjs 的 roundView):分界是最近一次第一關、或蓋章,取較晚的
+  const view = roundView({
+    runs: runsPerStage(events, stages, (e) => e.cwd === ctx.root), stages, cleared,
+    cpAt: info.cpUsable ? info.cp?.at ?? null : null,
+  });
+  if (view.roundStart) console.log(`   （這一輪從 ${ago(view.roundStart)}開始算：最近一次第一關、或蓋章）`);
   let anyOpen = false;
-  for (const st of stages) {
+  for (const st of view.stages) {
     const label = `${st.id} ${st.name}`.padEnd(10, '　');
-    if (st.type === 'main-conversation') { console.log(`   ${label} ●  就是你在講話的那個對話`); continue; }
-    if (st.type === 'not-built')        { console.log(`   ${label} ⚫ 未建`); continue; }
-
-    const run = perStage.get(st.id);
-    if (!run) {
-      // 「沒有紀錄」跟「這裡根本沒有這個指令」是兩件事(lib/skills.mjs)
-      const av = st.skill ? skillAvailable(st.skill, ctx.root, ctx.mainRoot) : { found: null };
-      console.log(av.found === false
-        ? `   ${label} ⚪ 找不到 /${st.skill} 這個指令（這個專案的 .claude/ 和 ~/.claude 都沒有）`
-        : `   ${label} ⚪ 沒有紀錄`);
-      continue;
+    const verb = st.type === 'browser' ? `開瀏覽器跑過一輪${st.count ? `（${st.count} 個動作）` : ''}` : '跑過';
+    switch (st.state) {
+      case 'main':     console.log(`   ${label} ●  就是你在講話的那個對話`); break;
+      case 'notbuilt': console.log(`   ${label} ⚫ 未建`); break;
+      case 'none': {
+        // 「沒有紀錄」跟「這裡根本沒有這個指令」是兩件事(lib/skills.mjs);上一輪的只講一句,不畫線
+        const av = st.skill ? skillAvailable(st.skill, ctx.root, ctx.mainRoot) : { found: null };
+        console.log(av.found === false
+          ? `   ${label} ⚪ 找不到 /${st.skill} 這個指令（這個專案的 .claude/ 和 ~/.claude 都沒有）`
+          : `   ${label} ⚪ 這一輪還沒跑${st.prevRanAt ? `（上一輪 ${ago(st.prevRanAt)}跑過）` : ''}`);
+        break;
+      }
+      case 'passed':   console.log(`   ${label} ✓  ${ago(st.ranAt)}${verb}——已走過`); break;
+      default: {
+        // current／done。AC-9:沒有結案的,時間越久要越顯眼——所以天數一定印出來,而且用 ⏸ 不用 ✅
+        const closed = st.state === 'done';
+        console.log(`   ${label} ${closed ? '✅' : '⏸'} ${ago(st.ranAt)}${verb}`
+          + (closed ? `,${ago(st.clearedAt)}你說處理完了` : ',還沒有人說處理完了'));
+        if (st.args) console.log(`              「${st.args.slice(0, 46)}${st.args.length > 46 ? '…' : ''}」`);
+        if (!closed) anyOpen = true;
+      }
     }
-    // 蓋章之前的紀錄是上一輪的:那次改動已經檢查過、結案了。標出來,不算「還沒處理」
-    if (info.cpUsable && info.cp?.at && new Date(run.ts) < new Date(info.cp.at)) {
-      console.log(`   ${label} ✓ ${ago(run.ts)}${st.type === 'browser' ? '開瀏覽器跑過一輪' : '跑過'}（上一輪,${ago(info.cp.at)}蓋章前）`);
-      continue;
-    }
-
-    const clear = cleared.get(st.id);
-    const closed = clear && new Date(clear.ts) >= new Date(run.ts);
-    // 瀏覽器那一關記的是「開了瀏覽器做動作」——R1 照樣適用:12 個動作不等於驗收通過
-    const verb = st.type === 'browser' ? `開瀏覽器跑過一輪（${run.count} 個動作）` : '跑過';
-    // AC-9:沒有結案的,時間越久要越顯眼——所以天數一定印出來,而且用 ⏸ 不用 ✅
-    console.log(`   ${label} ${closed ? '✅' : '⏸'} ${ago(run.ts)}${verb}`
-      + (closed ? `,${ago(clear.ts)}你說處理完了` : ',還沒有人說處理完了'));
-    if (run.args) console.log(`              「${run.args.slice(0, 46)}${run.args.length > 46 ? '…' : ''}」`);
-    if (!closed) anyOpen = true;
   }
 
   if (firstTs) {

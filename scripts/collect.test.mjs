@@ -5,7 +5,7 @@
  *    章失效時不准當成能用(L14)——網頁的「複製回去的指令」是整個產品最危險的按鈕;
  *    add 過的改動不准消失(老毛病 P1)。
  */
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, copyFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, copyFileSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, basename, dirname } from 'node:path';
@@ -190,37 +190,59 @@ section('對話標題從 app 的索引來;在 app 裡刪掉的對話不准畫成
   r.cleanup();
 }
 
-section('上一輪(蓋章前)的紀錄要劃掉;「沒有紀錄」跟「這裡沒有這個指令」要分開講');
+section('這一輪跑到哪:最近一次第一關或蓋章是分界;現在這一關亮、走過的劃掉、上一輪只講一句;找不到指令要分開講');
 {
   const r = makeRepo({ files: { 'a.js': '1\n' } });
   const root = out(r.dir, 'rev-parse', '--show-toplevel');
   mkdirSync(join(root, '.claude', 'commands'), { recursive: true });
   writeFileSync(join(root, '.claude', 'commands', 'spec.md'), '# /spec\n');   // 這個專案有 /spec,沒有 /cleanup、/chaos-check
-  const cpAt = new Date('2026-09-15T02:00:00Z');
   const monitorDir = mkdtempSync(join(tmpdir(), 'pm-monitor-'));
   mkdirSync(join(monitorDir, 'checkpoints')); mkdirSync(join(monitorDir, 'logs'));
   copyFileSync(join(ROOT, 'stages.json'), join(monitorDir, 'stages.json'));
-  writeFileSync(join(monitorDir, 'checkpoints', `${basename(root)}__main.json`), JSON.stringify({
-    commit: out(r.dir, 'rev-parse', 'HEAD'), branch: 'main', worktree: root, at: cpAt.toISOString(), checks: ['test'],
-  }));
-  const before = new Date(cpAt.getTime() - 3600_000).toISOString(), after = new Date(cpAt.getTime() + 3600_000).toISOString();
-  writeFileSync(join(monitorDir, 'logs', `${basename(root)}.jsonl`), [
-    JSON.stringify({ ts: before, hook: 'PreToolUse', tool: 'Skill', skill: 'spec', session: 's1', cwd: root }),
-    JSON.stringify({ ts: after, hook: 'PreToolUse', tool: 'Skill', skill: 'chaos-check', session: 's1', cwd: root }),
-    JSON.stringify({ ts: after, hook: 'UserPromptSubmit', session: 's1', cwd: root, prompt: 'hi' }),
-  ].join('\n') + '\n');
   const home = mkdtempSync(join(tmpdir(), 'pm-home-'));   // 空的假 home:這台機器的 plugin 不能影響結果
-  const p = collectAll({ monitorDir, skillHome: home }).projects[0];
-  const card = p.cards[0], byId = (arr) => Object.fromEntries(arr.map((s) => [s.id, s]));
-  const cs = byId(card.stages), ss = byId(p.sessions[0].stages);
-  eq('A 在蓋章前跑 → 上一輪(archivedAt = 蓋章時間)', cs.A.archivedAt, cpAt.toISOString());
-  eq('D 在蓋章後跑 → 這一輪(沒有 archivedAt)', cs.D.archivedAt, null);
-  eq('對話層也一樣:A 上一輪', ss.A.archivedAt, cpAt.toISOString());
-  eq('對話層 D 這一輪', ss.D.archivedAt, null);
+  const T = (h) => new Date(Date.UTC(2026, 8, 15, h)).toISOString();
+  const ev = (h, o) => JSON.stringify({ ts: T(h), hook: 'PreToolUse', tool: 'Skill', session: 's1', cwd: root, ...o });
+  const log = join(monitorDir, 'logs', `${basename(root)}.jsonl`);
+  const byId = (arr) => Object.fromEntries(arr.map((s) => [s.id, s]));
+
+  // 第一輪:A(1 時)→ D(2 時)→ E 瀏覽器(3 時,兩個動作)。E 是現在這一關,A、D 已走過
+  writeFileSync(log, [
+    ev(1, { skill: 'spec' }), ev(2, { skill: 'chaos-check' }),
+    ev(3, { tool: 'mcp__Claude_Browser__navigate' }), ev(3, { tool: 'mcp__Claude_Browser__computer' }),
+    JSON.stringify({ ts: T(3), hook: 'UserPromptSubmit', session: 's1', cwd: root, prompt: 'hi' }),
+  ].join('\n') + '\n');
+  let p = collectAll({ monitorDir, skillHome: home }).projects[0];
+  let cs = byId(p.cards[0].stages), ss = byId(p.sessions[0].stages);
+  eq('E 是現在這一關', cs.E.state, 'current');
+  eq('A 已走過', cs.A.state, 'passed');
+  eq('D 已走過', cs.D.state, 'passed');
+  eq('C 這一輪沒跑', cs.C.state, 'none');
+  eq('E 兩個動作', cs.E.count, 2);
+  eq('對話層一樣:E 現在', ss.E.state, 'current');
   eq('這個專案有 /spec → available true', cs.A.available, true);
   eq('沒有 /cleanup → available false(找不到)', cs.C.available, false);
   eq('B(對話本身)沒有指令 → null(不適用)', cs.B.available, null);
-  eq('對話層帶著 skill 名,畫面才講得出「找不到 /cleanup」', ss.C.skill, 'cleanup');
+
+  // 第二輪:A 又被叫(5 時)→ 新的一輪從頭開始:A 現在、D/E 變成「這一輪還沒跑(上一輪跑過)」,不畫線
+  writeFileSync(log, readFileSync(log, 'utf8') + ev(5, { skill: 'spec', args: '第二個功能' }) + '\n');
+  p = collectAll({ monitorDir, skillHome: home }).projects[0];
+  cs = byId(p.cards[0].stages); ss = byId(p.sessions[0].stages);
+  eq('新的一輪:A 現在', cs.A.state, 'current');
+  eq('D 回到沒跑', cs.D.state, 'none');
+  eq('但記得上一輪 D 跑過的時間', cs.D.prevRanAt, T(2));
+  eq('E 回到沒跑', cs.E.state, 'none');
+  eq('對話層也從頭', ss.E.state, 'none');
+  eq('列表上「這一輪走到」= A', p.sessions[0].stages.find((x) => x.state === 'current')?.id, 'A');
+
+  // 蓋章也是分界:章在 6 時,A(5 時)在章之前 → 這一輪空的;D 在 7 時跑 → 現在這一關
+  writeFileSync(join(monitorDir, 'checkpoints', `${basename(root)}__main.json`), JSON.stringify({
+    commit: out(r.dir, 'rev-parse', 'HEAD'), branch: 'main', worktree: root, at: T(6), checks: ['test'],
+  }));
+  writeFileSync(log, readFileSync(log, 'utf8') + ev(7, { skill: 'chaos-check' }) + '\n');
+  p = collectAll({ monitorDir, skillHome: home }).projects[0];
+  cs = byId(p.cards[0].stages);
+  eq('蓋章之後:A(章之前)這一輪沒跑', cs.A.state, 'none');
+  eq('蓋章之後:D(章之後)現在', cs.D.state, 'current');
   for (const d of [monitorDir, home]) rmSync(d, { recursive: true, force: true });
   r.cleanup();
 }

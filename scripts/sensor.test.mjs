@@ -177,6 +177,23 @@ section('結案／取消結案：最後一筆說了算');
     ev({ ts: t(2), event: 'session_reopened' }), ev({ ts: t(3), event: 'session_closed' }),
   ]);
   check('再結案一次 → 又是結案', !!again[0].closedAt);
+  // 結案之後對話又有動作 → 自動算回進行中,而且標明是這樣來的;按鈕本身不算「最後動作」
+  const active = sessionsOf([
+    ev({ ts: t(0), hook: 'UserPromptSubmit' }), ev({ ts: t(1), event: 'session_closed' }), ev({ ts: t(2), hook: 'PostToolUse', tool: 'Edit' }),
+  ]);
+  check('結案後又有感測器紀錄 → closedAt 清掉、reopenedByActivity 有值', active[0].closedAt === null && active[0].reopenedByActivity === t(2));
+  const btn = sessionsOf([ev({ ts: t(0), hook: 'UserPromptSubmit' }), ev({ ts: t(9), event: 'session_reopened' })]);
+  eq('按「取消結案」不算最後動作(lastTs 還是對話最後一筆)', btn[0].lastTs, t(0));
+}
+
+section('plugin 帶的 skill 名字有前綴(pipeline-monitor:spec),同一關兩種名字都要認');
+{
+  const stages = [{ id: 'A', name: '寫規格', skill: 'spec' }];
+  const ev = [
+    { ts: '2026-09-15T01:00:00Z', hook: 'PreToolUse', tool: 'Skill', skill: 'pipeline-monitor:spec', session: 's1', cwd: '/x' },
+  ];
+  eq('pipeline-monitor:spec 算 A', lastRunPerStage(ev, stages, '/x').perStage.get('A')?.skill, 'pipeline-monitor:spec');
+  eq('respec 不算 A(只認冒號前綴,不認任何尾巴)', lastRunPerStage([{ ...ev[0], skill: 'respec' }], stages, '/x').perStage.get('A'), null);
 }
 
 section('退出記號：專案根目錄有 .claude/pipeline-monitor.off 就一筆都不記,而且馬上生效');

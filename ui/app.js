@@ -55,7 +55,7 @@ async function poll() {
     if (!r.ok) throw new Error(String(r.status));
     latest = await r.json(); connected = true;
     // 使用者正在分級表單裡打理由時,這一輪不重畫——重畫會把打到一半的字洗掉(2026-09-13 實測)。資料照抓,下一輪再畫。
-    if (!document.activeElement?.closest?.('[data-tier-form]')) render();
+    if (!document.activeElement?.closest?.('[data-tier-form]')) safeRender();
   } catch { connected = false; }   // AC-2:不准靜靜停止更新
   paintFreshness();
 }
@@ -74,11 +74,9 @@ const clock = (iso) => {
     ? `${String(d.getMonth() + 1)}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
     : '時間對不上';
 };
-const stageState = (st) =>
-  st.type === 'not-built' ? 'notbuilt' :
-  st.type === 'main-conversation' ? 'main' :
-  st.archivedAt ? 'archived' :          // 上一輪(蓋章前)的紀錄:劃掉,這一輪不用再看
-  st.clearedAt ? 'done' : st.ranAt ? 'ran' : 'none';
+// 狀態是伺服器算好的(lib/events.mjs 的 roundView):main／notbuilt／none／passed／current／done。
+// 畫面上 current 沿用「ran」的樣式(亮),passed 是劃掉變淡,done 是劃掉但深色(你說處理完了)。
+const stageState = (st) => st.state === 'current' ? 'ran' : (st.state ?? 'none');
 /** 感測器看得到的關(有 skill 或 tools 的)。B 是你在講話的那個對話、未建的關,都不算分母。 */
 const sensed = (st) => st.type !== 'main-conversation' && st.type !== 'not-built';
 
@@ -302,12 +300,14 @@ function workflow(c) {
     const status =
       s === 'notbuilt' ? '這一關還沒建'
       : s === 'main' ? '就是你在講話的那個對話'
-      : s === 'archived' ? `${ago(st.ranAt)}${verb}——上一輪的,${ago(st.archivedAt)}蓋章時已經檢查過`
+      : s === 'passed' ? `${ago(st.ranAt)}${verb}——已走過`
       : s === 'done' ? `${ago(st.ranAt)}${verb},你說處理完了`
       : s === 'ran' ? `${ago(st.ranAt)}${verb},還沒有人說處理完了`
       // 「沒有紀錄」跟「這裡根本沒有這個指令」是兩件事——Forma Pro 沒有 /spec,那一關永遠不會有紀錄
       : st.available === false ? `找不到 /${st.skill ?? ''} 這個指令（這個專案的 .claude/ 和 ~/.claude 都沒有）`
-      : (c.sensor.state === 'ok' ? '沒有紀錄' : '感測器沒有資料');
+      // 上一輪的不畫線,只講一句——線多了會干擾判斷(Oscar 2026-09-15)
+      : st.prevRanAt ? `這一輪還沒跑（上一輪 ${ago(st.prevRanAt)}跑過）`
+      : (c.sensor?.state === 'ok' ? '這一輪還沒跑' : '感測器沒有資料');
     const said = st.args
       ? `<div class="said">「${esc(st.args.slice(0, 90))}${st.args.length > 90 ? '…' : ''}」</div>` : '';
 
@@ -325,7 +325,7 @@ function workflow(c) {
           <div class="astatus">${esc(status)}</div>
           ${said}
         </div>
-        <span class="lamp" title="${s === 'archived' ? '上一輪' : s === 'done' || s === 'ran' ? '有紀錄' : '沒有紀錄'}"></span>
+        <span class="lamp" title="${s === 'passed' ? '已走過' : s === 'done' || s === 'ran' ? '現在這一關' : '這一輪還沒跑'}"></span>
       </div>`;
   }).join('');
 
@@ -387,13 +387,15 @@ function sessionList(p) {
       之後的對話就會出現在這裡。</p></div>`;
   }
   const row = (s) => {
-    const ran = s.stages.filter((x) => x.ranAt && !x.archivedAt).length;   // 上一輪的不算這一輪的紀錄
-    const total = s.stages.filter(sensed).length;   // E 接上瀏覽器之後也算分母(A/C/D/E)
+    // 這一輪走到哪:現在這一關的名字,比「x/4」更像人話
+    const cur = s.stages.find((x) => x.state === 'current' || x.state === 'done');
+    const where = cur ? `這一輪走到 ${cur.id} ${cur.name}${cur.state === 'done' ? '（處理完了）' : ''}` : '這一輪還沒有紀錄';
     return `<div class="srow ${s.closedAt ? 'closed' : ''}">
       <a class="sname" href="#/p/${encodeURIComponent(p.name)}/s/${encodeURIComponent(s.id)}">
         ${esc(s.title ?? '（還沒有標題）')}</a>
       <span class="smeta">${s.prompts} 則訊息 · 最後動作 ${ago(s.lastTs)}
-        · 五關有紀錄 ${ran}/${total}${s.sharesCwd ? ' · ⚠️ 與其他對話共用工作區' : ''}</span>
+        · ${esc(where)}${s.sharesCwd ? ' · ⚠️ 與其他對話共用工作區' : ''}${
+        s.reopenedByActivity ? ` · 結案後又有動作（${ago(s.reopenedByActivity)}）,算回進行中` : ''}</span>
       ${s.deletedAt
         ? `<span class="muted">已在 app 裡刪除</span>`
         : `<button class="mini-btn" data-close="${esc(s.id)}" data-proj="${esc(p.name)}"
@@ -437,6 +439,21 @@ function sessionPage(name, sid) {
   if (!s) return `<p class="muted">找不到這個對話。<a href="#/p/${encodeURIComponent(name)}">回對話清單</a></p>`;
   const c = s.card;
   if (!c) return `<p class="muted">這個對話的工作區找不到了（${esc(s.cwd ?? '?')}）。</p>`;
+  // 工作區的資料夾已經不在了(worktree 被刪):git 那三張卡沒有東西可講,五關的紀錄還在,照畫。
+  // ⚠️ 以前這裡照樣去讀 c.sensor.state → 整頁炸掉 → 被當成「斷線」(2026-09-15 Oscar 點進去就斷)。
+  if (c.gone) {
+    return `
+    <div class="block">
+      <h2 class="section serif">${esc(s.title ?? '（還沒有標題）')}</h2>
+      <p class="section-note">${s.prompts} 則訊息 · 最後動作 ${ago(s.lastTs)}</p>
+      <p class="section-note">⚠️ 這個對話的工作區資料夾已經不在了（${esc(s.cwd ?? '')}）——
+        還原點、三階梯、改動都沒有東西可講。下面五關的紀錄還在。</p>
+    </div>
+    <div class="block">
+      <h2 class="section serif">My Agent work flow</h2>
+      ${workflow({ ...c, sensor: { state: 'ok' }, stages: s.stages })}
+    </div>`;
+  }
 
   const warn = s.sharesCwd
     ? `<p class="section-note">⚠️ 這個工作區還有別的對話在用,所以下面的 git 狀態是**共用的**——
@@ -545,7 +562,17 @@ document.addEventListener('click', async (e) => {
     await poll();
   } catch { b.disabled = false; }
 });
-window.addEventListener('hashchange', render);
+// ⚠️ 畫面自己壞掉(某一頁的程式錯)跟資料斷線是兩件事。以前 render 一丟例外就被 poll 的 catch 接走,
+//    右上角寫「斷線」——那是把儀表板自己的 bug 講成別人的問題。這裡接住、照實說是畫面壞了,資料照常。
+function safeRender() {
+  try { render(); }
+  catch (e) {
+    console.error('畫面壞了', e);
+    $app.innerHTML = `<p class="muted">這一頁的畫面壞了（是儀表板自己的問題,不是資料斷線）。
+      <a href="#/">回案件列表</a>，然後把這件事告訴 Claude。</p>`;
+  }
+}
+window.addEventListener('hashchange', safeRender);
 
 poll();
 setInterval(poll, POLL_MS);

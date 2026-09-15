@@ -404,11 +404,11 @@ a.ext { color: var(--color-lake-blue); }
   border: 1px solid var(--color-smoke); border-radius: 6px; background: transparent; color: inherit; }
 .tierform select { font: inherit; font-size: var(--text-caption); padding: 4px 6px; }
 
-/* 已完成(你說處理完了)與上一輪(蓋章前):鉛筆劃掉——紀錄還在,只是這一輪不用再看。跟結案那條線同一支筆 */
-.acard[data-state="done"] .atitle, .acard[data-state="archived"] .atitle {
+/* 已走過(這一輪比現在這一關早被叫的)與處理完了:鉛筆劃掉——紀錄還在,只是不用再看。跟結案那條線同一支筆 */
+.acard[data-state="done"] .atitle, .acard[data-state="passed"] .atitle {
   text-decoration: line-through; text-decoration-thickness: 1.5px; text-decoration-color: var(--color-coral);
 }
-.acard[data-state="archived"] { opacity: .62; }
-.acard[data-state="archived"] .astatus { color: var(--color-smoke); }
-.railcell[data-state="archived"] .dot { background: var(--color-ash); border-color: var(--color-ash); }
-.mini span[data-s="archived"] { background: var(--color-ash); opacity: .6; }
+.acard[data-state="passed"] { opacity: .62; }
+.acard[data-state="passed"] .astatus { color: var(--color-smoke); }
+.railcell[data-state="passed"] .dot { background: var(--color-off-black); border-color: var(--color-off-black); opacity: .5; }
+.mini span[data-s="passed"] { background: var(--color-off-black); opacity: .5; }
