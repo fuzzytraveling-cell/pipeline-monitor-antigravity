@@ -290,6 +290,9 @@ section('開過瀏覽器 ≠ 驗收過:E 只算「看過」,不亮、不算走�
   const v2 = by(stagesOfSession([...ev, { ts: t(4), event: 'stage_cleared', stage: 'E', session: 's1', cwd: '/x', source: 'human' }], stages, 's1'));
   eq('人說驗收過了 → E done', v2.E.state, 'done');
   eq('這時 D 才變成已走過', v2.D.state, 'passed');
+  // CLI 的 --clear 沒有對話代號,只有 cwd:對話頁也要認同工作區的結案
+  const v3 = by(stagesOfSession([...ev, { ts: t(4), event: 'stage_cleared', stage: 'E', cwd: '/x', source: 'human' }], stages, 's1', null, '/x'));
+  eq('工作區層級的結案,對話頁也認 → E done', v3.E.state, 'done');
 }
 
 section('建議新增的對話:寫進紀錄、不做了、對話真的這樣開頭就算已開始');
