@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { collectAll, ladderSteps } from '../lib/collect.mjs';
 import { monitorHome } from '../lib/paths.mjs';
+import { readAppTitles, deletedAt, transcriptDirName } from '../lib/appSessions.mjs';
 import { safeName } from '../lib/events.mjs';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 
@@ -141,6 +142,52 @@ section('L17：程式從 worktree 跑,資料還是主資料夾的那一份', 'P3
   execFileSync('git', ['worktree', 'remove', '--force', wt], { cwd: repo.dir, stdio: 'ignore' });
   for (const d of [wtParent, plain]) rmSync(d, { recursive: true, force: true });
   repo.cleanup(); target.cleanup();
+}
+
+section('對話標題從 app 的索引來;在 app 裡刪掉的對話不准畫成「進行中」');
+{
+  // 假的 app 索引:<a>/<b>/local_*.json,只認 title + cliSessionId;壞檔跳過;沒有 title 的不算
+  const idx = mkdtempSync(join(tmpdir(), 'pm-appidx-'));
+  mkdirSync(join(idx, 'w1', 's1'), { recursive: true });
+  writeFileSync(join(idx, 'w1', 's1', 'local_a.json'), JSON.stringify({ cliSessionId: 'sess-1', title: '履歷轉換系統重構', model: 'x', permissionMode: 'y' }));
+  writeFileSync(join(idx, 'w1', 's1', 'local_b.json'), '{ 壞掉的');
+  writeFileSync(join(idx, 'w1', 's1', 'local_c.json'), JSON.stringify({ cliSessionId: 'sess-3', title: '   ' }));
+  const titles = readAppTitles(idx);
+  eq('讀到標題', titles.get('sess-1'), '履歷轉換系統重構');
+  eq('壞檔跳過、空標題不算 → 只有 1 筆', titles.size, 1);
+  eq('索引資料夾不存在 → 空的,不當機', readAppTitles(join(idx, '沒有')).size, 0);
+
+  eq('轉錄資料夾命名:非英數全換成 -', transcriptDirName('/Users/x/Desktop/Forma Pro/.claude'), '-Users-x-Desktop-Forma-Pro--claude');
+  const tr = mkdtempSync(join(tmpdir(), 'pm-tr-'));
+  const cwd = '/Users/x/Desktop/Forma Pro';
+  mkdirSync(join(tr, transcriptDirName(cwd)));
+  writeFileSync(join(tr, transcriptDirName(cwd), 'sess-1.desktop-released.json'), JSON.stringify({ v: 1, releasedAt: '2026-09-15T01:34:40Z', reason: 'delete' }));
+  writeFileSync(join(tr, transcriptDirName(cwd), 'sess-2.desktop-released.json'), JSON.stringify({ v: 1, releasedAt: '2026-09-15T01:34:40Z', reason: 'other' }));
+  eq('reason=delete → 刪除時間', deletedAt('sess-1', cwd, tr), '2026-09-15T01:34:40Z');
+  eq('別的 reason → null', deletedAt('sess-2', cwd, tr), null);
+  eq('沒有檔 → null', deletedAt('sess-9', cwd, tr), null);
+
+  // 整條走一次:紀錄裡兩個對話,一個在 app 裡刪了 → 標題對上、刪掉的算結案且標 deletedAt
+  const r = makeRepo({ files: { 'a.js': '1\n' } });
+  const root = out(r.dir, 'rev-parse', '--show-toplevel');
+  const monitorDir = mkdtempSync(join(tmpdir(), 'pm-monitor-'));
+  mkdirSync(join(monitorDir, 'logs'));
+  copyFileSync(join(ROOT, 'stages.json'), join(monitorDir, 'stages.json'));
+  const ts = new Date().toISOString();
+  writeFileSync(join(monitorDir, 'logs', `${basename(root)}.jsonl`), [
+    JSON.stringify({ ts, hook: 'UserPromptSubmit', session: 'sess-1', cwd: root, prompt: 'hi' }),
+    JSON.stringify({ ts, hook: 'UserPromptSubmit', session: 'sess-2', cwd: root, prompt: 'yo', title: '感測器記的' }),
+  ].join('\n') + '\n');
+  mkdirSync(join(tr, transcriptDirName(root)), { recursive: true });
+  writeFileSync(join(tr, transcriptDirName(root), 'sess-1.desktop-released.json'), JSON.stringify({ releasedAt: ts, reason: 'delete' }));
+  const p = collectAll({ monitorDir, appTitles: titles, transcriptsDir: tr }).projects[0];
+  const s1 = p.sessions.find((s) => s.id === 'sess-1'), s2 = p.sessions.find((s) => s.id === 'sess-2');
+  eq('app 的標題接上了', s1?.title, '履歷轉換系統重構');
+  eq('app 沒有的退回感測器記的', s2?.title, '感測器記的');
+  check('在 app 裡刪掉的 → 算結案,而且標明 deletedAt', !!s1?.closedAt && s1?.deletedAt === ts, JSON.stringify(s1));
+  check('沒刪的還是進行中', !s2?.closedAt);
+  for (const d of [idx, tr, monitorDir]) rmSync(d, { recursive: true, force: true });
+  r.cleanup();
 }
 
 process.exit(summary());

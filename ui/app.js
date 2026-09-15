@@ -390,9 +390,11 @@ function sessionList(p) {
         ${esc(s.title ?? '（還沒有標題）')}</a>
       <span class="smeta">${s.prompts} 則訊息 · 最後動作 ${ago(s.lastTs)}
         · 五關有紀錄 ${ran}/${total}${s.sharesCwd ? ' · ⚠️ 與其他對話共用工作區' : ''}</span>
-      <button class="mini-btn" data-close="${esc(s.id)}" data-proj="${esc(p.name)}"
+      ${s.deletedAt
+        ? `<span class="muted">已在 app 裡刪除</span>`
+        : `<button class="mini-btn" data-close="${esc(s.id)}" data-proj="${esc(p.name)}"
         data-cwd="${esc(s.cwd ?? '')}" data-undo="${s.closedAt ? 1 : 0}">
-        ${s.closedAt ? '取消結案' : '結案'}</button>
+        ${s.closedAt ? '取消結案' : '結案'}</button>`}
     </div>`;
   };
   return `<div class="block">
