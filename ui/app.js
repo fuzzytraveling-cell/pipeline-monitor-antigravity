@@ -80,6 +80,26 @@ const stageState = (st) => st.state === 'current' ? 'ran' : (st.state ?? 'none')
 /** 感測器看得到的關(有 skill 或 tools 的)。B 是你在講話的那個對話、未建的關,都不算分母。 */
 const sensed = (st) => st.type !== 'main-conversation' && st.type !== 'not-built';
 
+/** 這一輪走到哪,一句話。對話列與案件卡共用,兩邊才說同一句。 */
+function roundWhere(stages) {
+  const cur = (stages ?? []).find((x) => x.state === 'current' || x.state === 'done');
+  if (!cur) return '這一輪還沒有紀錄';
+  const tail = cur.state === 'done' ? (cur.type === 'browser' ? '（你說驗收過了）' : '（處理完了）') : '';
+  return `這一輪走到 ${cur.id} ${cur.name}${tail}`;
+}
+
+/**
+ * 案件層級要講「哪一個」:最近在動、而且工作區還在的那個進行中對話;沒有的話講主資料夾那張卡。
+ * ⚠️ 一個案件底下有好幾個對話與工作區。以前隨手挑清單上第一個還在的工作區來畫,而且不說是誰——
+ *    ai-english-course 案件卡上亮著的 C,是 5 天前另一個對話的紀錄,Oscar 看不懂(2026-09-15)。
+ */
+function focusOf(p) {
+  const live = (p.sessions ?? []).filter((s) => !s.closedAt);   // 伺服器已經依最後動作排好
+  const session = live.find((s) => s.card && !s.card.gone && !s.card.notGit) ?? null;
+  const card = session?.card ?? p.cards.find((c) => c.path === p.mainRoot && !c.gone && !c.notGit) ?? null;
+  return { session, card, liveCount: live.length };
+}
+
 /* ═══ 第一層:案件列表 ═══ */
 function projectList() {
   if (!latest?.projects?.length) {
@@ -87,17 +107,18 @@ function projectList() {
       <code>pipeline-status --checkpoint</code> 就會出現在這裡。</p>`;
   }
   const cards = latest.projects.map((p) => {
-    // 挑一張還在的卡講(失效的舊章會留下一張「資料夾不見了」的卡)
-    const c = p.cards.find((x) => !x.gone && !x.notGit) ?? p.cards[0];
-    const mini = (c?.stages ?? []).filter(sensed)
-      .map((s) => `<span data-s="${stageState(s)}"></span>`).join('');
-    const cp = c?.checkpoint;
+    // 小格子畫的是「最近在動的那個對話」這一輪走到哪,而且把它的名字寫出來(focusOf)。
+    // 還原點是每個工作區各一個,放在案件卡上說不清是誰的——拿掉,點進去看。
+    const { session, liveCount } = focusOf(p);
+    const off = p.optedOut ? ' · 已退出記錄' : '';
+    const body = session
+      ? `<div class="mini">${session.stages.filter(sensed).map((s) => `<span data-s="${stageState(s)}"></span>`).join('')}</div>
+      <div class="meta focus">最近在動：${esc(session.title ?? '（還沒有標題）')}</div>
+      <div class="meta">${esc(roundWhere(session.stages))} · 共 ${liveCount} 個進行中的對話${off}</div>`
+      : `<div class="meta">${liveCount ? `${liveCount} 個進行中的對話（它們的工作區都不在了）` : '沒有進行中的對話'}${off}</div>`;
     return `<button class="pcard" data-go="${esc(p.name)}">
       <h3>${esc(p.displayName ?? p.name)}</h3>
-      <div class="mini">${mini}</div>
-      <div class="meta">${(p.sessions ?? []).filter((s) => !s.closedAt).length} 個進行中的對話 ·
-        ${!cp ? '還沒有還原點' : cpOk(c) ? `還原點 ${ago(cp.at)}` : '還原點失效'}${
-        p.optedOut ? ' · 已退出記錄' : ''}</div>
+      ${body}
     </button>`;
   }).join('');
   return `<div class="block">
@@ -351,9 +372,9 @@ function workflow(c) {
 function overview(p) {
   const live = p.sessions.filter((s) => !s.closedAt);
   const done = p.sessions.filter((s) => s.closedAt);
-  // 一個案件可能有好幾張卡(主資料夾＋worktree),有些已經不在了。中間那格挑一張**還在**的講,
-  // 不然一個失效的舊章會讓整個案件看起來像「資料夾不見了」
-  const card = p.cards.find((c) => !c.gone && !c.notGit) ?? p.cards[0];
+  // 中間那格講的是哪個工作區要說出來:最近在動的對話的工作區,沒有的話是主資料夾(focusOf)
+  const { session: focus, card } = focusOf(p);
+  const subject = focus ? `最近在動：${(focus.title ?? '（還沒有標題）').slice(0, 16)}` : card ? '主資料夾' : null;
 
   const chip = (s) => `<a class="ochip" href="#/p/${encodeURIComponent(p.name)}/s/${encodeURIComponent(s.id)}">
       <span class="odot"></span>${esc((s.title ?? '（還沒有標題）').slice(0, 22))}</a>`;
@@ -373,7 +394,7 @@ function overview(p) {
     </div>
     <div class="ov-mid">
       <div class="ov-hub"><span></span><span></span><span></span></div>
-      <div class="ov-state">${mid.map((t) => `<div>${esc(t)}</div>`).join('')}</div>
+      <div class="ov-state">${subject ? `<div class="ov-subject">${esc(subject)}</div>` : ''}${mid.map((t) => `<div>${esc(t)}</div>`).join('')}</div>
     </div>
     <div class="ov-col ov-right">
       <div class="ov-h">已結案</div>
@@ -397,10 +418,8 @@ function sessionList(p) {
   }
   const row = (s) => {
     // 這一輪走到哪:現在這一關的名字,比「x/4」更像人話
-    const cur = s.stages.find((x) => x.state === 'current' || x.state === 'done');
     const seen = s.stages.find((x) => x.state === 'seen');
-    const where = (cur ? `這一輪走到 ${cur.id} ${cur.name}${cur.state === 'done' ? (cur.type === 'browser' ? '（你說驗收過了）' : '（處理完了）') : ''}` : '這一輪還沒有紀錄')
-      + (seen ? ` · 開過瀏覽器,還沒有人說驗收過` : '');
+    const where = roundWhere(s.stages) + (seen ? ' · 開過瀏覽器,還沒有人說驗收過' : '');
     return `<div class="srow ${s.closedAt ? 'closed' : ''}">
       <a class="sname" href="#/p/${encodeURIComponent(p.name)}/s/${encodeURIComponent(s.id)}">
         ${esc(s.title ?? '（還沒有標題）')}</a>
@@ -434,15 +453,14 @@ function projectPage(name) {
 
 /** Claude 建議另開的對話。⚠️ 儀表板開不了對話——只能讓你複製說明、貼進新對話的第一句。 */
 function suggestionsBlock(p) {
-  const open = (p.suggestions ?? []).filter((s) => !s.dismissedAt);
+  // 已開始的直接拿掉,不劃線留著——那個對話會出現在下面的「對話」裡,留著就是同一件事出現兩次(Oscar 2026-09-15)
+  const open = (p.suggestions ?? []).filter((s) => !s.dismissedAt && !s.startedBy);
   if (!open.length) return '';
   const rows = open.map((s) => {
     const firstLine = esc(s.prompt.split('\n').find((l) => l.trim()) ?? '');
-    const state = s.startedBy
-      ? `<span class="muted">已開始：<a href="#/p/${encodeURIComponent(p.name)}/s/${encodeURIComponent(s.startedBy)}">${esc(s.startedTitle ?? '')}</a></span>`
-      : `<button class="copy" data-copy="${esc(s.prompt)}">複製說明</button>
+    const state = `<button class="copy" data-copy="${esc(s.prompt)}">複製說明</button>
          <button class="mini-btn" data-dismiss="${esc(s.id)}" data-proj="${esc(p.name)}">不做了</button>`;
-    return `<div class="srow ${s.startedBy ? 'closed' : ''}">
+    return `<div class="srow">
       <span class="sname">${esc(s.title)}</span>
       <span class="smeta">Claude ${ago(s.ts)}建議 · ${firstLine.slice(0, 80)}${firstLine.length > 80 ? '…' : ''}</span>
       <span class="sact">${state}</span>
@@ -451,7 +469,7 @@ function suggestionsBlock(p) {
   return `<div class="block">
       <h2 class="section serif">建議新增的對話</h2>
       <p class="section-note">Claude 覺得該另開一個對話做的事。這裡開不了對話——<b>複製說明</b>，在 app 開新對話，貼進第一句。
-        對話真的這樣開頭了，這裡會自己標成「已開始」。</p>
+        對話真的這樣開頭了，這張會自己拿掉（那個對話會出現在下面的「對話」裡）。</p>
       <div class="slist">${rows}</div>
     </div>`;
 }

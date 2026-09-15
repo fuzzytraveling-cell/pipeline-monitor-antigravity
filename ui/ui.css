@@ -419,3 +419,8 @@ a.ext { color: var(--color-lake-blue); }
 .mini span[data-s="seen"] { background: var(--color-ash); }
 .acard .mini-btn { margin-top: 8px; }
 .srow .sact { grid-column: 2; grid-row: 1 / span 2; display: flex; gap: 8px; align-items: center; }
+
+/* 案件卡:說出小格子畫的是哪個對話。名字太長就截,不要把「走到哪」那一行擠掉 */
+.pcard { min-width: 0; }
+.pcard .meta.focus { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ov-subject { color: var(--color-smoke); font-size: var(--text-caption); }
