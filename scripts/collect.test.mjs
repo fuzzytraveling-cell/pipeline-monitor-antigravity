@@ -82,20 +82,24 @@ section('L14：章之後有存檔 → 卡片帶備份分支名');
 section('F：三階梯不准把「沒有東西要做」畫成「做完了」');
 {
   // 2026-09-11 Oscar:新開的分支一個字都沒改,三階梯亮了兩格。燈亮=「有東西,而且走到這一步」,空的分支一格都不該亮。
-  const L = (o) => ({ uncommitted: 0, unmerged: 0, onMain: false, mainName: 'main', hasUpstream: false, unpushed: null, ...o });
+  const L = (o) => ({ uncommitted: 0, unmerged: 0, onMain: false, mainName: 'main', mainHasUpstream: false, mainUnpushed: null, ...o });
   const fresh = ladderSteps(L({}));
   check('空的分支:沒有任何一格是 done', fresh.every((s) => s.state !== 'done'), JSON.stringify(fresh));
   check('merge 那格照實說「分不出來」', fresh[1].text.includes('分不出來'), fresh[1].text);
   const worked = ladderSteps(L({ unmerged: 2 }));
   eq('存了 2 次、工作區乾淨 → commit 是 done', worked[0].state, 'done');
   eq('還沒併 → merge 是 pending', worked[1].state, 'pending');
-  eq('有東西、沒 push → push 是 pending', worked[2].state, 'pending');
+  // push 一律看 main(Oscar 2026-09-15:分支在本機併進 main、只推 main):分支的卡上也要看得到 main 有東西沒推
+  eq('main 沒連到 GitHub → push 是 none(沒地方可推,不是問不到)', worked[2].state, 'none');
+  const behind = ladderSteps(L({ mainHasUpstream: true, mainUnpushed: 4 }));
+  check('main 有 4 個沒推 → 分支的卡也說 main 可以 push', behind[2].state === 'pending' && behind[2].text.includes('main') && behind[2].text.includes('4'), behind[2].text);
+  eq('main 問不到 → unknown', ladderSteps(L({ mainHasUpstream: true, mainUnpushed: null }))[2].state, 'unknown');
   eq('有 3 個沒存 → commit 是 pending', ladderSteps(L({ uncommitted: 3 }))[0].state, 'pending');
   const merged = ladderSteps(L({ atMainTip: false }));
   eq('差 0 個但 main 往前走了 → 早就併進去了(done)', merged[1].state, 'done');
   const tip = ladderSteps(L({ atMainTip: true }));
   check('差 0 個而且就是 main 的尖端 → 沒有東西要併(none),文案不再說分不出來', tip[1].state === 'none' && !tip[1].text.includes('分不出來'), tip[1].text);
-  const main = ladderSteps(L({ onMain: true, hasUpstream: true, unpushed: 0 }));
+  const main = ladderSteps(L({ onMain: true, mainHasUpstream: true, mainUnpushed: 0 }));
   eq('在 main 上、乾淨 → commit done', main[0].state, 'done');
   eq('在 main 上 → merge 不適用(none),不是 done', main[1].state, 'none');
   eq('GitHub 一樣 → push done', main[2].state, 'done');
