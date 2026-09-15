@@ -164,7 +164,10 @@ section('C1：專案名有空白和中文,hook 寫的檔名跟讀取端找的要
 section('結案／取消結案：最後一筆說了算');
 {
   // 2026-09-11 Oscar:按了「取消結案」沒有恢復。伺服器有寫 session_reopened,讀取端沒認。
-  const t = (n) => new Date(Date.now() + n * 1000).toISOString();
+  // ⚠️ 「現在」只取一次(L18):每次呼叫都問 Date.now() 的話,造事件的 t(2) 跟斷言的 t(2) 隔著幾毫秒,
+  //    機器一忙就對不起來——整套 npm test 跑到這裡偶爾紅,單獨跑永遠綠。
+  const base = Date.now();
+  const t = (n) => new Date(base + n * 1000).toISOString();
   const ev = (o) => ({ session: 's1', cwd: '/x', ...o });
   const closedOnly = sessionsOf([ev({ ts: t(0), hook: 'UserPromptSubmit' }), ev({ ts: t(1), event: 'session_closed' })]);
   check('結案 → closedAt 有值', !!closedOnly[0].closedAt);
