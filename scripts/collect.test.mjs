@@ -48,6 +48,22 @@ section('L14：網頁的還原點卡也要知道章失效了');
   rmSync(monitorDir, { recursive: true, force: true }); r.cleanup();
 }
 
+section('未檢查清單:每個檔案標清楚「還沒存」,蓋章之後 commit 過的不准被讀成沒 commit');
+{
+  const r = makeRepo({ files: { 'a.js': '1\n', 'b.js': '1\n' } });
+  const root = out(r.dir, 'rev-parse', '--show-toplevel');
+  const c1 = out(r.dir, 'rev-parse', 'HEAD');
+  writeFileSync(join(r.dir, 'a.js'), '2\n'); r.git('add', '-A'); r.git('commit', '-qm', '蓋章之後存的');   // a.js:改過、已存
+  writeFileSync(join(r.dir, 'b.js'), '2\n');                                                          // b.js:改過、還沒存
+  const monitorDir = monitorWith(root, c1);
+  const files = collectAll({ monitorDir }).projects[0]?.cards?.[0]?.files;
+  const items = Object.fromEntries(files.groups.flatMap((g) => g.items).map((it) => [it.name, it]));
+  eq('兩個都算改過', files.total, 2);
+  eq('其中 1 個還沒存', files.uncommittedCount, 1);
+  check('a.js 已存、b.js 還沒存,各自標對', items['a.js'].uncommitted === false && items['b.js'].uncommitted === true, JSON.stringify(items));
+  rmSync(monitorDir, { recursive: true, force: true }); r.cleanup();
+}
+
 section('L14：章之後有存檔 → 卡片帶備份分支名');
 {
   const r = makeRepo({ files: { 'a.js': '1\n' } });
@@ -75,6 +91,10 @@ section('F：三階梯不准把「沒有東西要做」畫成「做完了」');
   eq('還沒併 → merge 是 pending', worked[1].state, 'pending');
   eq('有東西、沒 push → push 是 pending', worked[2].state, 'pending');
   eq('有 3 個沒存 → commit 是 pending', ladderSteps(L({ uncommitted: 3 }))[0].state, 'pending');
+  const merged = ladderSteps(L({ atMainTip: false }));
+  eq('差 0 個但 main 往前走了 → 早就併進去了(done)', merged[1].state, 'done');
+  const tip = ladderSteps(L({ atMainTip: true }));
+  check('差 0 個而且就是 main 的尖端 → 沒有東西要併(none),文案不再說分不出來', tip[1].state === 'none' && !tip[1].text.includes('分不出來'), tip[1].text);
   const main = ladderSteps(L({ onMain: true, hasUpstream: true, unpushed: 0 }));
   eq('在 main 上、乾淨 → commit done', main[0].state, 'done');
   eq('在 main 上 → merge 不適用(none),不是 done', main[1].state, 'none');

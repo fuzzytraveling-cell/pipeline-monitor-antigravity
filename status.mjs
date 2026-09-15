@@ -227,6 +227,22 @@ function uncommitted(cwd) {
   return out.split('\n').filter(Boolean).length;
 }
 
+/** 還沒存進保險箱的**是哪些檔案**(路徑)。問不到回 null。
+ *  ⚠️ 不能走 git():它會 trim(),而 porcelain 第一行的開頭就是一個空白（" M a.js"）——
+ *     trim 掉之後路徑就切錯位,第一個檔案永遠標不到(2026-09-15 測試抓到)。 */
+function dirtyPaths(cwd) {
+  let raw;
+  try {
+    raw = execFileSync('git', ['-c', 'core.quotepath=false', 'status', '--porcelain', '-uall'],
+      { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  } catch { return null; }
+  return new Set(raw.split('\n').filter((l) => l.length > 3).map((l) => {
+    const p = l.slice(3);
+    // 改名的一行長 "R  舊 -> 新",要的是新的那個
+    return p.includes(' -> ') ? p.split(' -> ').pop() : p;
+  }));
+}
+
 /** 跟 git() 一樣,但回的是**離開碼**——有些問題 git 是用離開碼回答的
  *  (`merge-base --is-ancestor`:0 是、1 不是、其他是「問不到」)。回 null = 跑不起來。 */
 function gitExit(args, cwd) {
@@ -407,7 +423,7 @@ function describeCheckFailure(script, fail) {
 
 export {
   git, gitContext, changeScale, changeHealth, detectChecks, ago, TEST_FILE,
-  uncommitted, checkpointRelation, backupBranchName, restoreAdvice, describeCheckpoint,
+  uncommitted, dirtyPaths, checkpointRelation, backupBranchName, restoreAdvice, describeCheckpoint,
   describeSensor, describeCheckFailure, describeTier,
 };
 

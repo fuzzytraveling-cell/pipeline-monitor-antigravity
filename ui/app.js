@@ -191,8 +191,9 @@ function statLadder(c) {
 
 function statChanges(c) {
   const f = c.files;
-  // 「commit 後還沒被檢查」預設了有一個能用的章;沒有章(或章失效)時,這張卡講的是「還沒存檔的改動」
-  const label = cpOk(c) ? 'commit後還沒被檢查的檔案' : '還沒存檔的改動';
+  // 有章:講的是「蓋章之後改過、還沒重新檢查」——它們多半已經 commit 了,不是「還沒 commit」。
+  // 以前寫「commit後還沒被檢查的檔案」,Oscar 讀成「還沒 commit 的檔案」(2026-09-15)。沒有章:講的是還沒存的改動。
+  const label = cpOk(c) ? '蓋章之後改過、還沒重新檢查的檔案' : '還沒存檔（commit）的改動';
   if (!f) return `<div class="stat" data-tone="change"><h3 class="ctitle">未檢查清單</h3><div class="label">${label}</div>
     <div class="big">問不到</div></div>`;
   if (!f.total) return `<div class="stat" data-tone="change"><h3 class="ctitle">未檢查清單</h3><div class="label">${label}</div>
@@ -202,13 +203,15 @@ function statChanges(c) {
   const groups = f.groups.map((g) => `<div class="fgroup">
       <div class="dir">${esc(g.dir)}/</div>
       <ul>${g.items.map((it) => `<li class="${it.isNew ? 'isnew' : ''}">${esc(it.name)}${
-        it.isNew ? ' · 新檔案' : ''}</li>`).join('')}</ul>
+        it.isNew ? ' · 新檔案' : ''}${it.uncommitted ? ' · <b>還沒存</b>' : ''}</li>`).join('')}</ul>
     </div>`).join('');
 
   return `<div class="stat" data-tone="change">
     <h3 class="ctitle">未檢查清單</h3><div class="label">${label}</div>
     <div class="big"><span class="num">${f.total}</span><span class="unit">個檔案</span></div>
-    ${f.newCount ? `<div class="sub">其中 ${f.newCount} 個是新建的。</div>` : ''}
+    ${f.uncommittedCount === null ? '<div class="sub">問不到哪些還沒存。</div>'
+      : f.uncommittedCount > 0 ? `<div class="sub">其中 <b>${f.uncommittedCount} 個還沒存進保險箱（commit）</b>${f.newCount ? `,${f.newCount} 個是新建的` : ''}。</div>`
+      : `<div class="sub">都已經存了（commit）${cpOk(c) ? ',只是蓋章之後改的,還沒重新檢查。要檢查：<code>pipeline-status --checkpoint</code>' : ''}。</div>`}
     <div class="files">${groups}</div>
     ${c.scale ? `<div class="hint">參考:這個專案一次改動通常 ${c.scale.median} 個檔案,
       最多到過 ${c.scale.max} 個。</div>` : ''}
