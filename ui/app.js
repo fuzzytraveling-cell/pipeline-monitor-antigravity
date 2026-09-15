@@ -320,7 +320,9 @@ function workflow(c) {
     const r = ROLE[st.id] ?? { icon: '·', house: '', does: '' };
     const last = i === c.stages.length - 1;
     // 瀏覽器那一關記的是「開了瀏覽器做動作」——12 個動作不等於驗收通過,文案只講跑過
-    const verb = st.type === 'browser' ? `開瀏覽器跑過一輪${st.count ? `（${st.count} 個動作）` : ''}` : '跑過';
+    // 「被叫」的證據有兩種:你自己打的斜線指令(不經過 Skill 工具,L19)、或 Claude 自己去叫。字要跟證據一樣大:叫了,不是跑完了
+    const verb = st.type === 'browser' ? `開瀏覽器跑過一輪${st.count ? `（${st.count} 個動作）` : ''}`
+      : st.via === 'typed' ? `你叫了 /${esc(st.calledAs ?? '')}` : `Claude 叫了 /${esc(st.calledAs ?? st.skill ?? '')}`;
     const said = st.type === 'browser' ? '驗收過了' : '處理完了';
     // 現在這一關、或開過瀏覽器的那一關,給一個「你說」的按鈕——跟 CLI 的 --clear 同一種紀錄(source:human)
     const stamp = (s === 'ran' || s === 'seen') && c.path

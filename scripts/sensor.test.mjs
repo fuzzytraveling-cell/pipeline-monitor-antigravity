@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
-import { readEvents, loadStages, safeName, sessionsOf, lastRunPerStage, stagesOfSession, suggestionsOf } from '../lib/events.mjs';
+import { readEvents, loadStages, safeName, sessionsOf, lastRunPerStage, runsPerStage, roundView, stagesOfSession, suggestionsOf } from '../lib/events.mjs';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -322,6 +322,33 @@ section('D2：故障記號是警告,不是把整區蓋掉的理由');
   eq('故障記號兩筆(壞行也算一次故障)', r.broken.length, 2);
   check('故障記號被解析成物件,讀得到時間', typeof r.broken[0] === 'object' && !!r.broken[0].ts);
   rmSync(d, { recursive: true, force: true });
+}
+
+section('你自己打的斜線指令不經過 Skill 工具:訊息開頭是 /spec 或 /pipeline-monitor:spec 也算被叫(L19)');
+{
+  // 2026-09-15 Forma Pro 第一次真的叫 /pipeline-monitor:spec:規格寫出來了,Skill 事件零筆,儀表板 A 卻「這一輪還沒跑」。
+  // 打了不等於跑起來(Unknown command 那次感測器一樣只看到你打了),所以 via 要分開,文案才講得出「你叫了」。
+  const stages = JSON.parse(readFileSync(join(ROOT, 'stages.json'), 'utf8')).stages;
+  const T = (h) => new Date(Date.UTC(2026, 8, 15, h)).toISOString();
+  const say = (h, prompt) => ({ ts: T(h), hook: 'UserPromptSubmit', session: 's1', cwd: '/x', prompt });
+  const ev = [
+    say(1, '/pipeline-monitor:spec 把清單變短'),
+    say(2, '你跑過 /spec 了嗎'),                 // 提到,不是叫
+    say(3, '/specs 是什麼'),                      // 名字沒整個對上
+    { ts: T(4), hook: 'PreToolUse', tool: 'Skill', skill: 'chaos-check', session: 's1', cwd: '/x' },
+    say(5, '  /cleanup'),
+  ];
+  const runs = runsPerStage(ev, stages, (e) => e.cwd === '/x');
+  eq('A:只有第一句算(提到的、名字沒對上的都不算)', runs.get('A').length, 1);
+  eq('A:記的是打的那個名字', runs.get('A')[0].skill, 'pipeline-monitor:spec');
+  eq('A:指令後面的字當 args', runs.get('A')[0].args, '把清單變短');
+  eq('A:證據種類是 typed', runs.get('A')[0].via, 'typed');
+  eq('D:Skill 工具那條路還在,證據種類是 skill', runs.get('D')[0].via, 'skill');
+  eq('C:前面有空白也認,沒有 args', runs.get('C')[0].args, null);
+  const by = Object.fromEntries(roundView({ runs, stages, cleared: new Map() }).stages.map((s) => [s.id, s]));
+  eq('這一輪:C 是現在這一關', by.C.state, 'current');
+  eq('A 已走過,而且帶著它是怎麼被叫的', `${by.A.state}/${by.A.via}/${by.A.calledAs}`, 'passed/typed/pipeline-monitor:spec');
+  eq('lastRunPerStage 走同一種認法(老毛病 P2)', lastRunPerStage(ev, stages, '/x').perStage.get('A')?.via, 'typed');
 }
 
 process.exit(summary());

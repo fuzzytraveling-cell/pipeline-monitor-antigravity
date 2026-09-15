@@ -632,7 +632,9 @@ function renderStages(ctx, ev, facts, info = {}) {
   let anyOpen = false;
   for (const st of view.stages) {
     const label = `${st.id} ${st.name}`.padEnd(10, '　');
-    const verb = st.type === 'browser' ? `開瀏覽器跑過一輪${st.count ? `（${st.count} 個動作）` : ''}` : '跑過';
+    // 「被叫」的證據有兩種:你自己打的斜線指令(不經過 Skill 工具,L19)、或 Claude 自己去叫。字要跟證據一樣大:叫了,不是跑完了
+    const verb = st.type === 'browser' ? `開瀏覽器跑過一輪${st.count ? `（${st.count} 個動作）` : ''}`
+      : st.via === 'typed' ? `你叫了 /${st.calledAs}` : `Claude 叫了 /${st.calledAs ?? st.skill}`;
     switch (st.state) {
       case 'main':     console.log(`   ${label} ●  就是你在講話的那個對話`); break;
       case 'notbuilt': console.log(`   ${label} ⚫ 未建`); break;
@@ -667,7 +669,7 @@ function renderStages(ctx, ev, facts, info = {}) {
     console.log(`\n   ⚠️ 「沒有紀錄」不等於「沒跑過」——感測器從 ${ago(firstTs)}才開始記,`);
     console.log('      在那之前發生的事情它一輩子都不會知道。');
   }
-  console.log('\n   ⚠️ 上面寫的是「跑過」,不是「通過」——感測器只看得到指令被呼叫,');
+  console.log('\n   ⚠️ 上面寫的是「叫了」,不是「通過」——感測器只看得到指令被叫,');
   console.log('      看不到結果。驗屋師傅來過,不等於房子修好了。');
   if (anyOpen) console.log('   處理完了要留紀錄：  pipeline-status --clear <關卡代號>   例如 --clear D');
 }
