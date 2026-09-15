@@ -190,4 +190,39 @@ section('對話標題從 app 的索引來;在 app 裡刪掉的對話不准畫成
   r.cleanup();
 }
 
+section('上一輪(蓋章前)的紀錄要劃掉;「沒有紀錄」跟「這裡沒有這個指令」要分開講');
+{
+  const r = makeRepo({ files: { 'a.js': '1\n' } });
+  const root = out(r.dir, 'rev-parse', '--show-toplevel');
+  mkdirSync(join(root, '.claude', 'commands'), { recursive: true });
+  writeFileSync(join(root, '.claude', 'commands', 'spec.md'), '# /spec\n');   // 這個專案有 /spec,沒有 /cleanup、/chaos-check
+  const cpAt = new Date('2026-09-15T02:00:00Z');
+  const monitorDir = mkdtempSync(join(tmpdir(), 'pm-monitor-'));
+  mkdirSync(join(monitorDir, 'checkpoints')); mkdirSync(join(monitorDir, 'logs'));
+  copyFileSync(join(ROOT, 'stages.json'), join(monitorDir, 'stages.json'));
+  writeFileSync(join(monitorDir, 'checkpoints', `${basename(root)}__main.json`), JSON.stringify({
+    commit: out(r.dir, 'rev-parse', 'HEAD'), branch: 'main', worktree: root, at: cpAt.toISOString(), checks: ['test'],
+  }));
+  const before = new Date(cpAt.getTime() - 3600_000).toISOString(), after = new Date(cpAt.getTime() + 3600_000).toISOString();
+  writeFileSync(join(monitorDir, 'logs', `${basename(root)}.jsonl`), [
+    JSON.stringify({ ts: before, hook: 'PreToolUse', tool: 'Skill', skill: 'spec', session: 's1', cwd: root }),
+    JSON.stringify({ ts: after, hook: 'PreToolUse', tool: 'Skill', skill: 'chaos-check', session: 's1', cwd: root }),
+    JSON.stringify({ ts: after, hook: 'UserPromptSubmit', session: 's1', cwd: root, prompt: 'hi' }),
+  ].join('\n') + '\n');
+  const home = mkdtempSync(join(tmpdir(), 'pm-home-'));   // 空的假 home:這台機器的 plugin 不能影響結果
+  const p = collectAll({ monitorDir, skillHome: home }).projects[0];
+  const card = p.cards[0], byId = (arr) => Object.fromEntries(arr.map((s) => [s.id, s]));
+  const cs = byId(card.stages), ss = byId(p.sessions[0].stages);
+  eq('A 在蓋章前跑 → 上一輪(archivedAt = 蓋章時間)', cs.A.archivedAt, cpAt.toISOString());
+  eq('D 在蓋章後跑 → 這一輪(沒有 archivedAt)', cs.D.archivedAt, null);
+  eq('對話層也一樣:A 上一輪', ss.A.archivedAt, cpAt.toISOString());
+  eq('對話層 D 這一輪', ss.D.archivedAt, null);
+  eq('這個專案有 /spec → available true', cs.A.available, true);
+  eq('沒有 /cleanup → available false(找不到)', cs.C.available, false);
+  eq('B(對話本身)沒有指令 → null(不適用)', cs.B.available, null);
+  eq('對話層帶著 skill 名,畫面才講得出「找不到 /cleanup」', ss.C.skill, 'cleanup');
+  for (const d of [monitorDir, home]) rmSync(d, { recursive: true, force: true });
+  r.cleanup();
+}
+
 process.exit(summary());

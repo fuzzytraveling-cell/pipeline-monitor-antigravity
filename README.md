@@ -26,6 +26,7 @@ pipeline-status --clear D    # 記下「D 的發現我處理完了」
 pipeline-status --on         # 把感測器掛到**這個**專案（--off 拆掉）
 pipeline-status --tier-init  # 設定分級的骨架（程式區）；危險清單在對話裡說「幫我設定分級」
 pipeline-status --tier T2 "理由"   # 這次調高（只准往上）；收回是 --tier-retract
+pipeline-status --serve-install  # 儀表板裝成背景服務（見「網頁版」）
 ```
 
 ### 裝感測器（plugin，裝一次就好）
@@ -72,8 +73,15 @@ pipeline-status --install
 ## 網頁版
 
 ```sh
-npm start          # http://127.0.0.1:4319
+pipeline-status --serve-install   # 裝成背景服務：開機自動起、掛了自動重啟，http://127.0.0.1:4319 永遠在
+pipeline-status --open            # 用瀏覽器打開
+pipeline-status --serve-restart   # 更新程式（git pull／merge）之後要重啟，它才會跑新的
+pipeline-status --serve-status    # 裝了沒、載入了沒、活著沒——三件事分開講
+npm start                         # 不裝服務的話：這個視窗開著它就活著
 ```
+
+它是一個網頁，不是一個 app。想要像 app 一樣點圖示：Safari 打開那個網址 → 「檔案」→「加入 Dock」。
+⚠️ 服務跟 `npm start` 不能同時開（同一個埠）。服務自己的輸出在 `~/Library/Logs/pipeline-monitor/dashboard.log`。
 
 一頁看完**這台機器上所有有紀錄的專案**。它只列出**有證據的**專案
 （有紀錄檔或有還原點的），不去掃你的硬碟猜你有哪些 repo。

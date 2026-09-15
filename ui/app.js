@@ -77,6 +77,7 @@ const clock = (iso) => {
 const stageState = (st) =>
   st.type === 'not-built' ? 'notbuilt' :
   st.type === 'main-conversation' ? 'main' :
+  st.archivedAt ? 'archived' :          // 上一輪(蓋章前)的紀錄:劃掉,這一輪不用再看
   st.clearedAt ? 'done' : st.ranAt ? 'ran' : 'none';
 /** 感測器看得到的關(有 skill 或 tools 的)。B 是你在講話的那個對話、未建的關,都不算分母。 */
 const sensed = (st) => st.type !== 'main-conversation' && st.type !== 'not-built';
@@ -232,7 +233,7 @@ function statTier(c, p) {
   if (t.state === 'no-base') return card('change', '沒有基準', '這個專案還沒有任何 commit，沒有基準可以算「這次改動」。先 git commit 一次。');
   if (t.state === 'unknown') return card('change', '問不到', '問不到改動，分不了級。');
   const emptyWarn = t.dangerEmpty
-    ? `<div class="hint">⚠️ 危險清單是空的，所以永遠不會出現 ${esc(t.levels?.danger?.id ?? '第三級')}。${hint}</div>` : '';
+    ? `<div class="hint">⚠️ 危險清單是空的，所以永遠不會出現 ${esc(t.levels?.danger?.id ?? '第三級')}。在對話裡說「幫我設定分級」可以補。</div>` : '';
   if (t.state === 'no-change') return card('safe', '沒有改動', '這次沒有改動，沒有東西要分級。', emptyWarn);
 
   const { machine, manual, final } = t;
@@ -241,14 +242,14 @@ function statTier(c, p) {
     : machine.rank === 1 ? `碰到程式區 ${machine.hits.code.length} 個檔` : '沒碰到程式區';
   const sub = manual
     ? `機器算 ${esc(machine.id)}（${why}），<b>你說 ${esc(manual.id)}</b>（理由：${esc(manual.why)}）· ${ago(manual.ts)}`
-    : `至少 ${esc(final.id)}：${why}`;
+    : why;
   // ✅ 只代表「有紀錄而且你說處理完了」;⏸ 有紀錄沒結案;⚠️ 沒有紀錄;❔ 問不到／不適用。沒有「通過」這種狀態(R2)。
   const reqs = t.requirements.length
     ? `<ul class="reqs">${t.requirements.map((r) => {
         const mark = r.state === 'ok' ? '✅' : r.state === 'ran' ? '⏸' : r.state === 'missing' ? '⚠️' : '❔';
         return `<li data-state="${r.state}">${mark} ${esc(r.label)}：${r.ts ? ago(r.ts) : ''}${esc(r.detail)}</li>`;
       }).join('')}</ul>`
-    : '<div class="sub">需要：現有的檢查就好（看左邊的還原點）。</div>';
+    : '';
   const cand = t.candidates.length
     ? `<div class="hint">⚠️ 這次動到的檔案裡，有 ${t.candidates.length} 個名字像會存東西、但不在危險清單：${
         t.candidates.slice(0, 3).map(esc).join('、')}。只是提醒，改錯會靜默丟資料的話再加進去。</div>` : '';
@@ -266,7 +267,7 @@ function statTier(c, p) {
   const tone = t.requirements.some((r) => r.state === 'missing') ? 'alert' : 'safe';
   return card(tone, esc(manual ? manual.id : final.id), sub,
     `${reqs}${ignored}${emptyWarn}${cand}
-    <div class="hint muted">⚠️ 這是下限：檔名看不出你改了一個字還是重寫。只能往上調。</div>${control}`);
+    <div class="hint muted">為了程式碼安全，分級只能往上調。</div>${control}`);
 }
 
 /** 感測器那一行(誠實修補 D3):「掛在哪」看設定,「活著嗎」看紀錄。跟終端機版說同一句話。 */
@@ -301,8 +302,11 @@ function workflow(c) {
     const status =
       s === 'notbuilt' ? '這一關還沒建'
       : s === 'main' ? '就是你在講話的那個對話'
+      : s === 'archived' ? `${ago(st.ranAt)}${verb}——上一輪的,${ago(st.archivedAt)}蓋章時已經檢查過`
       : s === 'done' ? `${ago(st.ranAt)}${verb},你說處理完了`
       : s === 'ran' ? `${ago(st.ranAt)}${verb},還沒有人說處理完了`
+      // 「沒有紀錄」跟「這裡根本沒有這個指令」是兩件事——Forma Pro 沒有 /spec,那一關永遠不會有紀錄
+      : st.available === false ? `找不到 /${st.skill ?? ''} 這個指令（這個專案的 .claude/ 和 ~/.claude 都沒有）`
       : (c.sensor.state === 'ok' ? '沒有紀錄' : '感測器沒有資料');
     const said = st.args
       ? `<div class="said">「${esc(st.args.slice(0, 90))}${st.args.length > 90 ? '…' : ''}」</div>` : '';
@@ -321,7 +325,7 @@ function workflow(c) {
           <div class="astatus">${esc(status)}</div>
           ${said}
         </div>
-        <span class="lamp" title="${s === 'done' || s === 'ran' ? '有紀錄' : '沒有紀錄'}"></span>
+        <span class="lamp" title="${s === 'archived' ? '上一輪' : s === 'done' || s === 'ran' ? '有紀錄' : '沒有紀錄'}"></span>
       </div>`;
   }).join('');
 
@@ -383,7 +387,7 @@ function sessionList(p) {
       之後的對話就會出現在這裡。</p></div>`;
   }
   const row = (s) => {
-    const ran = s.stages.filter((x) => x.ranAt).length;
+    const ran = s.stages.filter((x) => x.ranAt && !x.archivedAt).length;   // 上一輪的不算這一輪的紀錄
     const total = s.stages.filter(sensed).length;   // E 接上瀏覽器之後也算分母(A/C/D/E)
     return `<div class="srow ${s.closedAt ? 'closed' : ''}">
       <a class="sname" href="#/p/${encodeURIComponent(p.name)}/s/${encodeURIComponent(s.id)}">

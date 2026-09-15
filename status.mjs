@@ -22,6 +22,8 @@ import { appendFileSync } from 'node:fs';
 import { readEvents, loadStages, lastRunPerStage, safeName, logFileOf } from './lib/events.mjs';
 import { buildTier, readTierConfig, writeTierConfig, proposeCodeArea } from './lib/tier.mjs';
 import { monitorHome } from './lib/paths.mjs';
+import { skillAvailable } from './lib/skills.mjs';
+import { installService, uninstallService, restartService, describeService, openDashboard } from './lib/service.mjs';
 import {
   mount, unmount, mountState, pluginState, installPlugin, uninstallPlugin, optIn, optOut, hookPathsIn,
 } from './lib/mount.mjs';
@@ -567,7 +569,7 @@ function stageFacts(ctx, ev) {
   return { stages, perStage, cleared, sawAnyEventHere };
 }
 
-function renderStages(ctx, ev, facts) {
+function renderStages(ctx, ev, facts, info = {}) {
   const { stages, perStage, cleared, sawAnyEventHere } = facts;
   if (!stages.length) return;
 
@@ -612,7 +614,19 @@ function renderStages(ctx, ev, facts) {
     if (st.type === 'not-built')        { console.log(`   ${label} ⚫ 未建`); continue; }
 
     const run = perStage.get(st.id);
-    if (!run) { console.log(`   ${label} ⚪ 沒有紀錄`); continue; }
+    if (!run) {
+      // 「沒有紀錄」跟「這裡根本沒有這個指令」是兩件事(lib/skills.mjs)
+      const av = st.skill ? skillAvailable(st.skill, ctx.root, ctx.mainRoot) : { found: null };
+      console.log(av.found === false
+        ? `   ${label} ⚪ 找不到 /${st.skill} 這個指令（這個專案的 .claude/ 和 ~/.claude 都沒有）`
+        : `   ${label} ⚪ 沒有紀錄`);
+      continue;
+    }
+    // 蓋章之前的紀錄是上一輪的:那次改動已經檢查過、結案了。標出來,不算「還沒處理」
+    if (info.cpUsable && info.cp?.at && new Date(run.ts) < new Date(info.cp.at)) {
+      console.log(`   ${label} ✓ ${ago(run.ts)}${st.type === 'browser' ? '開瀏覽器跑過一輪' : '跑過'}（上一輪,${ago(info.cp.at)}蓋章前）`);
+      continue;
+    }
 
     const clear = cleared.get(st.id);
     const closed = clear && new Date(clear.ts) >= new Date(run.ts);
@@ -705,7 +719,7 @@ function describeTier(t) {
     ? `碰到危險清單：${dangerHits.slice(0, 3).join('、')}${dangerHits.length > 3 ? `…共 ${dangerHits.length} 個` : ''}`
     : machine.rank === 1 ? `碰到程式區 ${machine.hits.code.length} 個檔` : '沒碰到程式區';
   if (manual) L.push(`   機器算 ${machine.id}（${why}）,你說 ${manual.id}（理由：${manual.why}）· ${ago(manual.ts)}`);
-  else L.push(`   至少 ${final.id}（${why}）`);
+  else L.push(`   ${final.id}（${why}）`);
   if (t.manualIgnored) {
     L.push(`   （你 ${ago(t.manualIgnored.ts)}說的 ${t.manualIgnored.id} 沒有比機器算的高,不採用。）`);
   }
@@ -718,8 +732,6 @@ function describeTier(t) {
       const when = r.ts ? `${ago(r.ts)}` : '';
       L.push(`        ${r.label.padEnd(8, '　')} ${mark} ${when}${r.detail}`);
     }
-  } else {
-    L.push('   需要：現有的檢查就好（看上面的還原點）');
   }
   if (t.dangerEmpty) L.push(emptyWarn());
   if (t.candidates.length) {
@@ -727,7 +739,7 @@ function describeTier(t) {
     for (const f of t.candidates.slice(0, 5)) L.push(`        ${f}`);
     L.push('      （只是提醒。改錯會靜默丟資料的話,加進 .claude/pipeline-stages.json 的 tiers.danger。）');
   }
-  L.push('   ⚠️ 這是下限:檔名看不出你改了一個字還是重寫。');
+  L.push('   為了程式碼安全,分級只能往上調。');
   if (manual) L.push('   收回你調的：pipeline-status --tier-retract');
   else if (t.upgradable.length) L.push(`   要調高：pipeline-status --tier ${t.upgradable[0]} "理由"`);
   return L;
@@ -856,12 +868,27 @@ function doMount(ctx, on) {
   return 0;
 }
 
-function main() {
+async function main() {
   const argv = process.argv.slice(2);
   const at = (flag) => argv.indexOf(flag);
   // 旗標後面的自由文字(理由、資料夾),遇到下一個旗標就停
   const after = (flag) => argv.slice(at(flag) + 1).filter((a) => !a.startsWith('--'));
 
+  // 儀表板的背景服務(launchd):裝／拆／重啟／狀態,以及用瀏覽器打開。都不需要站在 git 專案裡
+  const serveFlag = ['--serve-install', '--serve-uninstall', '--serve-restart', '--serve-status'].find((f) => at(f) !== -1);
+  if (serveFlag) {
+    const r = serveFlag === '--serve-install' ? await installService()
+      : serveFlag === '--serve-uninstall' ? uninstallService()
+      : serveFlag === '--serve-restart' ? await restartService()
+      : await describeService();
+    for (const line of r.out) console.log(line);
+    return r.ok ? 0 : 1;
+  }
+  if (at('--open') !== -1) {
+    const r = await openDashboard();
+    for (const line of r.out) console.log(line);
+    return r.ok ? 0 : 1;
+  }
   // plugin 的裝／拆不需要站在 git 專案裡
   if (at('--install') !== -1 || at('--uninstall') !== -1) {
     const r = at('--install') !== -1 ? installPlugin() : uninstallPlugin();
@@ -901,7 +928,7 @@ function main() {
   }
 
   render(ctx, ev, info);
-  renderStages(ctx, ev, facts);
+  renderStages(ctx, ev, facts, info);
   renderTier(ctx, ev, info, facts);
   return 0;
 }
@@ -917,4 +944,4 @@ function isMain() {
   try { return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1] ?? ''); }
   catch { return false; }
 }
-if (isMain()) process.exit(main());
+if (isMain()) main().then((code) => process.exit(code));

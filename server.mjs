@@ -8,7 +8,7 @@
  *    CCAM 出過一次「預設對整個區網開放」的漏洞——我們連那個選項都不做。
  */
 import { createServer } from 'node:http';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, realpathSync } from 'node:fs';
 import { join, dirname, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
@@ -159,8 +159,21 @@ export function createApp({ monitorDir = HERE } = {}) {
   });
 }
 
-if (fileURLToPath(import.meta.url) === process.argv[1]) {
-  createApp().listen(PORT, HOST, () => {
+// 兩邊都解析成真實路徑再比(L1／E1:路徑有空白、透過捷徑執行,字串直接比會永遠 false 而安靜地什麼都不做)
+function isMain() {
+  try { return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1] ?? ''); } catch { return false; }
+}
+if (isMain()) {
+  const app = createApp();
+  // ⚠️ 埠被佔走要講人話再退出——launchd 會每 10 秒再試,看紀錄檔的人要看得懂它為什麼一直起不來
+  app.on('error', (e) => {
+    if (e?.code === 'EADDRINUSE') {
+      console.error(`${PORT} 已經有人在用（你自己 npm start 開的、或背景服務已經在跑）。先關掉那一個,或用 PIPELINE_MONITOR_PORT 換一個埠。`);
+      process.exit(1);
+    }
+    throw e;
+  });
+  app.listen(PORT, HOST, () => {
     console.log(`產線監視器：http://${HOST}:${PORT}`);
     console.log('（只有這台電腦連得到。Ctrl+C 結束。）');
   });

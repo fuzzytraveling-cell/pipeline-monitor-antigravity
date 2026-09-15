@@ -121,7 +121,7 @@ section('describeTier:沒設定不准寫成最低那級;需要那幾行只有 ok
   const t1 = describeTier({ ...base, machine: { rank: 1, id: T1, hits: { code: ['src/a.js'], danger: [] } }, manual: null,
     final: { rank: 1, id: T1, requires: ['D'] },
     requirements: [{ key: 'D', label: 'D 魔鬼教官', state: 'missing', detail: '沒有紀錄' }], upgradable: [T2] }).join('\n');
-  check(`機器算 → 「至少 ${T1}」＋ D ⚠️ 沒有紀錄 ＋ 調高的指令`, t1.includes(`至少 ${T1}`) && t1.includes('⚠️') && t1.includes(`--tier ${T2}`), t1);
+  check(`機器算 → 「${T1}（碰到程式區」＋ D ⚠️ 沒有紀錄 ＋ 調高的指令`, t1.includes(`${T1}（碰到程式區`) && t1.includes('⚠️') && t1.includes(`--tier ${T2}`), t1);
   check('沒有 ✅(沒有任何一項是 ok)', !t1.includes('✅'));
   const t2 = describeTier({ ...base, machine: { rank: 1, id: T1, hits: { code: ['src/a.js'], danger: [] } },
     manual: { id: T2, rank: 2, why: '重寫', ts: new Date().toISOString() }, final: { rank: 2, id: T2, requires: ['A', 'tests'] },
@@ -164,14 +164,14 @@ section('整支 CLI:--tier-init 寫骨架、被 gitignore 要講;--tier 理由�
 
   writeFileSync(join(r.dir, 'src', 'index.js'), '2\n');   // 碰到程式區 → 機器算第二級
   const view = run().out;
-  check(`畫面:至少 ${LEVELS.code.id} ＋ 危險清單空的警告`, view.includes(`至少 ${LEVELS.code.id}`) && view.includes(`永遠不會出現 ${LEVELS.danger.id}`), view);
+  check(`畫面:${LEVELS.code.id}（碰到程式區 ＋ 危險清單空的警告`, view.includes(`${LEVELS.code.id}（碰到程式區`) && view.includes(`永遠不會出現 ${LEVELS.danger.id}`), view);
   eq('--tier 沒理由 → 失敗', run('--tier', LEVELS.danger.id).code, 1);
   check('--tier 不比機器高 → 失敗,說得出為什麼', run('--tier', LEVELS.none.id, '小改').out.includes('只能調到'));
   const set = run('--tier', LEVELS.danger.id, '重寫了整個上傳流程');
   check('--tier T2 理由 → 記下', set.code === 0 && set.out.includes('記下了'), set.out);
   check(`畫面:機器算 ${LEVELS.code.id},你說 ${LEVELS.danger.id}`, run().out.includes(`你說 ${LEVELS.danger.id}`));
   check('--tier-retract → 收回', run('--tier-retract').out.includes('收回了'));
-  check('收回後畫面回到至少', run().out.includes(`至少 ${LEVELS.code.id}`));
+  check('收回後畫面回到機器算的', run().out.includes(`${LEVELS.code.id}（碰到程式區`));
   check('--tier-off → 記下不分級', run('--tier-off', '純文件專案').out.includes('不分級'));
   check('畫面:已設定為不分級', run().out.includes('已設定為不分級'));
   for (const d of [logDir, home]) rmSync(d, { recursive: true, force: true });
