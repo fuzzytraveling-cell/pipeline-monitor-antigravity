@@ -213,12 +213,12 @@ section('這一輪跑到哪:最近一次第一關或蓋章是分界;現在這一
   ].join('\n') + '\n');
   let p = collectAll({ monitorDir, skillHome: home }).projects[0];
   let cs = byId(p.cards[0].stages), ss = byId(p.sessions[0].stages);
-  eq('E 是現在這一關', cs.E.state, 'current');
+  eq('開過瀏覽器 → E 只是 seen(不亮、不算走到)', cs.E.state, 'seen');
+  eq('D 是現在這一關', cs.D.state, 'current');
   eq('A 已走過', cs.A.state, 'passed');
-  eq('D 已走過', cs.D.state, 'passed');
   eq('C 這一輪沒跑', cs.C.state, 'none');
   eq('E 兩個動作', cs.E.count, 2);
-  eq('對話層一樣:E 現在', ss.E.state, 'current');
+  eq('對話層一樣:E seen', ss.E.state, 'seen');
   eq('這個專案有 /spec → available true', cs.A.available, true);
   eq('沒有 /cleanup → available false(找不到)', cs.C.available, false);
   eq('B(對話本身)沒有指令 → null(不適用)', cs.B.available, null);

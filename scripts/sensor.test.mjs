@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
-import { readEvents, loadStages, safeName, sessionsOf, lastRunPerStage, stagesOfSession } from '../lib/events.mjs';
+import { readEvents, loadStages, safeName, sessionsOf, lastRunPerStage, stagesOfSession, suggestionsOf } from '../lib/events.mjs';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -223,6 +223,16 @@ section('plugin 的呼叫方式：hooks.json 裡那一行 sh "${CLAUDE_PLUGIN_RO
   rmSync(logDir, { recursive: true, force: true }); r.cleanup();
 }
 
+section('瀏覽器工具記主機名(url_host),不記整個網址;沒有網址也不會吃掉整筆');
+{
+  const r = makeRepo({ files: { 'a.js': '1\n' } });
+  const nav = runHook(SAMPLE({ cwd: r.dir, tool_name: 'mcp__Claude_Browser__navigate', tool_input: { url: 'http://localhost:5173/lesson?x=1#a' } }));
+  eq('只記主機名', JSON.parse(nav.lines[0]).url_host, 'localhost:5173');
+  const click = runHook(SAMPLE({ cwd: r.dir, tool_name: 'mcp__Claude_Browser__computer', tool_input: { action: 'left_click' } }));
+  check('沒有網址的動作照樣記到一整筆', click.lines.length === 1 && !('url_host' in JSON.parse(click.lines[0])));
+  r.cleanup();
+}
+
 section('E 驗收：認瀏覽器工具的事件,講「開瀏覽器跑過一輪（N 個動作）」,不講通過');
 {
   const stages = [{ id: 'E', name: '驗收', type: 'browser', tools: '^mcp__(Claude_Browser|claude-in-chrome)__' }];
@@ -259,6 +269,40 @@ section('L17：hook.sh 從 worktree 被呼叫,紀錄還是寫進主資料夾', '
   check('worktree 裡沒有 logs/', !existsSync(join(wt, 'logs')));
   execFileSync('git', ['worktree', 'remove', '--force', wt], { cwd: main, stdio: 'ignore' });
   rmSync(wtParent, { recursive: true, force: true }); repo.cleanup(); target.cleanup();
+}
+
+section('開過瀏覽器 ≠ 驗收過:E 只算「看過」,不亮、不算走到;人說驗收過了才算');
+{
+  const stages = [{ id: 'A', name: '寫規格', skill: 'spec' }, { id: 'D', name: '魔鬼教官', skill: 'chaos-check' },
+                  { id: 'E', name: '驗收', type: 'browser', tools: '^mcp__Claude_Browser__' }];
+  const t = (n) => new Date(Date.UTC(2026, 8, 15, n)).toISOString();
+  const ev = [
+    { ts: t(1), hook: 'PreToolUse', tool: 'Skill', skill: 'spec', session: 's1', cwd: '/x' },
+    { ts: t(2), hook: 'PreToolUse', tool: 'Skill', skill: 'chaos-check', session: 's1', cwd: '/x' },
+    { ts: t(3), hook: 'PreToolUse', tool: 'mcp__Claude_Browser__navigate', url_host: '127.0.0.1:4319', session: 's1', cwd: '/x' },
+    { ts: t(3), hook: 'PreToolUse', tool: 'mcp__Claude_Browser__computer', session: 's1', cwd: '/x' },
+  ];
+  const by = (arr) => Object.fromEntries(arr.map((s) => [s.id, s]));
+  const v1 = by(stagesOfSession(ev, stages, 's1'));
+  eq('開過瀏覽器 → seen,不是 current', v1.E.state, 'seen');
+  eq('D 還是現在這一關(瀏覽器不算走到)', v1.D.state, 'current');
+  check('講得出去了哪', v1.E.hosts.length === 1 && v1.E.hosts[0] === '127.0.0.1:4319', JSON.stringify(v1.E.hosts));
+  const v2 = by(stagesOfSession([...ev, { ts: t(4), event: 'stage_cleared', stage: 'E', session: 's1', cwd: '/x', source: 'human' }], stages, 's1'));
+  eq('人說驗收過了 → E done', v2.E.state, 'done');
+  eq('這時 D 才變成已走過', v2.D.state, 'passed');
+}
+
+section('建議新增的對話:寫進紀錄、不做了、對話真的這樣開頭就算已開始');
+{
+  const ev = [
+    { ts: '2026-09-15T01:00:00Z', event: 'suggestion', id: 'sg-1', title: '做三關', prompt: '在 pipeline-monitor 裡把 A／C／D 做成 plugin 的 skill,先讀 CLAUDE.md', cwd: '/x', source: 'claude' },
+    { ts: '2026-09-15T01:00:00Z', event: 'suggestion', id: 'sg-2', title: '另一件', prompt: '別的事', cwd: '/x', source: 'claude' },
+    { ts: '2026-09-15T02:00:00Z', event: 'suggestion_dismissed', id: 'sg-2', source: 'human' },
+    { ts: '2026-09-15T03:00:00Z', hook: 'UserPromptSubmit', session: 'new1', cwd: '/x', prompt: '在 pipeline-monitor 裡把 A／C／D 做成 plugin 的 skill,先讀 CLAUDE.md（開頭一樣,後面被截掉了' },
+  ];
+  const sg = Object.fromEntries(suggestionsOf(ev).map((s) => [s.id, s]));
+  eq('第一張:對話真的這樣開頭 → 已開始', sg['sg-1'].startedBy, 'new1');
+  check('第二張:不做了', !!sg['sg-2'].dismissedAt && sg['sg-2'].startedBy === null);
 }
 
 section('D2：故障記號是警告,不是把整區蓋掉的理由');

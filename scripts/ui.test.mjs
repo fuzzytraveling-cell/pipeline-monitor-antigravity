@@ -177,4 +177,35 @@ section('調高分級的按鈕:只准對認識的工作區、只准往上、理�
   r.cleanup();
 }
 
+section('「你說處理完了」按鈕:只准認識的工作區、只准有的關;「不做了」只准認識的建議');
+{
+  const r = makeRepo({ pkg: { name: 'x' }, files: { 'a.js': '1\n' } });
+  const out = (...a) => execFileSync('git', a, { cwd: r.dir, encoding: 'utf8' }).trim();
+  const root = out('rev-parse', '--show-toplevel');
+  const name = basename(root);
+  const monitorDir = mkdtempSync(join(tmpdir(), 'pm-monitor-'));
+  mkdirSync(join(monitorDir, 'logs'));
+  copyFileSync(join(ROOT, 'stages.json'), join(monitorDir, 'stages.json'));
+  const ts = new Date().toISOString();
+  writeFileSync(join(monitorDir, 'logs', `${name}.jsonl`), [
+    JSON.stringify({ ts, hook: 'PreToolUse', tool: 'Skill', skill: 'chaos-check', session: 's1', cwd: root }),
+    JSON.stringify({ ts, event: 'suggestion', id: 'sg-9', title: 't', prompt: 'p', cwd: root, source: 'claude' }),
+  ].join('\n') + '\n');
+  const server = createApp({ monitorDir });
+  await new Promise((res) => server.listen(0, '127.0.0.1', res));
+  const { port } = server.address();
+  const post = (path, body) => fetch(`http://127.0.0.1:${port}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  eq('不認識的工作區 → 400', (await post('/api/clear', { project: name, cwd: '/沒有', stage: 'D' })).status, 400);
+  eq('B(對話本身)不能按 → 400', (await post('/api/clear', { project: name, cwd: root, stage: 'B' })).status, 400);
+  eq('D → 200', (await post('/api/clear', { project: name, cwd: root, stage: 'D' })).status, 200);
+  const st = (await (await fetch(`http://127.0.0.1:${port}/api/status`)).json()).projects.find((x) => x.name === name).cards[0].stages.find((s) => s.id === 'D');
+  eq('按完 D 是 done(你說處理完了)', st.state, 'done');
+  eq('不認識的建議 → 400', (await post('/api/suggest-dismiss', { project: name, id: 'sg-x' })).status, 400);
+  eq('認識的建議 → 200', (await post('/api/suggest-dismiss', { project: name, id: 'sg-9' })).status, 200);
+  const sg = (await (await fetch(`http://127.0.0.1:${port}/api/status`)).json()).projects.find((x) => x.name === name).suggestions[0];
+  check('建議標成不做了', !!sg.dismissedAt);
+  server.close();
+  rmSync(monitorDir, { recursive: true, force: true }); r.cleanup();
+}
+
 process.exit(summary());

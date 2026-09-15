@@ -131,6 +131,48 @@ export function createApp({ monitorDir = HERE } = {}) {
       return;
     }
 
+    // 「你說處理完了」／「你說驗收過了」:跟 CLI 的 --clear 同一種紀錄(stage_cleared,source:human)。
+    // ⚠️ 只准對儀表板認識的工作區、只准那個工作區關卡清單裡有的關。這是人蓋的章,畫面會照實寫「你說的」。
+    if (url.pathname === '/api/clear' && req.method === 'POST') {
+      if (!sameOrigin(req)) return json(403, { error: 'cross-origin' });
+      readBody(req, (body) => {
+        try {
+          const { project, cwd, stage } = JSON.parse(body || '{}');
+          const p = collectAll({ monitorDir }).projects.find((x) => x.name === project);
+          const card = p?.cards.find((c) => c.path === cwd && !c.gone && !c.notGit);
+          if (!card) throw new Error('不認識這個工作區');
+          const st = card.stages?.find((s) => s.id === stage && s.state !== 'main' && s.state !== 'notbuilt');
+          if (!st) throw new Error('不認識這一關');
+          mkdirSync(LOG_DIR, { recursive: true });
+          appendFileSync(logFileOf(LOG_DIR, project), JSON.stringify({
+            ts: new Date().toISOString(), event: 'stage_cleared', stage: st.id, cwd, head: card.head ?? null, source: 'human',
+          }) + '\n');
+          json(200, { ok: true });
+        } catch (e) {
+          json(400, { error: String(e?.message ?? e) });
+        }
+      });
+      return;
+    }
+
+    // 「不做了」:把 Claude 建議的對話劃掉。append-only,紀錄還在
+    if (url.pathname === '/api/suggest-dismiss' && req.method === 'POST') {
+      if (!sameOrigin(req)) return json(403, { error: 'cross-origin' });
+      readBody(req, (body) => {
+        try {
+          const { project, id } = JSON.parse(body || '{}');
+          const p = collectAll({ monitorDir }).projects.find((x) => x.name === project);
+          if (!p?.suggestions?.some((s) => s.id === id)) throw new Error('不認識這張建議');
+          mkdirSync(LOG_DIR, { recursive: true });
+          appendFileSync(logFileOf(LOG_DIR, project), JSON.stringify({ ts: new Date().toISOString(), event: 'suggestion_dismissed', id, source: 'human' }) + '\n');
+          json(200, { ok: true });
+        } catch (e) {
+          json(400, { error: String(e?.message ?? e) });
+        }
+      });
+      return;
+    }
+
     // 退出記錄／重新加入:在那個專案的主資料夾放（或拿掉）.claude/pipeline-monitor.off。
     // ⚠️ root 是瀏覽器送來的字串,**不能直接拿來當路徑寫檔**——只准對「儀表板現在列得出來的專案」動手。
     //    這是網頁唯一會碰到別的專案資料夾的動作,而它只放一個記號檔,不動任何其他東西。

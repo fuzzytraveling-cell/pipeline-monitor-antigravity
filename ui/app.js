@@ -297,18 +297,24 @@ function workflow(c) {
     const last = i === c.stages.length - 1;
     // 瀏覽器那一關記的是「開了瀏覽器做動作」——12 個動作不等於驗收通過,文案只講跑過
     const verb = st.type === 'browser' ? `開瀏覽器跑過一輪${st.count ? `（${st.count} 個動作）` : ''}` : '跑過';
+    const said = st.type === 'browser' ? '驗收過了' : '處理完了';
+    // 現在這一關、或開過瀏覽器的那一關,給一個「你說」的按鈕——跟 CLI 的 --clear 同一種紀錄(source:human)
+    const stamp = (s === 'ran' || s === 'seen') && c.path
+      ? `<button class="mini-btn" data-clear="${esc(st.id)}" data-proj="${esc(c.project ?? '')}" data-cwd="${esc(c.path)}">你說${said}</button>` : '';
     const status =
       s === 'notbuilt' ? '這一關還沒建'
       : s === 'main' ? '就是你在講話的那個對話'
       : s === 'passed' ? `${ago(st.ranAt)}${verb}——已走過`
-      : s === 'done' ? `${ago(st.ranAt)}${verb},你說處理完了`
-      : s === 'ran' ? `${ago(st.ranAt)}${verb},還沒有人說處理完了`
+      : s === 'done' ? `${ago(st.ranAt)}${verb},你說${said}`
+      : s === 'ran' ? `${ago(st.ranAt)}${verb},還沒有人說${said}`
+      // 開過瀏覽器 ≠ 驗收過(Oscar 2026-09-15:截圖儀表板也會讓 E 亮)。講去了哪,不亮,算不算由人按
+      : s === 'seen' ? `${ago(st.ranAt)}開過瀏覽器（${st.count} 個動作${st.hosts?.length ? `,去了 ${st.hosts.slice(0, 3).join('、')}` : ''}）——算不算驗收你說了算`
       // 「沒有紀錄」跟「這裡根本沒有這個指令」是兩件事——Forma Pro 沒有 /spec,那一關永遠不會有紀錄
       : st.available === false ? `找不到 /${st.skill ?? ''} 這個指令（這個專案的 .claude/ 和 ~/.claude 都沒有）`
       // 上一輪的不畫線,只講一句——線多了會干擾判斷(Oscar 2026-09-15)
       : st.prevRanAt ? `這一輪還沒跑（上一輪 ${ago(st.prevRanAt)}跑過）`
       : (c.sensor?.state === 'ok' ? '這一輪還沒跑' : '感測器沒有資料');
-    const said = st.args
+    const saidArgs = st.args
       ? `<div class="said">「${esc(st.args.slice(0, 90))}${st.args.length > 90 ? '…' : ''}」</div>` : '';
 
     return `<div class="railcell" data-state="${s}">
@@ -323,9 +329,9 @@ function workflow(c) {
             <span class="ahouse">${esc(r.house)}</span></div>
           <div class="adoes">${esc(r.does)}</div>
           <div class="astatus">${esc(status)}</div>
-          ${said}
+          ${saidArgs}${stamp}
         </div>
-        <span class="lamp" title="${s === 'passed' ? '已走過' : s === 'done' || s === 'ran' ? '現在這一關' : '這一輪還沒跑'}"></span>
+        <span class="lamp" title="${s === 'passed' ? '已走過' : s === 'done' || s === 'ran' ? '現在這一關' : s === 'seen' ? '開過瀏覽器' : '這一輪還沒跑'}"></span>
       </div>`;
   }).join('');
 
@@ -389,7 +395,9 @@ function sessionList(p) {
   const row = (s) => {
     // 這一輪走到哪:現在這一關的名字,比「x/4」更像人話
     const cur = s.stages.find((x) => x.state === 'current' || x.state === 'done');
-    const where = cur ? `這一輪走到 ${cur.id} ${cur.name}${cur.state === 'done' ? '（處理完了）' : ''}` : '這一輪還沒有紀錄';
+    const seen = s.stages.find((x) => x.state === 'seen');
+    const where = (cur ? `這一輪走到 ${cur.id} ${cur.name}${cur.state === 'done' ? (cur.type === 'browser' ? '（你說驗收過了）' : '（處理完了）') : ''}` : '這一輪還沒有紀錄')
+      + (seen ? ` · 開過瀏覽器,還沒有人說驗收過` : '');
     return `<div class="srow ${s.closedAt ? 'closed' : ''}">
       <a class="sname" href="#/p/${encodeURIComponent(p.name)}/s/${encodeURIComponent(s.id)}">
         ${esc(s.title ?? '（還沒有標題）')}</a>
@@ -418,7 +426,31 @@ function projectPage(name) {
       <p class="section-note">左邊在跑的、中間這個專案現在的狀態、右邊已結案的。</p>
       ${overview(p)}
       ${optOutLine(p)}
-    </div>` + sessionList(p);
+    </div>` + suggestionsBlock(p) + sessionList(p);
+}
+
+/** Claude 建議另開的對話。⚠️ 儀表板開不了對話——只能讓你複製說明、貼進新對話的第一句。 */
+function suggestionsBlock(p) {
+  const open = (p.suggestions ?? []).filter((s) => !s.dismissedAt);
+  if (!open.length) return '';
+  const rows = open.map((s) => {
+    const firstLine = esc(s.prompt.split('\n').find((l) => l.trim()) ?? '');
+    const state = s.startedBy
+      ? `<span class="muted">已開始：<a href="#/p/${encodeURIComponent(p.name)}/s/${encodeURIComponent(s.startedBy)}">${esc(s.startedTitle ?? '')}</a></span>`
+      : `<button class="copy" data-copy="${esc(s.prompt)}">複製說明</button>
+         <button class="mini-btn" data-dismiss="${esc(s.id)}" data-proj="${esc(p.name)}">不做了</button>`;
+    return `<div class="srow ${s.startedBy ? 'closed' : ''}">
+      <span class="sname">${esc(s.title)}</span>
+      <span class="smeta">Claude ${ago(s.ts)}建議 · ${firstLine.slice(0, 80)}${firstLine.length > 80 ? '…' : ''}</span>
+      <span class="sact">${state}</span>
+    </div>`;
+  }).join('');
+  return `<div class="block">
+      <h2 class="section serif">建議新增的對話</h2>
+      <p class="section-note">Claude 覺得該另開一個對話做的事。這裡開不了對話——<b>複製說明</b>，在 app 開新對話，貼進第一句。
+        對話真的這樣開頭了，這裡會自己標成「已開始」。</p>
+      <div class="slist">${rows}</div>
+    </div>`;
 }
 
 /** 退出記錄／重新加入。plugin 每個專案都會記,「不要記這個」靠主資料夾的一個記號檔——按下去馬上生效。 */
@@ -517,6 +549,27 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
+  // 「你說處理完了／驗收過了」與「不做了」:都只是多記一行(source:human)
+  const clr = e.target.closest('[data-clear]');
+  if (clr) {
+    clr.disabled = true;
+    try {
+      await fetch('/api/clear', { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ project: clr.dataset.proj, cwd: clr.dataset.cwd, stage: clr.dataset.clear }) });
+      await poll();
+    } catch { clr.disabled = false; }
+    return;
+  }
+  const dm = e.target.closest('[data-dismiss]');
+  if (dm) {
+    dm.disabled = true;
+    try {
+      await fetch('/api/suggest-dismiss', { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ project: dm.dataset.proj, id: dm.dataset.dismiss }) });
+      await poll();
+    } catch { dm.disabled = false; }
+    return;
+  }
   const cl = e.target.closest('[data-close]');
   if (cl) {
     cl.disabled = true;

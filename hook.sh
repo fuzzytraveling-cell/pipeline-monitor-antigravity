@@ -62,6 +62,7 @@ done
 # ⚠️ AC-4:單行必須 < 4096 bytes,超過 O_APPEND 就不再保證原子性,
 #    兩個 worktree 同時寫會交錯,兩筆都毀掉。所以每個字串欄位都截斷。
 # ⚠️ AC-10:只記檔案路徑,不記內容(CCAM 就是這樣把資料庫養到 2GB 的)。
+# ⚠️ 瀏覽器工具只記**主機名**(url_host),不記整個網址:E 驗收要講得出「去了哪」,才分得出是在測專案還是在看儀表板。
 # ⚠️ E3(2026-09-11):worktree 對話的第一則訊息前面會被系統附加一段 <system-reminder>…</system-reminder>,
 #    截 200 字之後使用者打的字整個不見。先剝掉那段再截——記的是「使用者說了什麼」,不是系統塞了什麼。
 printf '%s' "$PAYLOAD" | jq -c --arg head "${HEAD:-}" '{
@@ -76,6 +77,8 @@ printf '%s' "$PAYLOAD" | jq -c --arg head "${HEAD:-}" '{
   use_id:     .tool_use_id,
   args:       ((.tool_input.args // null) | if type=="string" then .[0:200] else . end),
   file:       (.tool_input.file_path // .tool_input.notebook_path // null),
+  url_host:   ([(.tool_input.url // "") | if type=="string" then . else "" end
+                 | capture("^[a-zA-Z]+://(?<h>[^/?#]+)")] | .[0].h // null),
   prompt:     ((.prompt // null)        | if type=="string"
                  then (gsub("<system-reminder>[\\s\\S]*?</system-reminder>\\s*"; "") | .[0:200]) else . end),
   title:      .session_title

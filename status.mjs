@@ -629,11 +629,18 @@ function renderStages(ctx, ev, facts, info = {}) {
         break;
       }
       case 'passed':   console.log(`   ${label} ✓  ${ago(st.ranAt)}${verb}——已走過`); break;
+      case 'seen': {
+        // 開過瀏覽器 ≠ 驗收過。講得出去了哪,算不算驗收由人說(--clear E)
+        const where = st.hosts?.length ? `,去了 ${st.hosts.slice(0, 3).join('、')}` : '';
+        console.log(`   ${label} 👁 ${ago(st.ranAt)}開過瀏覽器（${st.count} 個動作${where}）——算不算驗收你說了算：pipeline-status --clear ${st.id}`);
+        break;
+      }
       default: {
         // current／done。AC-9:沒有結案的,時間越久要越顯眼——所以天數一定印出來,而且用 ⏸ 不用 ✅
         const closed = st.state === 'done';
+        const said = st.type === 'browser' ? '驗收過了' : '處理完了';
         console.log(`   ${label} ${closed ? '✅' : '⏸'} ${ago(st.ranAt)}${verb}`
-          + (closed ? `,${ago(st.clearedAt)}你說處理完了` : ',還沒有人說處理完了'));
+          + (closed ? `,${ago(st.clearedAt)}你說${said}` : `,還沒有人說${said}`));
         if (st.args) console.log(`              「${st.args.slice(0, 46)}${st.args.length > 46 ? '…' : ''}」`);
         if (!closed) anyOpen = true;
       }
@@ -666,8 +673,34 @@ function doClear(ctx, stageId) {
     console.log(`❌ 沒記成功：${e.message}`);
     return 1;
   }
-  console.log(`✅ 記下了：你說 ${st.id} ${st.name} 處理完了（${ctx.head?.slice(0, 7)}）`);
+  console.log(`✅ 記下了：你說 ${st.id} ${st.name} ${st.type === 'browser' ? '驗收過了' : '處理完了'}（${ctx.head?.slice(0, 7)}）`);
   console.log('   ⚠️ 這是「你說的」,不是系統驗證的——畫面上會照實這樣寫。');
+  return 0;
+}
+
+/**
+ * --suggest "標題"(說明從標準輸入讀):Claude 建議「另開一個對話做這件事」,寫成一張卡放在儀表板上。
+ * ⚠️ 儀表板開不了對話。卡片只能讓人複製說明、貼進新對話的第一句;「已開始」看的是有沒有對話真的這樣開頭。
+ *    說明要限長:紀錄檔單行要遠小於 4096 bytes(AC-4),太長會跟感測器同時寫的那一筆交錯。
+ */
+function doSuggest(ctx, title, prompt) {
+  if (!title?.trim()) { console.log('要一個標題：  pipeline-status --suggest "標題" < 說明檔'); return 1; }
+  const body = String(prompt ?? '').trim();
+  if (!body) { console.log('說明是空的。把說明餵進標準輸入：  pipeline-status --suggest "標題" <<\'EOF\' … EOF'); return 1; }
+  const MAX = 3000;
+  const cut = body.length > MAX;
+  const id = `sg-${Date.now().toString(36)}`;
+  try {
+    appendFileSync(logFileOf(LOG_DIR, ctx.project), JSON.stringify({
+      ts: new Date().toISOString(), event: 'suggestion', id, title: title.trim().slice(0, 80), prompt: body.slice(0, MAX),
+      cwd: ctx.mainRoot ?? ctx.root, source: 'claude',
+    }) + '\n');
+  } catch (e) {
+    console.log(`❌ 沒記成功：${e.message}`);
+    return 1;
+  }
+  console.log(`✅ 放上儀表板了：「${title.trim().slice(0, 80)}」（${ctx.project} 的案件頁,「建議新增的對話」那一區）`);
+  if (cut) console.log(`   ⚠️ 說明超過 ${MAX} 字,只留前 ${MAX} 字。`);
   return 0;
 }
 
@@ -917,6 +950,11 @@ async function main() {
   }
 
   if (at('--clear') !== -1) return doClear(ctx, argv[at('--clear') + 1]);
+  if (at('--suggest') !== -1) {
+    let stdin = '';
+    try { stdin = readFileSync(0, 'utf8'); } catch { stdin = ''; }
+    return doSuggest(ctx, after('--suggest').join(' '), stdin);
+  }
   if (at('--checkpoint') !== -1) return doCheckpoint(ctx);
 
   // 事實各算一次,三段畫面共用
