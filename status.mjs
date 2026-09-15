@@ -21,15 +21,18 @@ import process from 'node:process';
 import { appendFileSync } from 'node:fs';
 import { readEvents, loadStages, lastRunPerStage, safeName, logFileOf } from './lib/events.mjs';
 import { buildTier, readTierConfig, writeTierConfig, proposeCodeArea } from './lib/tier.mjs';
+import { monitorHome } from './lib/paths.mjs';
 import {
   mount, unmount, mountState, pluginState, installPlugin, uninstallPlugin, optIn, optOut, hookPathsIn,
 } from './lib/mount.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const CHECKPOINT_DIR = join(HERE, 'checkpoints');
+// 資料住在 repo 的主資料夾,不管這支程式是從哪個 worktree 跑的(lib/paths.mjs,2026-09-15 實測踩到)
+const HOME_DIR = monitorHome(HERE);
+const CHECKPOINT_DIR = join(HOME_DIR, 'checkpoints');
 // 紀錄位置可以用環境變數換掉——跟 hook.sh 的 PIPELINE_MONITOR_LOG_DIR 是**同一個**變數。
 // 寫的跟讀的必須看同一個地方,否則感測器記在 A、畫面去 B 找(老毛病 P2)。
-const LOG_DIR = process.env.PIPELINE_MONITOR_LOG_DIR ?? join(HERE, 'logs');
+const LOG_DIR = process.env.PIPELINE_MONITOR_LOG_DIR ?? join(HOME_DIR, 'logs');
 
 /* ────────────────────────── git：查不到就回 null ──────────────────────────
  * ⚠️ A1。回 null 的唯一意思是「這次沒問到」，**不是**「答案是沒有」。

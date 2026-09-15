@@ -5,14 +5,18 @@
  *    章失效時不准當成能用(L14)——網頁的「複製回去的指令」是整個產品最危險的按鈕;
  *    add 過的改動不准消失(老毛病 P1)。
  */
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, copyFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { join, basename } from 'node:path';
+import { join, basename, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { collectAll, ladderSteps } from '../lib/collect.mjs';
+import { monitorHome } from '../lib/paths.mjs';
 import { safeName } from '../lib/events.mjs';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 /** 造一個只有一個章的假 monitor 資料夾,章指向 repo 的某個 commit */
 function monitorWith(root, commit) {
@@ -109,6 +113,34 @@ section('C3：中文名的專案在網頁上要找得到,而且顯示真的名�
   eq('顯示的是真的資料夾名', p?.displayName, name);
   eq('對話掛在它的卡上', p?.sessions?.[0]?.card?.path, root);
   rmSync(monitorDir, { recursive: true, force: true }); rmSync(parent, { recursive: true, force: true });
+}
+
+section('L17：程式從 worktree 跑,資料還是主資料夾的那一份', 'P3');
+{
+  // 2026-09-15:app 把儀表板重開在 worktree 裡,畫面說「還沒有任何案件」——資料都在主資料夾。
+  const repo = makeRepo({ files: { 'a.js': '1\n' } });          // 假裝這是 pipeline-monitor 自己的 repo
+  const main = out(repo.dir, 'rev-parse', '--show-toplevel');
+  const wtParent = mkdtempSync(join(tmpdir(), 'pm-wt-'));
+  const wt = join(wtParent, 'wt');
+  execFileSync('git', ['worktree', 'add', '-q', wt, '-b', 'side'], { cwd: repo.dir, stdio: 'ignore' });
+  eq('主資料夾的 home 是自己', monitorHome(main), main);
+  eq('worktree 的 home 是主資料夾', monitorHome(wt), main);
+  const plain = mkdtempSync(join(tmpdir(), 'pm-plain-'));
+  eq('不在 git 裡的資料夾 → 自己', monitorHome(plain), plain);
+
+  // 主資料夾放一份章,從 worktree 跑 collectAll 也要看得到
+  const target = makeRepo({ files: { 'b.js': '1\n' } });
+  const troot = out(target.dir, 'rev-parse', '--show-toplevel');
+  mkdirSync(join(main, 'checkpoints'));
+  copyFileSync(join(ROOT, 'stages.json'), join(wt, 'stages.json'));
+  writeFileSync(join(main, 'checkpoints', `${basename(troot)}__main.json`), JSON.stringify({
+    commit: out(target.dir, 'rev-parse', 'HEAD'), branch: 'main', worktree: troot, at: new Date().toISOString(), checks: ['test'],
+  }));
+  const seen = collectAll({ monitorDir: wt }).projects.map((p) => p.name);
+  check('從 worktree 跑,看得到主資料夾的案件', seen.includes(basename(troot)), JSON.stringify(seen));
+  execFileSync('git', ['worktree', 'remove', '--force', wt], { cwd: repo.dir, stdio: 'ignore' });
+  for (const d of [wtParent, plain]) rmSync(d, { recursive: true, force: true });
+  repo.cleanup(); target.cleanup();
 }
 
 process.exit(summary());

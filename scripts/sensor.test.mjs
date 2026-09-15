@@ -3,7 +3,7 @@
  *   ① 絕不影響 Claude(AC-2)   ② 只記「跑過」(AC-3)   ③ 三種空狀態要分得開(AC-1/AC-7)
  */
 import { execFileSync } from 'node:child_process';
-import { writeFileSync, mkdtempSync, readFileSync, rmSync, mkdirSync, readdirSync } from 'node:fs';
+import { writeFileSync, mkdtempSync, readFileSync, rmSync, mkdirSync, readdirSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -221,6 +221,27 @@ section('E 驗收：認瀏覽器工具的事件,講「開瀏覽器跑過一輪�
   eq('這一輪 3 個動作(Bash 不算)', run?.count, 3);
   eq('對話層也算得出動作數', stagesOfSession(ev, stages, 's1')[0].count, 3);
   check('沒有任何欄位叫 passed／success(R2:感測器無從得知)', run && !('passed' in run) && !('success' in run));
+}
+
+section('L17：hook.sh 從 worktree 被呼叫,紀錄還是寫進主資料夾', 'P3');
+{
+  // 沒設 PIPELINE_MONITOR_LOG_DIR 時 hook.sh 寫到 <自己所在 repo 的主資料夾>/logs。做一個假的 repo 放一份 hook.sh 副本,
+  // 從它的 worktree 裡呼叫,紀錄要出現在主資料夾。
+  const repo = makeRepo({ files: { 'a.txt': '1\n' } });
+  const main = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: repo.dir, encoding: 'utf8' }).trim();
+  execFileSync('cp', [join(ROOT, 'hook.sh'), join(main, 'hook.sh')]);
+  execFileSync('git', ['add', '-A'], { cwd: main, stdio: 'ignore' });
+  execFileSync('git', ['commit', '-qm', 'hook'], { cwd: main, stdio: 'ignore' });
+  const wtParent = mkdtempSync(join(tmpdir(), 'pm-wt-'));
+  const wt = join(wtParent, 'wt');
+  execFileSync('git', ['worktree', 'add', '-q', wt, '-b', 'side'], { cwd: main, stdio: 'ignore' });
+  const target = makeRepo({ files: { 'b.js': '1\n' } });
+  const env = { ...process.env }; delete env.PIPELINE_MONITOR_LOG_DIR;
+  execFileSync('sh', [join(wt, 'hook.sh')], { input: JSON.stringify(SAMPLE({ cwd: target.dir })), env, encoding: 'utf8' });
+  check('紀錄寫在主資料夾的 logs/', readdirSync(join(main, 'logs')).length === 1, '主資料夾的 logs/ 是空的');
+  check('worktree 裡沒有 logs/', !existsSync(join(wt, 'logs')));
+  execFileSync('git', ['worktree', 'remove', '--force', wt], { cwd: main, stdio: 'ignore' });
+  rmSync(wtParent, { recursive: true, force: true }); repo.cleanup(); target.cleanup();
 }
 
 section('D2：故障記號是警告,不是把整區蓋掉的理由');

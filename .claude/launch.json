@@ -7,13 +7,6 @@
       "runtimeArgs": ["server.mjs"],
       "port": 4319,
       "autoPort": true
-    },
-    {
-      "name": "pipeline-monitor-主資料夾",
-      "runtimeExecutable": "node",
-      "runtimeArgs": ["../../../server.mjs"],
-      "port": 4319,
-      "autoPort": true
     }
   ]
 }

@@ -16,6 +16,7 @@ import { appendFileSync, mkdirSync } from 'node:fs';
 import { collectAll } from './lib/collect.mjs';
 import { logFileOf } from './lib/events.mjs';
 import { optIn, optOut } from './lib/mount.mjs';
+import { monitorHome } from './lib/paths.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const HOST = '127.0.0.1';          // ⚠️ 不要參數化。見上面。
@@ -54,7 +55,7 @@ function readBody(req, cb) {
 export function createApp({ monitorDir = HERE } = {}) {
   // 跟 hook.sh／status.mjs／collect.mjs 看同一個地方(同一個環境變數),寫的跟讀的才是同一份(老毛病 P2)。
   // 跟著 monitorDir 走,測試才能在自己的暫存資料夾裡寫,不會碰到真的紀錄。
-  const LOG_DIR = process.env.PIPELINE_MONITOR_LOG_DIR ?? join(monitorDir, 'logs');
+  const LOG_DIR = process.env.PIPELINE_MONITOR_LOG_DIR ?? join(monitorHome(monitorDir), 'logs');
   return createServer((req, res) => {
     const url = new URL(req.url, `http://${HOST}`);
     const json = (code, obj) => { res.writeHead(code, TYPES['.json']); res.end(JSON.stringify(obj)); };

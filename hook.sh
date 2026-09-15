@@ -13,6 +13,12 @@
 #    關卡清單只住在 stages.json 一個地方,由讀取端判斷。
 
 MONITOR_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+# 紀錄住在這個 repo 的主資料夾,不管這支是從哪個 worktree 被呼叫的(lib/paths.mjs 有同一條規則)。
+# worktree 的 .git 是一個檔案;是檔案才問 git,主資料夾那條路一毛都不花。
+if [ -f "$MONITOR_DIR/.git" ]; then
+  _C=$(git -C "$MONITOR_DIR" rev-parse --git-common-dir 2>/dev/null)
+  case "$_C" in /*) MONITOR_DIR=$(dirname "$_C") ;; ?*) MONITOR_DIR=$(dirname "$MONITOR_DIR/$_C") ;; esac
+fi
 # 紀錄位置可以用環境變數換掉。這是**設定**不是測試專用後門——
 # 測試要能在自己的暫存資料夾裡跑,而且真的有人會想把紀錄放別的地方。
 LOG_DIR="${PIPELINE_MONITOR_LOG_DIR:-$MONITOR_DIR/logs}"
