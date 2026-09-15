@@ -98,7 +98,7 @@
 | 「為什麼要寫成這樣？」 | [`docs/LESSONS.md`](docs/LESSONS.md) —— 先搜關鍵字再問 |
 | 要動使用者看得到的文案 | 上面三條紅線，逐條套過一次 |
 | **③ 畫面要做什麼、不做什麼** | [`docs/進行中/pipeline-ui.md`](docs/進行中/pipeline-ui.md)——**施作中** |
-| **通用三關**：plugin 帶的 A 寫規格／C 打掃／D 魔鬼教官 skill——通用版跟 TutorPod 版差在哪、專案專屬的東西從哪裡來 | [`docs/規劃中/通用三關.md`](docs/規劃中/通用三關.md)——**等點頭** |
+| **通用三關**：plugin 帶的 A 寫規格／C 打掃／D 魔鬼教官 skill——通用版跟 TutorPod 版差在哪、專案專屬的東西從哪裡來 | [`docs/進行中/通用三關.md`](docs/進行中/通用三關.md)——**施作中** |
 | 想把感測器裝到**新的專案** | 裝成 plugin 一次就好：`pipeline-status --install`，之後每個專案自動記；不想記的專案 `--off`（或儀表板的按鈕）。做法與驗證在 [`docs/升級摘要/plugin.md`](docs/升級摘要/plugin.md)。舊接法（每個專案 `--on`）與它處理過的坑見 [`docs/升級摘要/sensor-install.md`](docs/升級摘要/sensor-install.md) |
 | **分級**（這次要多小心、程式區、危險清單、調高） | [`docs/升級摘要/分級.md`](docs/升級摘要/分級.md)。規則只有一條：沒有清單就不分級，工具不猜危險清單 |
 | 做畫面／碰任何顏色、字體、間距 | [`docs/DESIGN.md`](docs/DESIGN.md)——設計系統的唯一出處。實際的 token 檔在 `ui設計規格/`（`variables.css`／`tokens.json`），**畫面直接 import 那份，不要抄一份數值進程式碼** |

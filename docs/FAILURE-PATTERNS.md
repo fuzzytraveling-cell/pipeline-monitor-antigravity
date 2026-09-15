@@ -37,7 +37,8 @@
 **哪裡會再犯**：hook.sh（sh）與 status.mjs（node）要對同一件事有共識的任何地方；
 同一個畫面上兩個看起來應該相等的數字。
 兩種語言各寫一次的規則，一定要有一條**真的跑兩邊**的測試釘住——翻譯得再像也是兩份。
-**釘住它的測試**：`scripts/status.test.mjs` 標 P2 的段落；`scripts/sensor.test.mjs` 真的跑 hook.sh 對 `safeName()` 的那段。
+**釘住它的測試**：`scripts/status.test.mjs` 標 P2 的段落；`scripts/sensor.test.mjs` 真的跑 hook.sh 對 `safeName()` 的那段；
+`scripts/skills.test.mjs` 對 `stages.json` 的 skill 名與 `skills/` 資料夾的那段。
 
 ---
 
@@ -66,4 +67,4 @@
 - 「畫面不准出現百分比」抓到了 CSS 的 `width: 100%`（L10 第三次）
 
 **哪裡會再犯**：任何時候寫一條掃檔案內容的檢查。
-**釘住它的測試**：`scripts/ui.test.mjs` 標 P4 的段落（含反向測試）。
+**釘住它的測試**：`scripts/ui.test.mjs` 標 P4 的段落（含反向測試）；`scripts/skills.test.mjs` 標 P4 的段落（SKILL.md 不准指向 TutorPod，含反向測試）。
