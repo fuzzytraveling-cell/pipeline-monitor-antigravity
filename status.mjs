@@ -19,7 +19,7 @@ import { join, dirname, basename, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { appendFileSync } from 'node:fs';
-import { readEvents, loadStages, lastRunPerStage, runsPerStage, roundView, editsOf, reportsIn, perStageOfRound, gateHeartbeat, safeName, logFileOf } from './lib/events.mjs';
+import { readEvents, loadStages, lastRunPerStage, runsPerStage, roundView, roundStartOf, editsOf, reportsIn, perStageOfRound, gateHeartbeat, safeName, logFileOf } from './lib/events.mjs';
 import { buildTier, readTierConfig, writeTierConfig, proposeCodeArea, codeFileFn, gitCodeChanges } from './lib/tier.mjs';
 import { monitorHome } from './lib/paths.mjs';
 import { skillAvailable } from './lib/skills.mjs';
@@ -596,10 +596,11 @@ function stageFacts(ctx, ev, info = {}) {
   const isCode = codeFileFn(ctx.root, cfg.state === 'ok' ? cfg.config : null);
   const edits = editsOf(ev.events, (e) => e.cwd === ctx.root);
   // 這一輪跑到哪:五關、分級的「需要」、收工 hook 都吃這一份(老毛病 P2)。B 的證據除了感測器,還有 git 說改了的檔案的修改時間(L8)
+  const runs = runsPerStage(ev.events, stages, (e) => e.cwd === ctx.root);
+  const cpAt = info.cpUsable ? info.cp?.at ?? null : null;
   const view = roundView({
-    runs: runsPerStage(ev.events, stages, (e) => e.cwd === ctx.root), stages, cleared, reports, edits, isCode,
-    cpAt: info.cpUsable ? info.cp?.at ?? null : null,
-    gitChanges: gitCodeChanges(ctx.root, info.h?.list ?? null, isCode),
+    runs, stages, cleared, reports, edits, isCode, cpAt,
+    gitChanges: gitCodeChanges(ctx.root, info.h?.list ?? null, isCode, { since: roundStartOf(runs, stages, cpAt) }),
   });
   return { stages, perStage: perStageOfRound(view), cleared, reports, view, sawAnyEventHere };
 }
@@ -690,13 +691,16 @@ function renderStages(ctx, ev, facts, info = {}) {
         const said = st.type === 'browser' ? '驗收過了' : '處理完了';
         const first = view.stages.find((v) => v.skill);
         let tail;
-        if (closed) tail = st.closedBy === 'claude' ? `,${ago(st.doneAt)}Claude 說${st.report?.note ? `：${st.report.note}` : '沒問題'}` : `,${ago(st.doneAt)}你說${said}`;
-        else if (st.report?.verdict === 'found') tail = `,Claude 說找到問題${st.report.note ? `：${st.report.note}` : ''}——還沒處理完`;
+        const head = String(st.report?.note ?? '').split('\n')[0].trim();
+        if (closed) tail = st.closedBy === 'claude' ? `,${ago(st.doneAt)}Claude 說${head ? `：${head}` : '沒問題'}` : `,${ago(st.doneAt)}你說${said}`;
+        else if (st.report?.verdict === 'found') tail = `,Claude 說找到問題${head ? `：${head}` : ''}——還沒處理完`;
         else if (st.type === 'browser') tail = `,還沒有人說${said}`;
         else if (first && st.id === first.id) tail = ',等你點頭開工';
         else tail = ',Claude 還沒記結論';
         console.log(`   ${label} ${closed ? '✅' : '⏸'} ${ago(st.ranAt)}${verb}${tail}`);
         if (st.args) console.log(`              「${st.args.slice(0, 46)}${st.args.length > 46 ? '…' : ''}」`);
+        // 結論的說明有清單(多行)時,一行一行印——C 的建議、D 的發現就住在這裡
+        for (const line of String(st.report?.note ?? '').split('\n').slice(1)) if (line.trim()) console.log(`              ${line.trim().slice(0, 90)}`);
       }
     }
     // A 的清單就是規格檔裡的 AC,照檔案畫(AC-5):✅ 對過、⏳ 待討論、○ 還沒對。解析不了就照原文,找不到就說找不到
@@ -771,7 +775,8 @@ function doReport(ctx, stageId, verdict, note) {
     console.log('結論只有兩種：ok（沒問題／列好了）或 found（找到問題）。例：  pipeline-status --report D found "找到 3 條"');
     return 1;
   }
-  const text = String(note ?? '').trim().slice(0, 200);
+  // 說明放得下一張清單(C 的建議、D 的發現,一行一條):上限跟 --suggest 一樣的量級,單行紀錄仍遠小於 4096 bytes(感測器 AC-4)
+  const text = String(note ?? '').trim().slice(0, 1500);
   try {
     appendFileSync(logFileOf(LOG_DIR, ctx.project), JSON.stringify({
       ts: new Date().toISOString(), event: 'stage_report', stage: st.id, verdict, note: text || null,

@@ -77,6 +77,8 @@ const clock = (iso) => {
 // 狀態是伺服器算好的(lib/events.mjs 的 roundView):main／notbuilt／none／passed／current／done。
 // 畫面上 current 沿用「ran」的樣式(亮),passed 是劃掉變淡,done 是劃掉但深色(你說處理完了)。
 const stageState = (st) => st.state === 'current' ? 'ran' : (st.state ?? 'none');   // stale(結論過期,要再跑)照原樣給 CSS
+/** 結論說明的第一行(清單放在後面幾行) */
+const noteHead = (st) => String(st.report?.note ?? '').split('\n')[0].trim();
 /** B 的清單進度一句話:「3/5 對過,1 條待討論,1 條還沒對」。沒有清單就空字串 */
 const clProg = (cl) => cl?.parsed ? `清單 ${cl.checked}/${cl.total} 對過${cl.pending ? `,${cl.pending} 條待討論` : ''}${cl.unmarked ? `,${cl.unmarked} 條還沒對` : ''}` : '';
 /** 感測器看得到的關(有 skill 或 tools 的)。B 是你在講話的那個對話、未建的關,都不算分母。 */
@@ -346,8 +348,8 @@ function workflow(c) {
       // 結論會過期的關(D):之後又改了程式檔,要再跑一次(AC-9)。不劃掉、不打勾
       : s === 'stale' ? `${ago(st.ranAt)}${verb},之後又改了程式檔——要再跑一次`
       // 結案要說得出是誰說的(AC-11):Claude 記的結論、或你說(E 驗收、舊紀錄)
-      : s === 'done' ? `${ago(st.ranAt)}${verb},${ago(st.doneAt ?? st.clearedAt)}${st.closedBy === 'claude' ? `Claude 說${st.report?.note ? `：${st.report.note}` : '沒問題'}` : `你說${said}`}`
-      : s === 'ran' ? `${ago(st.ranAt)}${verb},${st.report?.verdict === 'found' ? `Claude 說找到問題${st.report.note ? `：${st.report.note}` : ''}——還沒處理完`
+      : s === 'done' ? `${ago(st.ranAt)}${verb},${ago(st.doneAt ?? st.clearedAt)}${st.closedBy === 'claude' ? `Claude 說${noteHead(st) ? `：${noteHead(st)}` : '沒問題'}` : `你說${said}`}`
+      : s === 'ran' ? `${ago(st.ranAt)}${verb},${st.report?.verdict === 'found' ? `Claude 說找到問題${noteHead(st) ? `：${noteHead(st)}` : ''}——還沒處理完`
           : st.type === 'browser' ? `還沒有人說${said}` : (c.stages.find((v) => v.skill)?.id === st.id ? '等你點頭開工' : 'Claude 還沒記結論')}`
       // 開過瀏覽器 ≠ 驗收過(Oscar 2026-09-15:截圖儀表板也會讓 E 亮)。講去了哪,不亮,算不算由人按
       : s === 'seen' ? `${ago(st.ranAt)}開過瀏覽器（${st.count} 個動作${st.hosts?.length ? `,去了 ${st.hosts.slice(0, 3).join('、')}` : ''}）——算不算驗收你說了算`
@@ -363,9 +365,15 @@ function workflow(c) {
     const clHtml = !cl ? ''
       : cl.missing ? `<div class="acl muted">清單：找不到這一輪的規格檔（${esc(String(cl.file ?? '').split('/').slice(-3).join('/'))}）</div>`
       : !cl.parsed ? `<div class="acl muted">清單：規格檔裡沒有照格式寫的 AC${cl.head ? `，開頭是：${esc(cl.head.slice(0, 80))}` : ''}</div>`
-      : `<ul class="acl">${cl.items.map((it) => `<li data-state="${esc(it.state)}"><span class="mark">${it.state === 'checked' ? '✅' : it.state === 'pending' ? '⏳' : '○'}</span>
+      // 可收折、預設收起(Oscar 2026-09-16):摘要一行講進度,展開才看每一條;對過的劃掉
+      : `<details class="acl-box"><summary>驗收清單：${clProg(cl).replace(/^清單 /, '')}（展開看全部 ${cl.total} 條）</summary>
+        <ul class="acl">${cl.items.map((it) => `<li data-state="${esc(it.state)}"><span class="mark">${it.state === 'checked' ? '✅' : it.state === 'pending' ? '⏳' : '○'}</span>
           <span><b>${esc(it.id)}</b> ${esc(it.title)}${it.state === 'pending' && it.note ? `<span class="muted">（待討論：${esc(it.note)}）</span>` : ''}${
-          it.plain ? `<div class="plain">${esc(it.plain)}</div>` : ''}</span></li>`).join('')}</ul>`;
+          it.plain ? `<div class="plain">${esc(it.plain)}</div>` : ''}</span></li>`).join('')}</ul></details>`;
+    // 結論的說明有清單(多行)時,一行一條列在卡上——C 的建議、D 的發現就住在這裡
+    const noteLines = String(st.report?.note ?? '').split('\n').map((l) => l.trim()).filter(Boolean);
+    const noteHtml = noteLines.length > 1 && (s === 'done' || s === 'ran' || s === 'stale')
+      ? `<ul class="rnote">${noteLines.slice(1).map((l) => `<li>${esc(l.replace(/^[-•]\s*/, ''))}</li>`).join('')}</ul>` : '';
 
     return `<div class="railcell" data-state="${s}">
         <span class="rlab">${esc(st.id)}</span>
@@ -379,7 +387,7 @@ function workflow(c) {
             <span class="ahouse">${esc(r.house)}</span></div>
           <div class="adoes">${esc(r.does)}</div>
           <div class="astatus">${esc(status)}</div>
-          ${saidArgs}${clHtml}${stamp}
+          ${saidArgs}${clHtml}${noteHtml}${stamp}
         </div>
         <span class="lamp" title="${s === 'passed' ? '已走過' : s === 'done' || s === 'ran' ? '現在這一關' : s === 'stale' ? '結論過期,要再跑一次' : s === 'seen' ? '開過瀏覽器' : '這一輪還沒跑'}"></span>
       </div>`;

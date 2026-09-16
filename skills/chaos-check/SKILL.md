@@ -90,9 +90,11 @@ allowed-tools: Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git l
 
 ## 收尾（一定要做：這是這一關結案的唯一證據）
 
-把結論記給儀表板，儀表板會照實標「Claude 說」：
+把結論記給儀表板，儀表板會照實標「Claude 說」。說明第一行是結論，之後一行一條發現（一句話就好，儀表板會一條一條列出來）：
 - 沒對到任何已知死法 → `pipeline-status --report D ok "沒對到已知死法"`
-- 有發現 → `pipeline-status --report D found "找到 N 條"`。使用者或你處理完之後**再跑一次這一關**，說沒找到才算結案。
+- 有發現 → `pipeline-status --report D found "找到 N 條
+- [判準] 一句話
+- [判準] 一句話"`。使用者或你處理完之後**再跑一次這一關**，說沒找到才算結案。
 
 沒有 `pipeline-status` 這個指令的話：`node "<pipeline-monitor 的資料夾>/status.mjs" --report D …`——
 那個資料夾就是 `~/.claude/skills/pipeline-monitor` 指向的位置。之後又改了程式檔，這一關的結論就過期，儀表板會要求再跑一次。

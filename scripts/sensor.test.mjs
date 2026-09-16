@@ -512,4 +512,35 @@ section('魔鬼教官 2026-09-16 抓到的:B 要認 git 說的改動(Bash 寫檔
   check('上一輪的 D 不在這一輪的清單裡;這一輪的 A 在', !ps.has('D') && ps.get('A')?.ts === T(2), JSON.stringify([...ps]));
 }
 
+section('用 Bash 寫的規格檔:A 收尾 --report A ok "<路徑>" 指路,儀表板照樣找得到清單;說明放得下整張清單');
+{
+  const stages = JSON.parse(readFileSync(join(ROOT, 'stages.json'), 'utf8')).stages;
+  const T = (h) => new Date(Date.UTC(2026, 8, 16, h)).toISOString();
+  const by = (arr) => Object.fromEntries(arr.map((s) => [s.id, s]));
+  const dir = mkdtempSync(join(tmpdir(), 'pm-spec-'));
+  mkdirSync(join(dir, 'docs', '規劃中'), { recursive: true });
+  writeFileSync(join(dir, 'docs', '規劃中', 'z.md'), '# 功能：z\n**AC-1　一** ✅ 對過 2026-09-16\n**AC-2　二**\n');
+  // 沒有任何 Write 事件(Bash 寫的),只有 A 的 report 指路(相對路徑,cwd 是那筆紀錄的)
+  const ev = [
+    { ts: T(1), hook: 'UserPromptSubmit', session: 's1', cwd: dir, prompt_id: 'p1', prompt: '/spec 做 z' },
+    { ts: T(1), event: 'stage_report', stage: 'A', verdict: 'ok', note: 'docs/規劃中/z.md', cwd: dir, source: 'claude' },
+  ];
+  const v = by(stagesOfSession(ev, stages, 's1', null, dir));
+  check('A 的清單來自 report 指的那份檔案:2 條、1 對過', v.A.checklist?.parsed && v.A.checklist.total === 2 && v.A.checklist.checked === 1, JSON.stringify(v.A.checklist));
+  // report 比 A 早(上一輪的)不算
+  const stale = by(stagesOfSession([{ ...ev[1], ts: T(0) }, ev[0]], stages, 's1', null, dir));
+  eq('比這次 A 還早的 report 不算', stale.A.checklist, null);
+  rmSync(dir, { recursive: true, force: true });
+
+  // --report 的說明:多行清單原封不動記下來
+  const r = makeRepo({ files: { 'a.js': '1\n' } });
+  const logDir = mkdtempSync(join(tmpdir(), 'pm-log-'));
+  const note = '列了 2 條建議\n- lib/x.mjs:10 —— 白話一句\n- lib/y.mjs:20 —— 白話另一句';
+  execFileSync('node', [join(ROOT, 'status.mjs'), '--report', 'C', 'ok', note], { cwd: r.dir, encoding: 'utf8', env: { ...process.env, PIPELINE_MONITOR_LOG_DIR: logDir } });
+  const f = readdirSync(logDir).find((x) => x.endsWith('.jsonl'));
+  const rep = readFileSync(join(logDir, f), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).find((e) => e.event === 'stage_report');
+  eq('多行說明原封不動', rep?.note, note);
+  rmSync(logDir, { recursive: true, force: true }); r.cleanup();
+}
+
 process.exit(summary());

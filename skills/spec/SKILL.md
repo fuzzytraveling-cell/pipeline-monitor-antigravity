@@ -51,7 +51,9 @@ allowed-tools: Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git l
    例子要從**這個專案自己的邊界**推：它有沒有後端？資料存在哪？靠不靠第三方服務？不要套別的專案的例子。
 5. **寫檔＋索引**：`docs/規劃中/<kebab-slug>.md`。檔名已存在就先讀它——可能是同一件事的舊規格，該更新不是另開。
    索引那一行是唯一准改的既有檔案；除了那一行，索引檔的其他部分一個字都不動。
-6. **回報並停下**。
+6. **告訴儀表板規格在哪**：`pipeline-status --report A ok "docs/規劃中/<slug>.md"`（沒有這個指令的話：`node "<pipeline-monitor 的資料夾>/status.mjs" --report A ok "…"`，
+   那個資料夾就是 `~/.claude/skills/pipeline-monitor` 指向的位置）。儀表板靠這一行找到這一輪的清單；用 Bash 寫檔時感測器看不到那次寫檔，這一行就是唯一的線索。
+7. **回報並停下**。
 
 ## 最小格式（專案沒有自己的範本時）
 

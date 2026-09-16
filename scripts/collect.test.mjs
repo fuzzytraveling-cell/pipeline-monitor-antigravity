@@ -232,6 +232,10 @@ section('對話標題從 app 的索引來;在 app 裡刪掉的對話不准畫成
 section('這一輪跑到哪:最近一次第一關或蓋章是分界;現在這一關亮、走過的劃掉、上一輪只講一句;找不到指令要分開講');
 {
   const r = makeRepo({ files: { 'a.js': '1\n' } });
+  // 這個劇本的時間寫死在 2026-09-15,但 init 那個 commit 的時間是「現在」——會被當成這一輪之後的存檔(B 的 git 證據),
+  // 讓 B 搶走「現在這一關」。把 init 往前撥到劇本之前,劇本才成立
+  execFileSync('git', ['commit', '--amend', '--no-edit', '--date', '2026-09-14T00:00:00Z'],
+    { cwd: r.dir, stdio: 'ignore', env: { ...process.env, GIT_COMMITTER_DATE: '2026-09-14T00:00:00Z' } });
   const root = out(r.dir, 'rev-parse', '--show-toplevel');
   mkdirSync(join(root, '.claude', 'commands'), { recursive: true });
   writeFileSync(join(root, '.claude', 'commands', 'spec.md'), '# /spec\n');   // 這個專案有 /spec,沒有 /cleanup、/chaos-check
@@ -309,6 +313,28 @@ section('對話頁的 B 也要認 git 說的改動(Bash 寫檔感測器看不到
   const s1 = p.sessions.find((x) => x.id === 's1');
   ss = Object.fromEntries(s1.stages.map((s) => [s.id, s]));
   eq('工作區共用:B 不認 git 的改動(不知道是誰改的)', `${s1.sharesCwd}/${ss.B.state}`, 'true/main');
+  rmSync(monitorDir, { recursive: true, force: true }); r.cleanup();
+}
+
+section('存檔(commit)之後 B 的證據不能消失:這一輪開始之後的 commit 動到的程式檔也算(git 說的)');
+{
+  const r = makeRepo({ files: { 'src/a.js': '1\n' } });
+  const root = out(r.dir, 'rev-parse', '--show-toplevel');
+  mkdirSync(join(root, '.claude'), { recursive: true });
+  writeFileSync(join(root, '.claude', 'pipeline-stages.json'), JSON.stringify({ tiers: { code: ['src/'], danger: [] } }));
+  const monitorDir = mkdtempSync(join(tmpdir(), 'pm-monitor-'));
+  mkdirSync(join(monitorDir, 'checkpoints')); mkdirSync(join(monitorDir, 'logs'));
+  copyFileSync(join(ROOT, 'stages.json'), join(monitorDir, 'stages.json'));
+  const log = join(monitorDir, 'logs', `${basename(root)}.jsonl`);
+  // A 在「一分鐘前」被叫;之後用 Bash 改了 src/a.js 並 commit(工作區乾淨,git diff 看不到)
+  const aTs = new Date(Date.now() - 60 * 1000).toISOString();
+  writeFileSync(log, JSON.stringify({ ts: aTs, hook: 'UserPromptSubmit', session: 's1', cwd: root, prompt: '/spec x' }) + '\n');
+  writeFileSync(join(root, 'src', 'a.js'), 'committed change\n');
+  r.git('add', '-A'); r.git('commit', '-qm', 'work');
+  const p = collectAll({ monitorDir }).projects[0];
+  const cs = Object.fromEntries(p.cards[0].stages.map((s) => [s.id, s]));
+  eq('工作區乾淨,但這一輪之後有 commit 動到程式檔 → B 亮,是 git 說的', `${cs.B.state}/${cs.B.via}`, 'current/git');
+  eq('未檢查清單是 0(沒有沒存的檔),兩件事不衝突', p.cards[0].dirty, 0);
   rmSync(monitorDir, { recursive: true, force: true }); r.cleanup();
 }
 

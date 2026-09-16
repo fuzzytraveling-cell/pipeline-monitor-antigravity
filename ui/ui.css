@@ -435,4 +435,11 @@ a.ext { color: var(--color-lake-blue); }
 .acl .mark { flex: 0 0 auto; }
 .acl .plain, .acl .muted, .acl.muted { color: var(--color-smoke); }
 .acl li[data-state="checked"] { opacity: .7; }
+.acl-box { margin-top: .45rem; font-size: 12px; }
+.acl-box > summary { cursor: pointer; color: var(--color-smoke); list-style: none; }
+.acl-box > summary::before { content: '▸ '; }
+.acl-box[open] > summary::before { content: '▾ '; }
+.acl li[data-state="checked"] { text-decoration: line-through; }
+/* 結論的清單(C 的建議、D 的發現):一行一條 */
+.rnote { margin: .35rem 0 0; padding-left: 1.1rem; font-size: 12px; line-height: 1.5; color: var(--color-smoke); }
 
