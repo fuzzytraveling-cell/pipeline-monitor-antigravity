@@ -8,7 +8,8 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
-import { readEvents, loadStages, safeName, sessionsOf, lastRunPerStage, runsPerStage, roundView, stagesOfSession, suggestionsOf } from '../lib/events.mjs';
+import { readEvents, loadStages, safeName, sessionsOf, lastRunPerStage, runsPerStage, roundView, stagesOfSession, suggestionsOf, perStageOfRound } from '../lib/events.mjs';
+import { parseChecklist } from '../lib/checklist.mjs';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -481,6 +482,34 @@ section('五關自動結案:A 的清單就是規格檔裡的 AC(AC-5),B 對完�
   check('沒有 AC → parsed=false,給開頭幾行', v.A.checklist?.parsed === false && /隨便寫的/.test(v.A.checklist?.head ?? ''), JSON.stringify(v.A.checklist));
   eq('沒有可用的清單 → B 照舊規則(改了程式就是現在)', v.B.state, 'current');
   rmSync(dir, { recursive: true, force: true });
+}
+
+section('魔鬼教官 2026-09-16 抓到的:B 要認 git 說的改動(Bash 寫檔感測器看不到,L8)、清單跳過 fence 裡的範例、分級看這一輪');
+{
+  const stages = JSON.parse(readFileSync(join(ROOT, 'stages.json'), 'utf8')).stages;
+  const T = (h) => new Date(Date.UTC(2026, 8, 16, h)).toISOString();
+  const by = (v) => Object.fromEntries(v.stages.map((s) => [s.id, s]));
+  const runs = runsPerStage([{ ts: T(1), hook: 'UserPromptSubmit', session: 's1', cwd: '/x', prompt: '/spec 做東西' }], stages, () => true);
+  // 感測器一筆改檔都沒有,但 git 說 src/a.js 改過(修改時間在 A 之後)
+  const v = by(roundView({ runs, stages, cleared: new Map(), gitChanges: [{ file: 'src/a.js', mtime: T(2) }] }));
+  eq('B 亮,而且說是 git 說的', `${v.B.state}/${v.B.via}/${v.B.ranAt}`, `current/git/${T(2)}`);
+  eq('A 也算你點頭開工了(第一個比 A 晚的修改時間)', `${v.A.state}/${v.A.closedBy}/${v.A.nodAt}`, `passed/nod/${T(2)}`);
+  const old = by(roundView({ runs, stages, cleared: new Map(), gitChanges: [{ file: 'src/a.js', mtime: T(0) }] }));
+  eq('git 的改動比這一輪還早 → 不算這一輪的', `${old.B.state}/${old.A.state}`, 'main/current');
+  // 兩種證據都有:取較晚的,via 說是感測器
+  const both = by(roundView({ runs, stages, cleared: new Map(), gitChanges: [{ file: 'src/a.js', mtime: T(3) }],
+    edits: [{ ts: T(2), hook: 'PostToolUse', file: '/x/src/a.js' }] }));
+  eq('感測器跟 git 都有 → 最後一次改檔取較晚的、via 是 hook', `${both.B.via}/${both.B.ranAt}`, `hook/${T(3)}`);
+  // 清單:fence 裡的範例不算
+  const fenced = parseChecklist('# 功能\n```markdown\n**AC-1　<一句話>**\n> **白話**：<…>\n```\n**AC-1　真的第一條**\n> **白話**：真的白話\n');
+  eq('fence 裡的假 AC 不算,只有真的那一條', `${fenced.total}/${fenced.items[0].title}/${fenced.items[0].plain}`, '1/真的第一條/真的白話');
+  // 分級的「需要」看這一輪:perStageOfRound 只有這一輪跑過的關
+  const two = runsPerStage([
+    { ts: T(1), hook: 'PreToolUse', tool: 'Skill', skill: 'chaos-check', session: 's1', cwd: '/x' },
+    { ts: T(2), hook: 'UserPromptSubmit', session: 's1', cwd: '/x', prompt: '/spec 第二輪' },
+  ], stages, () => true);
+  const ps = perStageOfRound(roundView({ runs: two, stages, cleared: new Map() }));
+  check('上一輪的 D 不在這一輪的清單裡;這一輪的 A 在', !ps.has('D') && ps.get('A')?.ts === T(2), JSON.stringify([...ps]));
 }
 
 process.exit(summary());

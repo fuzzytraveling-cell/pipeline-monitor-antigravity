@@ -19,8 +19,8 @@ import { join, dirname, basename, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { appendFileSync } from 'node:fs';
-import { readEvents, loadStages, lastRunPerStage, runsPerStage, roundView, editsOf, reportsIn, lastCodeEdit, safeName, logFileOf } from './lib/events.mjs';
-import { buildTier, readTierConfig, writeTierConfig, proposeCodeArea, codeFileFn } from './lib/tier.mjs';
+import { readEvents, loadStages, lastRunPerStage, runsPerStage, roundView, editsOf, reportsIn, perStageOfRound, gateHeartbeat, safeName, logFileOf } from './lib/events.mjs';
+import { buildTier, readTierConfig, writeTierConfig, proposeCodeArea, codeFileFn, gitCodeChanges } from './lib/tier.mjs';
 import { monitorHome } from './lib/paths.mjs';
 import { skillAvailable } from './lib/skills.mjs';
 import { installService, uninstallService, restartService, describeService, openDashboard } from './lib/service.mjs';
@@ -503,11 +503,19 @@ function doCheckpoint(ctx) {
 /* ══════════════════════════ 畫面 ══════════════════════════ */
 
 /** 標題＋感測器那一行。零 commit 的路徑跟正常路徑都要它——以前抄了兩份,各自過期(老毛病 P2)。 */
+/** 收工 hook 活著沒:看心跳檔,不看設定(L13:「掛著」不等於「活著」)。 */
+function describeGate(logDir = LOG_DIR) {
+  const hb = gateHeartbeat(logDir);
+  if (!hb?.ts) return '收工 hook：還沒跑過（裝好 plugin 之後要開新對話;一直沒跑就是它沒被觸發,不是沒事）';
+  return `收工 hook：最後一次跑 ${ago(hb.ts)}`;
+}
+
 function renderSensor(ctx, ev) {
   console.log(`━━ ${ctx.project} · ${ctx.branch} ━━`);
   const mine = ev.events.filter((e) => e.cwd === ctx.root).map((e) => e.ts).filter(Boolean).sort();
   const lines = describeSensor({ mount: mountState(ctx.root, ctx.mainRoot), lastSeen: mine.at(-1) ?? null });
   for (const line of lines) console.log(line);
+  console.log(`         ${describeGate()}`);
 }
 
 /** 還原點與改動的事實,一次算好。畫面(render)與分級(--tier)都吃這一份——兩邊才不會各算各的(老毛病 P2)。 */
@@ -573,9 +581,9 @@ function render(ctx, ev, info) {
 /* ══════════════════════════ 關卡（需要感測器） ══════════════════════════ */
 
 /** 五關的事實,一次算好:關卡清單、每關最後一次紀錄、人蓋的結案。五關那段與分級那段共用。 */
-function stageFacts(ctx, ev) {
+function stageFacts(ctx, ev, info = {}) {
   const { stages } = loadStages(HERE, ctx.root, ctx.mainRoot);
-  const { perStage, sawAnyEventHere } = lastRunPerStage(ev.events, stages, ctx.root);
+  const { sawAnyEventHere } = lastRunPerStage(ev.events, stages, ctx.root);
   // 人蓋的「結案」事件(AC-9)。source:'human' 是刻意標的——
   // 它跟感測器觀察到的事實不同級,永遠不要混在一起。
   const cleared = new Map();
@@ -587,7 +595,13 @@ function stageFacts(ctx, ev) {
   const cfg = readTierConfig(ctx.root, ctx.mainRoot, HERE);
   const isCode = codeFileFn(ctx.root, cfg.state === 'ok' ? cfg.config : null);
   const edits = editsOf(ev.events, (e) => e.cwd === ctx.root);
-  return { stages, perStage, cleared, reports, isCode, edits, lastEdit: lastCodeEdit(edits, isCode), sawAnyEventHere };
+  // 這一輪跑到哪:五關、分級的「需要」、收工 hook 都吃這一份(老毛病 P2)。B 的證據除了感測器,還有 git 說改了的檔案的修改時間(L8)
+  const view = roundView({
+    runs: runsPerStage(ev.events, stages, (e) => e.cwd === ctx.root), stages, cleared, reports, edits, isCode,
+    cpAt: info.cpUsable ? info.cp?.at ?? null : null,
+    gitChanges: gitCodeChanges(ctx.root, info.h?.list ?? null, isCode),
+  });
+  return { stages, perStage: perStageOfRound(view), cleared, reports, view, sawAnyEventHere };
 }
 
 function renderStages(ctx, ev, facts, info = {}) {
@@ -629,12 +643,8 @@ function renderStages(ctx, ev, facts, info = {}) {
   }
 
   // 這一輪跑到哪(lib/events.mjs 的 roundView):分界是最近一次第一關、或蓋章,取較晚的
-  // B 有沒有在動、A 是不是開工了:看這一輪改到「程式檔」的事件(stageFacts 算好的,跟分級同一份判斷);Claude 記的結論決定 C／D 結案
-  const view = roundView({
-    runs: runsPerStage(events, stages, (e) => e.cwd === ctx.root), stages, cleared,
-    cpAt: info.cpUsable ? info.cp?.at ?? null : null,
-    edits: facts.edits, isCode: facts.isCode, reports: facts.reports,
-  });
+  // 這一輪跑到哪:stageFacts 算好的那一份(五關、分級、收工 hook 共用)
+  const view = facts.view;
   if (view.roundStart) console.log(`   （這一輪從 ${ago(view.roundStart)}開始算：最近一次第一關、或蓋章）`);
   for (const st of view.stages) {
     const label = `${st.id} ${st.name}`.padEnd(10, '　');
@@ -642,7 +652,8 @@ function renderStages(ctx, ev, facts, info = {}) {
     if (st.type === 'main-conversation' && st.state !== 'main') {
       const cl = st.checklist;
       const prog = cl?.parsed ? `清單 ${cl.checked}/${cl.total} 對過${cl.pending ? `,${cl.pending} 條待討論` : ''}${cl.unmarked ? `,${cl.unmarked} 條還沒對` : ''}` : null;
-      console.log(st.state === 'current' ? `   ${label} ⏸ 最後一次改程式檔 ${ago(st.ranAt)}——現在在這一關${prog ? `（${prog}）` : ''}`
+      const viaNote = st.via === 'git' ? '（感測器沒看到改檔,是 git 說的——可能是用 Bash 寫的）' : '';
+      console.log(st.state === 'current' ? `   ${label} ⏸ 最後一次改程式檔 ${ago(st.ranAt)}${viaNote}——現在在這一關${prog ? `（${prog}）` : ''}`
         : st.state === 'stale' ? `   ${label} 🔁 改過程式檔（最後一次 ${ago(st.ranAt)}）,${prog}——清單沒對完,不算寫完`
         : st.state === 'done' ? `   ${label} ✅ 改過程式檔（最後一次 ${ago(st.ranAt)}）,${ago(st.doneAt)}Claude 對完清單`
         : `   ${label} ✓  改過程式檔（最後一次 ${ago(st.ranAt)}）${st.closedBy === 'checklist' ? ',Claude 對完清單' : ''}——已走過`);
@@ -808,7 +819,7 @@ function tierOf(ctx, ev, info, facts) {
     root: ctx.root, mainRoot: ctx.mainRoot, monitorDir: HERE, health: info.h,
     stages: facts.stages, perStage: facts.perStage, cleared: facts.cleared,
     events: ev.events, cwd: ctx.root, cpUsable: info.cpUsable, cpAt: info.cp?.at ?? null,
-    head: ctx.head?.slice(0, 7) ?? null, reports: facts.reports, lastEdit: facts.lastEdit,
+    head: ctx.head?.slice(0, 7) ?? null, reports: facts.reports, lastEdit: facts.view.lastEdit,
   });
 }
 
@@ -1057,7 +1068,7 @@ async function main() {
 
   // 事實各算一次,三段畫面共用
   const info = gatherChange(ctx);
-  const facts = stageFacts(ctx, ev);
+  const facts = stageFacts(ctx, ev, info);
   if (at('--tier-retract') !== -1) return doTierRetract(ctx, ev, info, facts);
   if (at('--tier') !== -1) {
     const [id, ...why] = after('--tier');

@@ -176,6 +176,9 @@ section('整條路真的跑一次:sh gate.sh → node gate.mjs。擋的時候印
   const blocked = events.find((e) => e.event === 'gate_blocked');
   check('留下 gate_blocked(source:gate),缺 C、D', blocked?.source === 'gate' && blocked?.missing?.join(',') === 'C,D', JSON.stringify(blocked));
   eq('放行(stop_hook_active):一個字都不印', run({ ...s.payload, stop_hook_active: true }), '');
+  // 心跳:跑過就留時間,放行也留——「掛著」不等於「活著」(L13),沒有心跳的收工 hook跟沒裝一樣
+  let hb = null; try { hb = JSON.parse(readFileSync(join(s.monitorDir, 'logs', '_gate.json'), 'utf8')); } catch { hb = null; }
+  check('每次跑都留心跳 logs/_gate.json(含 cwd)', !!hb?.ts && hb?.cwd === s.root, JSON.stringify(hb));
   eq('壞掉的輸入:一個字都不印、不炸', run({}), '');
   check('壞掉的輸入不留故障記號(那是「沒東西」,不是「壞了」)', !existsSync(join(s.monitorDir, 'logs', '_sensor.jsonl')));
   s.cleanup();

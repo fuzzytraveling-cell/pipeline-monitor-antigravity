@@ -286,4 +286,30 @@ section('這一輪跑到哪:最近一次第一關或蓋章是分界;現在這一
   r.cleanup();
 }
 
+section('對話頁的 B 也要認 git 說的改動(Bash 寫檔感測器看不到,L8);工作區有兩個對話時不猜是誰改的');
+{
+  const r = makeRepo({ files: { 'src/a.js': '1\n' } });
+  const root = out(r.dir, 'rev-parse', '--show-toplevel');
+  mkdirSync(join(root, '.claude'), { recursive: true });
+  writeFileSync(join(root, '.claude', 'pipeline-stages.json'), JSON.stringify({ tiers: { code: ['src/'], danger: [] } }));
+  const monitorDir = mkdtempSync(join(tmpdir(), 'pm-monitor-'));
+  mkdirSync(join(monitorDir, 'checkpoints')); mkdirSync(join(monitorDir, 'logs'));
+  copyFileSync(join(ROOT, 'stages.json'), join(monitorDir, 'stages.json'));
+  const T = (h) => new Date(Date.UTC(2026, 8, 16, h)).toISOString();
+  const log = join(monitorDir, 'logs', `${basename(root)}.jsonl`);
+  // 一個對話:叫了 A,之後用 Bash 改了 src/a.js(沒有任何 Edit 事件),git 看得到
+  writeFileSync(log, JSON.stringify({ ts: T(1), hook: 'UserPromptSubmit', session: 's1', cwd: root, prompt: '/spec x' }) + '\n');
+  writeFileSync(join(root, 'src', 'a.js'), 'bash wrote\n');
+  let p = collectAll({ monitorDir }).projects[0];
+  let ss = Object.fromEntries(p.sessions[0].stages.map((s) => [s.id, s]));
+  eq('對話頁:B 亮,而且說是 git 說的', `${ss.B.state}/${ss.B.via}`, 'current/git');
+  // 第二個對話進同一個工作區 → 兩個都不猜
+  writeFileSync(log, readFileSync(log, 'utf8') + JSON.stringify({ ts: T(2), hook: 'UserPromptSubmit', session: 's2', cwd: root, prompt: 'hi' }) + '\n');
+  p = collectAll({ monitorDir }).projects[0];
+  const s1 = p.sessions.find((x) => x.id === 's1');
+  ss = Object.fromEntries(s1.stages.map((s) => [s.id, s]));
+  eq('工作區共用:B 不認 git 的改動(不知道是誰改的)', `${s1.sharesCwd}/${ss.B.state}`, 'true/main');
+  rmSync(monitorDir, { recursive: true, force: true }); r.cleanup();
+}
+
 process.exit(summary());

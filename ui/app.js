@@ -305,7 +305,9 @@ function sensorLine(c) {
   }
   if (m?.state === 'ok') {
     const where = m.where === 'main' ? '（用的是主資料夾的設定）' : m.where === 'user' ? '（用的是帳號層級的設定）' : '';
-    return `<p class="section-note">感測器：已掛上${esc(where)} · ${esc(last)}</p>`;
+    // 收工 hook 活著沒:看心跳,不看設定——「掛著」不等於「活著」(L13)
+    const gate = c.sensor?.gate?.ts ? `收工 hook 最後一次跑 ${ago(c.sensor.gate.ts)}` : '收工 hook 還沒跑過（要開新對話;一直沒跑就是沒被觸發,不是沒事）';
+    return `<p class="section-note">感測器：已掛上${esc(where)} · ${esc(last)} · ${esc(gate)}</p>`;
   }
   // 設定裡找不到、紀錄裡卻有 → 它在記。證據在手上時不准說「沒掛上」(R1)。
   if (seen) return `<p class="section-note">感測器：設定裡找不到,但 ${esc(ago(seen))}還有來自這裡的紀錄——它在記,只是不知道是哪份設定在做。</p>`;
@@ -332,7 +334,7 @@ function workflow(c) {
     const status =
       // B(對話本身):改到程式檔就算在動,印最後一次改檔的時間;不數檔案——那要看 git(未檢查清單那張卡)
       st.type === 'main-conversation'
-        ? (s === 'ran' ? `最後一次改程式檔 ${ago(st.ranAt)}——現在在這一關${clProg(st.checklist) ? `（${clProg(st.checklist)}）` : ''}`
+        ? (s === 'ran' ? `最後一次改程式檔 ${ago(st.ranAt)}${st.via === 'git' ? '（感測器沒看到改檔,是 git 說的——可能是用 Bash 寫的）' : ''}——現在在這一關${clProg(st.checklist) ? `（${clProg(st.checklist)}）` : ''}`
           // 清單沒對完:不劃掉,用「要處理」的樣子(AC-6)
           : s === 'stale' ? `改過程式檔（最後一次 ${ago(st.ranAt)}）,${clProg(st.checklist)}——清單沒對完,不算寫完`
           : s === 'done' ? `改過程式檔（最後一次 ${ago(st.ranAt)}）,${ago(st.doneAt)}Claude 對完清單`

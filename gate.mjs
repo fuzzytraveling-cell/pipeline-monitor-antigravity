@@ -21,7 +21,8 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { cardFor } from './lib/collect.mjs';
-import { stagesOfSession, logFileOf } from './lib/events.mjs';
+import { stagesOfSession, logFileOf, GATE_FILE } from './lib/events.mjs';
+import { writeFileSync } from 'node:fs';
 import { readTierConfig, codeFileFn } from './lib/tier.mjs';
 import { skillAvailable } from './lib/skills.mjs';
 import { optOutState } from './lib/mount.mjs';
@@ -137,6 +138,8 @@ export function decide({ payload, monitorDir = MONITOR_DIR, skillHome = undefine
 function main() {
   let payload = null;
   try { payload = JSON.parse(readFileSync(0, 'utf8') || '{}'); } catch { return 0; }
+  // 心跳:每次跑都留時間(不是紀錄,是一個會被蓋掉的小檔)。沒有它,「hook 掛著但從沒被觸發」跟「一切正常」長得一模一樣(L13、老毛病 P3)
+  try { mkdirSync(LOG_DIR, { recursive: true }); writeFileSync(join(LOG_DIR, GATE_FILE), JSON.stringify({ ts: new Date().toISOString(), cwd: payload?.cwd ?? null }) + '\n'); } catch { /* 留不了就算了,不影響判斷 */ }
   let d = null;
   try { d = decide({ payload }); } catch (e) { noteBroken(e?.message ?? e); return 0; }
   if (!d) return 0;
