@@ -338,4 +338,23 @@ section('存檔(commit)之後 B 的證據不能消失:這一輪開始之後的 c
   rmSync(monitorDir, { recursive: true, force: true }); r.cleanup();
 }
 
+section('commit 的時間帶本地時差,跟 UTC 的分界不能用字串比大小(魔鬼教官第四次抓到)');
+{
+  const r = makeRepo({ files: { 'src/a.js': '1\n' } });
+  // init 那個 commit 的時間是「現在」,會混進來;往前撥到劇本之前,劇本才乾淨
+  execFileSync('git', ['commit', '--amend', '--no-edit', '--date', '2026-09-10T00:00:00Z'], { cwd: r.dir, stdio: 'ignore', env: { ...process.env, GIT_COMMITTER_DATE: '2026-09-10T00:00:00Z' } });
+  const root = out(r.dir, 'rev-parse', '--show-toplevel');
+  const isCode = (f) => /^src\//.test(f);
+  // 一個 commit 在「+08:00 早上 09:00」= UTC 01:00。分界訂在 UTC 05:00:字串比 "09:00+08:00" > "05:00Z" 會誤判成分界之後
+  writeFileSync(join(root, 'src', 'a.js'), '2\n');
+  execFileSync('git', ['add', '-A'], { cwd: root });
+  execFileSync('git', ['commit', '-qm', 'morning'], { cwd: root, env: { ...process.env, GIT_AUTHOR_DATE: '2026-09-16T09:00:00+08:00', GIT_COMMITTER_DATE: '2026-09-16T09:00:00+08:00' } });
+  const { gitCodeChanges } = await import('../lib/tier.mjs');
+  const before = gitCodeChanges(root, [], isCode, { since: '2026-09-16T05:00:00Z' });
+  eq('分界之前的 commit 不算(換算成同一個鐘之後 01:00Z < 05:00Z)', before.length, 0);
+  const after = gitCodeChanges(root, [], isCode, { since: '2026-09-16T00:30:00Z' });
+  check('分界之後的算,時間換成 UTC', after.length === 1 && after[0].mtime === '2026-09-16T01:00:00.000Z', JSON.stringify(after));
+  r.cleanup();
+}
+
 process.exit(summary());
