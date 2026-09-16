@@ -1,0 +1,20 @@
+{
+  "tiers": {
+    "code": [
+      "lib/",
+      "status.mjs",
+      "server.mjs",
+      "ui/",
+      "hook.sh",
+      "remind.sh",
+      "hooks/"
+    ],
+    "danger": [
+      "hook.sh",
+      "hooks/hooks.json",
+      "lib/events.mjs",
+      "lib/paths.mjs",
+      "lib/mount.mjs"
+    ]
+  }
+}
