@@ -94,12 +94,12 @@
 |---|---|
 | 想知道整體要往哪走、六個死法是什麼 | [`docs/ROADMAP.md`](docs/ROADMAP.md) |
 | 改 `status.mjs`（還原點／改動體檢） | [`docs/升級摘要/pipeline-status.md`](docs/升級摘要/pipeline-status.md) 的 AC |
-| 改 `hook.sh`／`lib/events.mjs`（感測器） | [`docs/升級摘要/pipeline-sensor.md`](docs/升級摘要/pipeline-sensor.md) 的 AC |
+| 改 `hook.sh`／`lib/events.mjs`（感測器） | [`docs/升級摘要/pipeline-sensor.md`](docs/升級摘要/pipeline-sensor.md) 的 AC；改 `gate.mjs`（收工 hook）或五關的結案邏輯 → 上面那份五關自動結案的 AC |
 | 「為什麼要寫成這樣？」 | [`docs/LESSONS.md`](docs/LESSONS.md) —— 先搜關鍵字再問 |
 | 要動使用者看得到的文案 | 上面三條紅線，逐條套過一次 |
 | **③ 畫面要做什麼、不做什麼** | [`docs/進行中/pipeline-ui.md`](docs/進行中/pipeline-ui.md)——**施作中** |
 | 通用三關：plugin 帶的 A 寫規格／C 打掃／D 魔鬼教官 skill——通用版跟 TutorPod 版差在哪、專案專屬的東西從哪裡來 | [`docs/升級摘要/通用三關.md`](docs/升級摘要/通用三關.md) |
-| **五關自動結案**：分級決定會跑哪幾關（收工 hook）、每一關自動辨識與結案、AC 清單來自規格檔、只有 E 有按鈕 | [`docs/進行中/五關自動結案.md`](docs/進行中/五關自動結案.md)——**施作中** |
+| 五關自動結案：分級決定會跑哪幾關（收工 hook）、每一關自動辨識與結案、AC 清單來自規格檔、只有 E 有按鈕 | [`docs/升級摘要/五關自動結案.md`](docs/升級摘要/五關自動結案.md) |
 | 感測器收 app 跳出的「建議新開對話」卡，讓它進儀表板、按取消不會消失 | [`docs/規劃中/app建議卡.md`](docs/規劃中/app建議卡.md)——**等點頭** |
 | E 自動驗收：Claude 自己開網頁照規格的 AC 走一遍、每條看到了／沒看到／驗不了、人做第二次查核 | [`docs/規劃中/E自動驗收.md`](docs/規劃中/E自動驗收.md)——**等點頭** |
 | 想把感測器裝到**新的專案** | 裝成 plugin 一次就好：`pipeline-status --install`，之後每個專案自動記；不想記的專案 `--off`（或儀表板的按鈕）。做法與驗證在 [`docs/升級摘要/plugin.md`](docs/升級摘要/plugin.md)。舊接法（每個專案 `--on`）與它處理過的坑見 [`docs/升級摘要/sensor-install.md`](docs/升級摘要/sensor-install.md) |
