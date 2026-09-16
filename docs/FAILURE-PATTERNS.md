@@ -55,7 +55,8 @@
 
 **哪裡會再犯**：任何把絕對路徑寫進設定檔的地方；任何用「設定／檔案在不在」推論「它在不在做事」的地方。
 證據跟設定打架時，**證據贏**。
-**釘住它的測試**：`scripts/privacy.test.mjs`、`scripts/mount.test.mjs`、`scripts/status.test.mjs` 標 P3 的段落。
+**釘住它的測試**：`scripts/privacy.test.mjs`、`scripts/mount.test.mjs`、`scripts/status.test.mjs` 標 P3 的段落；
+`scripts/gate.test.mjs` 標 P3 的段落（收工 hook 整條路真的跑一次、每次跑都留心跳——沒有心跳的 hook 跟沒裝一樣）。
 
 ---
 
