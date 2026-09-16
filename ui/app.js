@@ -77,6 +77,16 @@ const clock = (iso) => {
 // 狀態是伺服器算好的(lib/events.mjs 的 roundView):main／notbuilt／none／passed／current／done。
 // 畫面上 current 沿用「ran」的樣式(亮),passed 是劃掉變淡,done 是劃掉但深色(你說處理完了)。
 const stageState = (st) => st.state === 'current' ? 'ran' : (st.state ?? 'none');   // stale(結論過期,要再跑)照原樣給 CSS
+/** 清單收合的狀態:key 是「工作區|關」。沒記過就是展開;記在 localStorage,重新整理也記得。畫面每幾秒重畫一次,不能靠 DOM 記 */
+const FOLD_KEY = 'pm-fold';
+function foldStore() { try { return JSON.parse(localStorage.getItem(FOLD_KEY) ?? '{}'); } catch { return {}; } }
+function foldOpen(key) { const v = foldStore()[key]; return v === undefined ? true : v === true; }
+function rememberFold(key, open) { try { const all = foldStore(); all[key] = open; localStorage.setItem(FOLD_KEY, JSON.stringify(all)); } catch { /* 存不了就只記這一次 */ } }
+// <details> 的 toggle 事件不會冒泡,用捕捉階段在 document 上接
+document.addEventListener('toggle', (e) => {
+  const d = e.target;
+  if (d instanceof HTMLDetailsElement && d.dataset.fold) rememberFold(d.dataset.fold, d.open);
+}, true);
 /** 結論說明的第一行(清單放在後面幾行) */
 const noteHead = (st) => String(st.report?.note ?? '').split('\n')[0].trim();
 /** B 的清單進度一句話:「3/5 對過,1 條待討論,1 條還沒對」。沒有清單就空字串 */
@@ -368,7 +378,8 @@ function workflow(c) {
       : cl.missing ? `<div class="acl muted">清單：找不到這一輪的規格檔（${esc(String(cl.file ?? '').split('/').slice(-3).join('/'))}）</div>`
       : !cl.parsed ? `<div class="acl muted">清單：規格檔裡沒有照格式寫的 AC${cl.head ? `，開頭是：${esc(cl.head.slice(0, 80))}` : ''}</div>`
       // 可收折、預設收起(Oscar 2026-09-16):摘要一行講進度,展開才看每一條;對過的劃掉
-      : `<details class="acl-box"><summary>驗收清單：${clProg(cl).replace(/^清單 /, '')}（展開看全部 ${cl.total} 條）</summary>
+      // 預設展開;你收起來就記住,資料每幾秒重畫一次也不會蓋掉你的選擇(Oscar 2026-09-16:一重畫就縮回去,很干擾)
+      : `<details class="acl-box" data-fold="${esc(`${c.path ?? ''}|${st.id}`)}"${foldOpen(`${c.path ?? ''}|${st.id}`) ? ' open' : ''}><summary>驗收清單：${clProg(cl).replace(/^清單 /, '')}（全部 ${cl.total} 條）</summary>
         <ul class="acl">${cl.items.map((it) => `<li data-state="${esc(it.state)}"><span class="mark">${it.state === 'checked' ? '✅' : it.state === 'pending' ? '⏳' : '○'}</span>
           <span><b>${esc(it.id)}</b> ${esc(it.title)}${it.state === 'pending' && it.note ? `<span class="muted">（待討論：${esc(it.note)}）</span>` : ''}${
           it.plain ? `<div class="plain">${esc(it.plain)}</div>` : ''}</span></li>`).join('')}</ul></details>`;
