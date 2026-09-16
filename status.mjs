@@ -19,8 +19,8 @@ import { join, dirname, basename, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { appendFileSync } from 'node:fs';
-import { readEvents, loadStages, lastRunPerStage, runsPerStage, roundView, safeName, logFileOf } from './lib/events.mjs';
-import { buildTier, readTierConfig, writeTierConfig, proposeCodeArea } from './lib/tier.mjs';
+import { readEvents, loadStages, lastRunPerStage, runsPerStage, roundView, editsOf, safeName, logFileOf } from './lib/events.mjs';
+import { buildTier, readTierConfig, writeTierConfig, proposeCodeArea, codeFileFn } from './lib/tier.mjs';
 import { monitorHome } from './lib/paths.mjs';
 import { skillAvailable } from './lib/skills.mjs';
 import { installService, uninstallService, restartService, describeService, openDashboard } from './lib/service.mjs';
@@ -624,19 +624,28 @@ function renderStages(ctx, ev, facts, info = {}) {
   }
 
   // 這一輪跑到哪(lib/events.mjs 的 roundView):分界是最近一次第一關、或蓋章,取較晚的
+  // B 有沒有在動、A 是不是開工了:看這一輪改到「程式檔」的事件;算不算程式檔跟分級同一份判斷(五關自動結案 AC-3、AC-4)
+  const cfg = readTierConfig(ctx.root, ctx.mainRoot, HERE);
   const view = roundView({
     runs: runsPerStage(events, stages, (e) => e.cwd === ctx.root), stages, cleared,
     cpAt: info.cpUsable ? info.cp?.at ?? null : null,
+    edits: editsOf(events, (e) => e.cwd === ctx.root), isCode: codeFileFn(ctx.root, cfg.state === 'ok' ? cfg.config : null),
   });
   if (view.roundStart) console.log(`   （這一輪從 ${ago(view.roundStart)}開始算：最近一次第一關、或蓋章）`);
-  let anyOpen = false;
   for (const st of view.stages) {
     const label = `${st.id} ${st.name}`.padEnd(10, '　');
+    // B(對話本身):改到程式檔就算在動;最後一次改檔的時間要印出來。不數檔案——數量在改動體檢那段(git)
+    if (st.type === 'main-conversation' && st.state !== 'main') {
+      console.log(st.state === 'current'
+        ? `   ${label} ⏸ 最後一次改程式檔 ${ago(st.ranAt)}——現在在這一關`
+        : `   ${label} ✓  改過程式檔（最後一次 ${ago(st.ranAt)}）——已走過`);
+      continue;
+    }
     // 「被叫」的證據有兩種:你自己打的斜線指令(不經過 Skill 工具,L19)、或 Claude 自己去叫。字要跟證據一樣大:叫了,不是跑完了
     const verb = st.type === 'browser' ? `開瀏覽器跑過一輪${st.count ? `（${st.count} 個動作）` : ''}`
       : st.via === 'typed' ? `你叫了 /${st.calledAs}` : `Claude 叫了 /${st.calledAs ?? st.skill}`;
     switch (st.state) {
-      case 'main':     console.log(`   ${label} ●  就是你在講話的那個對話`); break;
+      case 'main':     console.log(`   ${label} ●  就是你在講話的那個對話（這一輪還沒改到程式檔）`); break;
       case 'notbuilt': console.log(`   ${label} ⚫ 未建`); break;
       case 'none': {
         // 「沒有紀錄」跟「這裡根本沒有這個指令」是兩件事(lib/skills.mjs);上一輪的只講一句,不畫線
@@ -646,7 +655,8 @@ function renderStages(ctx, ev, facts, info = {}) {
           : `   ${label} ⚪ 這一輪還沒跑${st.prevRanAt ? `（上一輪 ${ago(st.prevRanAt)}跑過）` : ''}`);
         break;
       }
-      case 'passed':   console.log(`   ${label} ✓  ${ago(st.ranAt)}${verb}——已走過`); break;
+      // A 的結案是你點頭開工(之後第一次改到程式檔):講出來,不然像是憑空劃掉的
+      case 'passed':   console.log(`   ${label} ✓  ${ago(st.ranAt)}${verb}${st.closedBy === 'nod' ? `,${ago(st.nodAt)}開始改程式檔,算你點頭開工了` : ''}——已走過`); break;
       case 'seen': {
         // 開過瀏覽器 ≠ 驗收過。講得出去了哪,算不算驗收由人說(--clear E)
         const where = st.hosts?.length ? `,去了 ${st.hosts.slice(0, 3).join('、')}` : '';
@@ -660,7 +670,6 @@ function renderStages(ctx, ev, facts, info = {}) {
         console.log(`   ${label} ${closed ? '✅' : '⏸'} ${ago(st.ranAt)}${verb}`
           + (closed ? `,${ago(st.clearedAt)}你說${said}` : `,還沒有人說${said}`));
         if (st.args) console.log(`              「${st.args.slice(0, 46)}${st.args.length > 46 ? '…' : ''}」`);
-        if (!closed) anyOpen = true;
       }
     }
   }
@@ -671,7 +680,9 @@ function renderStages(ctx, ev, facts, info = {}) {
   }
   console.log('\n   ⚠️ 上面寫的是「叫了」,不是「通過」——感測器只看得到指令被叫,');
   console.log('      看不到結果。驗屋師傅來過,不等於房子修好了。');
-  if (anyOpen) console.log('   處理完了要留紀錄：  pipeline-status --clear <關卡代號>   例如 --clear D');
+  // 只有驗收那一關由人說;其他關由儀表板自動辨識,不用你按(五關自動結案 AC-10)
+  const e = view.stages.find((v) => v.type === 'browser' && v.state === 'seen');
+  if (e) console.log(`   驗收過了要留紀錄：  pipeline-status --clear ${e.id}`);
 }
 
 /** 人蓋的結案章(AC-9)。⚠️ 寫進同一份 append-only 紀錄,但標明 source:'human'。 */
@@ -680,6 +691,12 @@ function doClear(ctx, stageId) {
   const st = stages.find((x) => x.id.toLowerCase() === String(stageId).toLowerCase());
   if (!st) {
     console.log(`認不出關卡「${stageId}」。這個專案的關卡是：${stages.map((x) => x.id).join(' / ')}`);
+    return 1;
+  }
+  // 只有驗收那一關由人說(五關自動結案 AC-10);其他關由儀表板自動辨識——A 你點頭開工、B 改程式、C／D 由 Claude 記結論
+  if (st.type !== 'browser') {
+    const e = stages.find((x) => x.type === 'browser');
+    console.log(`${st.id} ${st.name} 現在由儀表板自動辨識,不用你按。${e ? `只有 ${e.id} ${e.name} 由你說：  pipeline-status --clear ${e.id}` : ''}`);
     return 1;
   }
   try {

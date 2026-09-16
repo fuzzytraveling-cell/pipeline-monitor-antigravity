@@ -324,13 +324,18 @@ function workflow(c) {
     const verb = st.type === 'browser' ? `開瀏覽器跑過一輪${st.count ? `（${st.count} 個動作）` : ''}`
       : st.via === 'typed' ? `你叫了 /${esc(st.calledAs ?? '')}` : `Claude 叫了 /${esc(st.calledAs ?? st.skill ?? '')}`;
     const said = st.type === 'browser' ? '驗收過了' : '處理完了';
-    // 現在這一關、或開過瀏覽器的那一關,給一個「你說」的按鈕——跟 CLI 的 --clear 同一種紀錄(source:human)
-    const stamp = (s === 'ran' || s === 'seen') && c.path
+    // 只有驗收那一關有按鈕(五關自動結案 AC-10):其他關由儀表板自動辨識——按鈕多了會被忽略跳過(Oscar)。跟 CLI 的 --clear 同一種紀錄(source:human)
+    const stamp = st.type === 'browser' && s === 'seen' && c.path
       ? `<button class="mini-btn" data-clear="${esc(st.id)}" data-proj="${esc(c.project ?? '')}" data-cwd="${esc(c.path)}">你說${said}</button>` : '';
     const status =
-      s === 'notbuilt' ? '這一關還沒建'
-      : s === 'main' ? '就是你在講話的那個對話'
-      : s === 'passed' ? `${ago(st.ranAt)}${verb}——已走過`
+      // B(對話本身):改到程式檔就算在動,印最後一次改檔的時間;不數檔案——那要看 git(未檢查清單那張卡)
+      st.type === 'main-conversation'
+        ? (s === 'ran' ? `最後一次改程式檔 ${ago(st.ranAt)}——現在在這一關`
+          : s === 'passed' ? `改過程式檔（最後一次 ${ago(st.ranAt)}）——已走過`
+          : '就是你在講話的那個對話（這一輪還沒改到程式檔）')
+      : s === 'notbuilt' ? '這一關還沒建'
+      // A 的結案是你點頭開工(之後第一次改到程式檔):講出來,不然像是憑空劃掉的
+      : s === 'passed' ? `${ago(st.ranAt)}${verb}${st.closedBy === 'nod' ? `,${ago(st.nodAt)}開始改程式檔,算你點頭開工了` : ''}——已走過`
       : s === 'done' ? `${ago(st.ranAt)}${verb},你說${said}`
       : s === 'ran' ? `${ago(st.ranAt)}${verb},還沒有人說${said}`
       // 開過瀏覽器 ≠ 驗收過(Oscar 2026-09-15:截圖儀表板也會讓 E 亮)。講去了哪,不亮,算不算由人按

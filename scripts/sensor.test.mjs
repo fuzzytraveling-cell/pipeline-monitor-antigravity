@@ -351,4 +351,33 @@ section('你自己打的斜線指令不經過 Skill 工具:訊息開頭是 /spec
   eq('lastRunPerStage 走同一種認法(老毛病 P2)', lastRunPerStage(ev, stages, '/x').perStage.get('A')?.via, 'typed');
 }
 
+section('五關自動結案:B 改到程式檔就亮、A 在第一次改程式檔之後算你點頭開工(AC-3、AC-4)');
+{
+  const stages = JSON.parse(readFileSync(join(ROOT, 'stages.json'), 'utf8')).stages;
+  const T = (h) => new Date(Date.UTC(2026, 8, 16, h)).toISOString();
+  const by = (arr) => Object.fromEntries(arr.map((s) => [s.id, s]));
+  const ev = [
+    { ts: T(1), hook: 'UserPromptSubmit', session: 's1', cwd: '/x', prompt: '/spec 做東西' },
+    { ts: T(1), hook: 'PostToolUse', tool: 'Write', session: 's1', cwd: '/x', file: '/x/docs/規劃中/y.md' },   // A 自己寫的規格檔:不算開工
+  ];
+  let v = by(stagesOfSession(ev, stages, 's1'));
+  eq('A 寫完規格檔:A 還是現在這一關(規格檔不是程式檔)', v.A.state, 'current');
+  eq('B 還沒改程式檔:就是你在講話的那個對話', v.B.state, 'main');
+  ev.push({ ts: T(2), hook: 'PostToolUse', tool: 'Edit', session: 's1', cwd: '/x', file: '/x/src/a.js' });
+  v = by(stagesOfSession(ev, stages, 's1'));
+  eq('改了程式檔:B 現在這一關', v.B.state, 'current');
+  eq('A 已走過,而且是「你點頭開工」', `${v.A.state}/${v.A.closedBy}`, 'passed/nod');
+  eq('A 的點頭時間 = 第一次改程式檔', v.A.nodAt, T(2));
+  ev.push({ ts: T(3), hook: 'PreToolUse', tool: 'Skill', skill: 'chaos-check', session: 's1', cwd: '/x' });
+  v = by(stagesOfSession(ev, stages, 's1'));
+  eq('D 跑了:D 現在、B 已走過(後面的關開始了)', `${v.D.state}/${v.B.state}/${v.B.closedBy}`, 'current/passed/next');
+  ev.push({ ts: T(4), hook: 'PostToolUse', tool: 'Edit', session: 's1', cwd: '/x', file: '/x/src/a.js' });
+  v = by(stagesOfSession(ev, stages, 's1'));
+  eq('D 之後又改了程式檔:B 又是現在、D 已走過', `${v.B.state}/${v.D.state}`, 'current/passed');
+  // 有分級設定時「程式檔」照程式區判:README 不在程式區 → 不算 B 在動、A 也不算開工
+  const isCode = (f) => /\/src\//.test(f);
+  const v2 = by(stagesOfSession([ev[0], { ts: T(2), hook: 'PostToolUse', tool: 'Edit', session: 's1', cwd: '/x', file: '/x/README.md' }], stages, 's1', null, null, { isCode }));
+  eq('改 README(不在程式區)→ B 不亮、A 不算開工', `${v2.B.state}/${v2.A.state}`, 'main/current');
+}
+
 process.exit(summary());

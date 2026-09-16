@@ -17,12 +17,12 @@
  * 擋不擋、缺什麼,都從儀表板同一份事實算(lib/collect.mjs 的 cardFor → buildTier／roundView),不另外算一份(老毛病 P2)。
  */
 import { readFileSync, appendFileSync, existsSync, statSync, mkdirSync, realpathSync } from 'node:fs';
-import { join, dirname, relative, isAbsolute } from 'node:path';
+import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { cardFor } from './lib/collect.mjs';
 import { stagesOfSession, logFileOf } from './lib/events.mjs';
-import { readTierConfig, computeTier } from './lib/tier.mjs';
+import { readTierConfig, codeFileFn } from './lib/tier.mjs';
 import { skillAvailable } from './lib/skills.mjs';
 import { optOutState } from './lib/mount.mjs';
 import { monitorHome } from './lib/paths.mjs';
@@ -86,13 +86,8 @@ export function decide({ payload, monitorDir = MONITOR_DIR, skillHome = undefine
   // 這一輪改到程式區／危險清單的檔案(git 說的,跟儀表板同一份),與它們的修改時間
   const hits = [...(tier.machine?.hits?.danger ?? []), ...(tier.machine?.hits?.code ?? [])];
   const mtimes = hits.map((f) => { try { return statSync(join(ctx.root, f)).mtimeMs; } catch { return null; } }).filter((t) => t !== null);
-  // 感測器記到的、落在程式區的改檔事件(這個對話)
-  const inArea = (abs) => {
-    if (typeof abs !== 'string' || !isAbsolute(abs)) return false;
-    const rel = relative(ctx.root, abs);
-    if (!rel || rel.startsWith('..')) return false;
-    return computeTier([rel], cfg.config).rank > 0;
-  };
+  // 感測器記到的、落在程式區的改檔事件(這個對話)——「算不算程式檔」跟五關、分級用同一個判斷(lib/tier.mjs)
+  const inArea = codeFileFn(ctx.root, cfg.config);
   const editTs = mine.filter((e) => e.hook === 'PostToolUse' && inArea(e.file)).map((e) => Date.parse(e.ts)).filter(Number.isFinite);
   const changedThisTurn = [...mtimes, ...editTs].some((t) => t >= turnStart - SKEW_MS);
   if (!changedThisTurn) return null;

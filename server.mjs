@@ -143,6 +143,8 @@ export function createApp({ monitorDir = HERE } = {}) {
           if (!card) throw new Error('不認識這個工作區');
           const st = card.stages?.find((s) => s.id === stage && s.state !== 'main' && s.state !== 'notbuilt');
           if (!st) throw new Error('不認識這一關');
+          // 只有驗收那一關由人說;其他關由儀表板自動辨識,按鈕拿掉了(五關自動結案 AC-10)
+          if (st.type !== 'browser') throw new Error('這一關由儀表板自動辨識,不用你按;只有驗收由你說');
           mkdirSync(LOG_DIR, { recursive: true });
           appendFileSync(logFileOf(LOG_DIR, project), JSON.stringify({
             ts: new Date().toISOString(), event: 'stage_cleared', stage: st.id, cwd, head: card.head ?? null, source: 'human',
