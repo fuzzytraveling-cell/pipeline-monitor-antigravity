@@ -543,4 +543,28 @@ section('用 Bash 寫的規格檔:A 收尾 --report A ok "<路徑>" 指路,儀�
   rmSync(logDir, { recursive: true, force: true }); r.cleanup();
 }
 
+section('--report 的清單再長都整份留著:太長另存檔、紀錄單行仍小於 4096 bytes、讀回來一條不少(有幾條就列幾條)');
+{
+  const stages = JSON.parse(readFileSync(join(ROOT, 'stages.json'), 'utf8')).stages;
+  const r = makeRepo({ files: { 'a.js': '1\n' } });
+  const logDir = mkdtempSync(join(tmpdir(), 'pm-log-'));
+  const lines = ['建議 40 條'].concat(Array.from({ length: 40 }, (_, i) => `- src/檔案${i}.js:${i + 1} —— 這一段看起來多餘，但要人判斷才知道能不能拿掉`));
+  execFileSync('node', [join(ROOT, 'status.mjs'), '--report', 'C', 'ok', lines.join('\n')], { cwd: r.dir, encoding: 'utf8', env: { ...process.env, PIPELINE_MONITOR_LOG_DIR: logDir } });
+  const f = readdirSync(logDir).find((x) => x.endsWith('.jsonl'));
+  const raw = readFileSync(join(logDir, f), 'utf8').trim().split('\n').find((l) => l.includes('stage_report'));
+  check('那一行小於 4096 bytes', Buffer.byteLength(raw, 'utf8') < 4096, `${Buffer.byteLength(raw, 'utf8')} bytes`);
+  const rep = JSON.parse(raw);
+  check('紀錄裡留第一行與檔名', rep.note === '建議 40 條' && typeof rep.noteFile === 'string' && existsSync(rep.noteFile), JSON.stringify({ note: rep.note, noteFile: rep.noteFile }));
+  const ev = [
+    { ts: new Date(Date.now() - 60000).toISOString(), hook: 'PreToolUse', tool: 'Skill', skill: 'cleanup', session: 's1', cwd: r.dir },
+    { ...rep, cwd: r.dir },
+  ];
+  const v = Object.fromEntries(stagesOfSession(ev, stages, 's1', null, r.dir).map((s) => [s.id, s]));
+  eq('讀回來 41 行,一條不少', v.C.report?.note.split('\n').length, 41);
+  rmSync(rep.noteFile); 
+  const v2 = Object.fromEntries(stagesOfSession(ev, stages, 's1', null, r.dir).map((s) => [s.id, s]));
+  check('檔案不見了 → 說完整清單找不到,不當成只有一行', /完整清單找不到/.test(v2.C.report?.note ?? ''), v2.C.report?.note);
+  rmSync(logDir, { recursive: true, force: true }); r.cleanup();
+}
+
 process.exit(summary());

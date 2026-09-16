@@ -775,20 +775,44 @@ function doReport(ctx, stageId, verdict, note) {
     console.log('結論只有兩種：ok（沒問題／列好了）或 found（找到問題）。例：  pipeline-status --report D found "找到 3 條"');
     return 1;
   }
-  // 說明放得下一張清單(C 的建議、D 的發現,一行一條):上限跟 --suggest 一樣的量級,單行紀錄仍遠小於 4096 bytes(感測器 AC-4)
-  const text = String(note ?? '').trim().slice(0, 1500);
+  // 說明放得下一張清單(C 的建議、D 的發現,一行一條)。單行紀錄要遠小於 4096 bytes(感測器 AC-4)——
+  // 算 bytes 不算字(中文一個字 3 bytes)。太長不截:整份另存一個檔,紀錄裡留第一行與檔名,「有幾條就列幾條」(Oscar 2026-09-16)
+  let text = String(note ?? '').trim();
+  let noteFile = null;
+  if (Buffer.byteLength(text, 'utf8') > MAX_NOTE_BYTES) {
+    try {
+      const dir = join(LOG_DIR, 'reports');
+      mkdirSync(dir, { recursive: true });
+      noteFile = join(dir, `${safeName(ctx.project)}__${Date.now().toString(36)}__${st.id}.txt`);
+      writeFileSync(noteFile, text + '\n');
+      text = cutBytes(text.split('\n')[0], 600);
+    } catch (e) {
+      console.log(`❌ 清單太長又存不了檔：${e.message}`);
+      return 1;
+    }
+  }
   try {
     appendFileSync(logFileOf(LOG_DIR, ctx.project), JSON.stringify({
-      ts: new Date().toISOString(), event: 'stage_report', stage: st.id, verdict, note: text || null,
+      ts: new Date().toISOString(), event: 'stage_report', stage: st.id, verdict, note: text || null, noteFile,
       cwd: ctx.root, head: ctx.head?.slice(0, 7), source: 'claude',
     }) + '\n');
   } catch (e) {
     console.log(`❌ 沒記成功：${e.message}`);
     return 1;
   }
-  console.log(`✅ 記下了：Claude 說 ${st.id} ${st.name} ${verdict === 'ok' ? '沒問題' : '找到問題'}${text ? `（${text}）` : ''}`);
+  console.log(`✅ 記下了：Claude 說 ${st.id} ${st.name} ${verdict === 'ok' ? '沒問題' : '找到問題'}${text ? `（${text.split('\n')[0]}）` : ''}`);
+  if (noteFile) console.log(`   清單很長,整份存在 ${noteFile.split('/').slice(-2).join('/')},儀表板會一條一條列出來。`);
   console.log('   ⚠️ 這是「Claude 說的」,不是人驗證的——畫面上會照實標「Claude 說」。');
   return 0;
+}
+
+/** 單行紀錄的說明上限(bytes)。整行還有其他欄位,留足夠的餘裕在 4096 之下(感測器 AC-4)。 */
+const MAX_NOTE_BYTES = 2500;
+/** 照 bytes 截字串,不切在一個中文字中間。 */
+function cutBytes(str, max) {
+  let out = '';
+  for (const ch of String(str)) { if (Buffer.byteLength(out + ch, 'utf8') > max) break; out += ch; }
+  return out;
 }
 
 /**
@@ -800,12 +824,13 @@ function doSuggest(ctx, title, prompt) {
   if (!title?.trim()) { console.log('要一個標題：  pipeline-status --suggest "標題" < 說明檔'); return 1; }
   const body = String(prompt ?? '').trim();
   if (!body) { console.log('說明是空的。把說明餵進標準輸入：  pipeline-status --suggest "標題" <<\'EOF\' … EOF'); return 1; }
-  const MAX = 3000;
-  const cut = body.length > MAX;
+  // 算 bytes 不算字:中文一個字 3 bytes,以前用字數算,3000 個中文字就是 9000 bytes,早就超過單行的上限了
+  const cut = Buffer.byteLength(body, 'utf8') > MAX_NOTE_BYTES;
+  const kept = cut ? cutBytes(body, MAX_NOTE_BYTES) : body;
   const id = `sg-${Date.now().toString(36)}`;
   try {
     appendFileSync(logFileOf(LOG_DIR, ctx.project), JSON.stringify({
-      ts: new Date().toISOString(), event: 'suggestion', id, title: title.trim().slice(0, 80), prompt: body.slice(0, MAX),
+      ts: new Date().toISOString(), event: 'suggestion', id, title: title.trim().slice(0, 80), prompt: kept,
       cwd: ctx.mainRoot ?? ctx.root, source: 'claude',
     }) + '\n');
   } catch (e) {
@@ -813,7 +838,7 @@ function doSuggest(ctx, title, prompt) {
     return 1;
   }
   console.log(`✅ 放上儀表板了：「${title.trim().slice(0, 80)}」（${ctx.project} 的案件頁,「建議新增的對話」那一區）`);
-  if (cut) console.log(`   ⚠️ 說明超過 ${MAX} 字,只留前 ${MAX} 字。`);
+  if (cut) console.log('   ⚠️ 說明太長,只留前面一段（單行紀錄有上限）。');
   return 0;
 }
 
