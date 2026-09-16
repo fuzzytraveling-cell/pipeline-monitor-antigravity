@@ -415,6 +415,10 @@ a.ext { color: var(--color-lake-blue); }
 
 /* 開過瀏覽器(seen):不亮、不劃掉——它是線索不是進度。圓點空心、卡片正常 */
 .railcell[data-state="seen"] .dot { background: transparent; border-color: var(--color-lake-blue); border-style: dashed; }
+/* 結論過期(之後又改了程式檔,要再跑一次):警示色,跟「需要」清單裡的 missing 同一個慣例 */
+.railcell[data-state="stale"] .dot { background: transparent; border-color: var(--color-coral); border-style: dashed; }
+.acard[data-state="stale"] .lamp { background: transparent; border-color: var(--color-coral); border-style: dashed; }
+.acard[data-state="stale"] .astatus { color: var(--color-coral); }
 .acard[data-state="seen"] .lamp { background: transparent; border-color: var(--color-lake-blue); border-style: dashed; }
 .mini span[data-s="seen"] { background: var(--color-ash); }
 .acard .mini-btn { margin-top: 8px; }

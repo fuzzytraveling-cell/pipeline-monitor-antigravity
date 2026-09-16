@@ -76,7 +76,7 @@ const clock = (iso) => {
 };
 // 狀態是伺服器算好的(lib/events.mjs 的 roundView):main／notbuilt／none／passed／current／done。
 // 畫面上 current 沿用「ran」的樣式(亮),passed 是劃掉變淡,done 是劃掉但深色(你說處理完了)。
-const stageState = (st) => st.state === 'current' ? 'ran' : (st.state ?? 'none');
+const stageState = (st) => st.state === 'current' ? 'ran' : (st.state ?? 'none');   // stale(結論過期,要再跑)照原樣給 CSS
 /** 感測器看得到的關(有 skill 或 tools 的)。B 是你在講話的那個對話、未建的關,都不算分母。 */
 const sensed = (st) => st.type !== 'main-conversation' && st.type !== 'not-built';
 
@@ -336,8 +336,12 @@ function workflow(c) {
       : s === 'notbuilt' ? '這一關還沒建'
       // A 的結案是你點頭開工(之後第一次改到程式檔):講出來,不然像是憑空劃掉的
       : s === 'passed' ? `${ago(st.ranAt)}${verb}${st.closedBy === 'nod' ? `,${ago(st.nodAt)}開始改程式檔,算你點頭開工了` : ''}——已走過`
-      : s === 'done' ? `${ago(st.ranAt)}${verb},你說${said}`
-      : s === 'ran' ? `${ago(st.ranAt)}${verb},還沒有人說${said}`
+      // 結論會過期的關(D):之後又改了程式檔,要再跑一次(AC-9)。不劃掉、不打勾
+      : s === 'stale' ? `${ago(st.ranAt)}${verb},之後又改了程式檔——要再跑一次`
+      // 結案要說得出是誰說的(AC-11):Claude 記的結論、或你說(E 驗收、舊紀錄)
+      : s === 'done' ? `${ago(st.ranAt)}${verb},${ago(st.doneAt ?? st.clearedAt)}${st.closedBy === 'claude' ? `Claude 說${st.report?.note ? `：${st.report.note}` : '沒問題'}` : `你說${said}`}`
+      : s === 'ran' ? `${ago(st.ranAt)}${verb},${st.report?.verdict === 'found' ? `Claude 說找到問題${st.report.note ? `：${st.report.note}` : ''}——還沒處理完`
+          : st.type === 'browser' ? `還沒有人說${said}` : (c.stages.find((v) => v.skill)?.id === st.id ? '等你點頭開工' : 'Claude 還沒記結論')}`
       // 開過瀏覽器 ≠ 驗收過(Oscar 2026-09-15:截圖儀表板也會讓 E 亮)。講去了哪,不亮,算不算由人按
       : s === 'seen' ? `${ago(st.ranAt)}開過瀏覽器（${st.count} 個動作${st.hosts?.length ? `,去了 ${st.hosts.slice(0, 3).join('、')}` : ''}）——算不算驗收你說了算`
       // 「沒有紀錄」跟「這裡根本沒有這個指令」是兩件事——Forma Pro 沒有 /spec,那一關永遠不會有紀錄
@@ -362,7 +366,7 @@ function workflow(c) {
           <div class="astatus">${esc(status)}</div>
           ${saidArgs}${stamp}
         </div>
-        <span class="lamp" title="${s === 'passed' ? '已走過' : s === 'done' || s === 'ran' ? '現在這一關' : s === 'seen' ? '開過瀏覽器' : '這一輪還沒跑'}"></span>
+        <span class="lamp" title="${s === 'passed' ? '已走過' : s === 'done' || s === 'ran' ? '現在這一關' : s === 'stale' ? '結論過期,要再跑一次' : s === 'seen' ? '開過瀏覽器' : '這一輪還沒跑'}"></span>
       </div>`;
   }).join('');
 

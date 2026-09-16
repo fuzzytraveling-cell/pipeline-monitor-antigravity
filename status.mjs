@@ -19,7 +19,7 @@ import { join, dirname, basename, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { appendFileSync } from 'node:fs';
-import { readEvents, loadStages, lastRunPerStage, runsPerStage, roundView, editsOf, safeName, logFileOf } from './lib/events.mjs';
+import { readEvents, loadStages, lastRunPerStage, runsPerStage, roundView, editsOf, reportsIn, lastCodeEdit, safeName, logFileOf } from './lib/events.mjs';
 import { buildTier, readTierConfig, writeTierConfig, proposeCodeArea, codeFileFn } from './lib/tier.mjs';
 import { monitorHome } from './lib/paths.mjs';
 import { skillAvailable } from './lib/skills.mjs';
@@ -582,7 +582,12 @@ function stageFacts(ctx, ev) {
   for (const e of ev.events) {
     if (e.event === 'stage_cleared' && e.cwd === ctx.root) cleared.set(e.stage, e);
   }
-  return { stages, perStage, cleared, sawAnyEventHere };
+  // Claude 記的結論(stage_report,source:claude)也按工作區記;「程式檔」的判斷跟分級同一份
+  const reports = reportsIn(ev.events, (e) => e.cwd === ctx.root);
+  const cfg = readTierConfig(ctx.root, ctx.mainRoot, HERE);
+  const isCode = codeFileFn(ctx.root, cfg.state === 'ok' ? cfg.config : null);
+  const edits = editsOf(ev.events, (e) => e.cwd === ctx.root);
+  return { stages, perStage, cleared, reports, isCode, edits, lastEdit: lastCodeEdit(edits, isCode), sawAnyEventHere };
 }
 
 function renderStages(ctx, ev, facts, info = {}) {
@@ -624,12 +629,11 @@ function renderStages(ctx, ev, facts, info = {}) {
   }
 
   // 這一輪跑到哪(lib/events.mjs 的 roundView):分界是最近一次第一關、或蓋章,取較晚的
-  // B 有沒有在動、A 是不是開工了:看這一輪改到「程式檔」的事件;算不算程式檔跟分級同一份判斷(五關自動結案 AC-3、AC-4)
-  const cfg = readTierConfig(ctx.root, ctx.mainRoot, HERE);
+  // B 有沒有在動、A 是不是開工了:看這一輪改到「程式檔」的事件(stageFacts 算好的,跟分級同一份判斷);Claude 記的結論決定 C／D 結案
   const view = roundView({
     runs: runsPerStage(events, stages, (e) => e.cwd === ctx.root), stages, cleared,
     cpAt: info.cpUsable ? info.cp?.at ?? null : null,
-    edits: editsOf(events, (e) => e.cwd === ctx.root), isCode: codeFileFn(ctx.root, cfg.state === 'ok' ? cfg.config : null),
+    edits: facts.edits, isCode: facts.isCode, reports: facts.reports,
   });
   if (view.roundStart) console.log(`   （這一輪從 ${ago(view.roundStart)}開始算：最近一次第一關、或蓋章）`);
   for (const st of view.stages) {
@@ -657,6 +661,8 @@ function renderStages(ctx, ev, facts, info = {}) {
       }
       // A 的結案是你點頭開工(之後第一次改到程式檔):講出來,不然像是憑空劃掉的
       case 'passed':   console.log(`   ${label} ✓  ${ago(st.ranAt)}${verb}${st.closedBy === 'nod' ? `,${ago(st.nodAt)}開始改程式檔,算你點頭開工了` : ''}——已走過`); break;
+      // 結論會過期的關:之後又改了程式檔,要再跑一次(AC-9)。不劃掉、不打勾
+      case 'stale':    console.log(`   ${label} 🔁 ${ago(st.ranAt)}${verb},之後又改了程式檔——要再跑一次`); break;
       case 'seen': {
         // 開過瀏覽器 ≠ 驗收過。講得出去了哪,算不算驗收由人說(--clear E)
         const where = st.hosts?.length ? `,去了 ${st.hosts.slice(0, 3).join('、')}` : '';
@@ -664,11 +670,18 @@ function renderStages(ctx, ev, facts, info = {}) {
         break;
       }
       default: {
-        // current／done。AC-9:沒有結案的,時間越久要越顯眼——所以天數一定印出來,而且用 ⏸ 不用 ✅
+        // current／done。沒有結案的,時間越久要越顯眼——所以天數一定印出來,而且用 ⏸ 不用 ✅。
+        // 結案要說得出是誰說的(AC-11):Claude 說(記的結論)、你說(E 驗收、舊紀錄)。等結論的關講清楚在等誰
         const closed = st.state === 'done';
         const said = st.type === 'browser' ? '驗收過了' : '處理完了';
-        console.log(`   ${label} ${closed ? '✅' : '⏸'} ${ago(st.ranAt)}${verb}`
-          + (closed ? `,${ago(st.clearedAt)}你說${said}` : `,還沒有人說${said}`));
+        const first = view.stages.find((v) => v.skill);
+        let tail;
+        if (closed) tail = st.closedBy === 'claude' ? `,${ago(st.doneAt)}Claude 說${st.report?.note ? `：${st.report.note}` : '沒問題'}` : `,${ago(st.doneAt)}你說${said}`;
+        else if (st.report?.verdict === 'found') tail = `,Claude 說找到問題${st.report.note ? `：${st.report.note}` : ''}——還沒處理完`;
+        else if (st.type === 'browser') tail = `,還沒有人說${said}`;
+        else if (first && st.id === first.id) tail = ',等你點頭開工';
+        else tail = ',Claude 還沒記結論';
+        console.log(`   ${label} ${closed ? '✅' : '⏸'} ${ago(st.ranAt)}${verb}${tail}`);
         if (st.args) console.log(`              「${st.args.slice(0, 46)}${st.args.length > 46 ? '…' : ''}」`);
       }
     }
@@ -714,6 +727,38 @@ function doClear(ctx, stageId) {
 }
 
 /**
+ * --report <關> <ok|found> "<說明>":Claude 把一關的結論記給儀表板(五關自動結案 AC-7、AC-8)。
+ * ⚠️ 這是「Claude 說的」,不是人驗證的——事件標 source:'claude',畫面照實標「Claude 說」(R2 在這個設計裡的位置)。
+ *    ok = 沒問題／列好了(C 列了建議、D 沒找到) → 這關結案;found = 找到問題 → 還沒結案,修完再跑一次再記。
+ */
+function doReport(ctx, stageId, verdict, note) {
+  const { stages } = loadStages(HERE, ctx.root, ctx.mainRoot);
+  const st = stages.find((x) => x.id.toLowerCase() === String(stageId ?? '').toLowerCase());
+  if (!st) {
+    console.log(`認不出關卡「${stageId ?? ''}」。這個專案的關卡是：${stages.map((x) => x.id).join(' / ')}`);
+    return 1;
+  }
+  if (!st.skill) { console.log(`${st.id} ${st.name} 不是指令關,沒有結論可以記。`); return 1; }
+  if (!['ok', 'found'].includes(verdict)) {
+    console.log('結論只有兩種：ok（沒問題／列好了）或 found（找到問題）。例：  pipeline-status --report D found "找到 3 條"');
+    return 1;
+  }
+  const text = String(note ?? '').trim().slice(0, 200);
+  try {
+    appendFileSync(logFileOf(LOG_DIR, ctx.project), JSON.stringify({
+      ts: new Date().toISOString(), event: 'stage_report', stage: st.id, verdict, note: text || null,
+      cwd: ctx.root, head: ctx.head?.slice(0, 7), source: 'claude',
+    }) + '\n');
+  } catch (e) {
+    console.log(`❌ 沒記成功：${e.message}`);
+    return 1;
+  }
+  console.log(`✅ 記下了：Claude 說 ${st.id} ${st.name} ${verdict === 'ok' ? '沒問題' : '找到問題'}${text ? `（${text}）` : ''}`);
+  console.log('   ⚠️ 這是「Claude 說的」,不是人驗證的——畫面上會照實標「Claude 說」。');
+  return 0;
+}
+
+/**
  * --suggest "標題"(說明從標準輸入讀):Claude 建議「另開一個對話做這件事」,寫成一張卡放在儀表板上。
  * ⚠️ 儀表板開不了對話。卡片只能讓人複製說明、貼進新對話的第一句;「已開始」看的是有沒有對話真的這樣開頭。
  *    說明要限長:紀錄檔單行要遠小於 4096 bytes(AC-4),太長會跟感測器同時寫的那一筆交錯。
@@ -746,7 +791,7 @@ function tierOf(ctx, ev, info, facts) {
     root: ctx.root, mainRoot: ctx.mainRoot, monitorDir: HERE, health: info.h,
     stages: facts.stages, perStage: facts.perStage, cleared: facts.cleared,
     events: ev.events, cwd: ctx.root, cpUsable: info.cpUsable, cpAt: info.cp?.at ?? null,
-    head: ctx.head?.slice(0, 7) ?? null,
+    head: ctx.head?.slice(0, 7) ?? null, reports: facts.reports, lastEdit: facts.lastEdit,
   });
 }
 
@@ -985,6 +1030,7 @@ async function main() {
   }
 
   if (at('--clear') !== -1) return doClear(ctx, argv[at('--clear') + 1]);
+  if (at('--report') !== -1) { const [id, verdict, ...note] = after('--report'); return doReport(ctx, id, verdict, note.join(' ')); }
   if (at('--suggest') !== -1) {
     let stdin = '';
     try { stdin = readFileSync(0, 'utf8'); } catch { stdin = ''; }

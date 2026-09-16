@@ -373,11 +373,71 @@ section('五關自動結案:B 改到程式檔就亮、A 在第一次改程式檔
   eq('D 跑了:D 現在、B 已走過(後面的關開始了)', `${v.D.state}/${v.B.state}/${v.B.closedBy}`, 'current/passed/next');
   ev.push({ ts: T(4), hook: 'PostToolUse', tool: 'Edit', session: 's1', cwd: '/x', file: '/x/src/a.js' });
   v = by(stagesOfSession(ev, stages, 's1'));
-  eq('D 之後又改了程式檔:B 又是現在、D 已走過', `${v.B.state}/${v.D.state}`, 'current/passed');
+  eq('D 之後又改了程式檔:B 又是現在、D 的結論過期(要再跑一次,不劃掉)', `${v.B.state}/${v.D.state}`, 'current/stale');
   // 有分級設定時「程式檔」照程式區判:README 不在程式區 → 不算 B 在動、A 也不算開工
   const isCode = (f) => /\/src\//.test(f);
   const v2 = by(stagesOfSession([ev[0], { ts: T(2), hook: 'PostToolUse', tool: 'Edit', session: 's1', cwd: '/x', file: '/x/README.md' }], stages, 's1', null, null, { isCode }));
   eq('改 README(不在程式區)→ B 不亮、A 不算開工', `${v2.B.state}/${v2.A.state}`, 'main/current');
+}
+
+section('五關自動結案:Claude 記的結論決定 C／D 結案(AC-7、8),之後又改了程式檔就過期(AC-9),每個勾都說得出誰說的(AC-11)');
+{
+  const stages = JSON.parse(readFileSync(join(ROOT, 'stages.json'), 'utf8')).stages;
+  const T = (h) => new Date(Date.UTC(2026, 8, 16, h)).toISOString();
+  const by = (arr) => Object.fromEntries(arr.map((s) => [s.id, s]));
+  const base = [
+    { ts: T(1), hook: 'UserPromptSubmit', session: 's1', cwd: '/x', prompt: '/spec 做東西' },
+    { ts: T(2), hook: 'PostToolUse', tool: 'Edit', session: 's1', cwd: '/x', file: '/x/src/a.js' },
+    { ts: T(3), hook: 'PreToolUse', tool: 'Skill', skill: 'chaos-check', session: 's1', cwd: '/x' },
+  ];
+  let v = by(stagesOfSession(base, stages, 's1', null, '/x'));
+  eq('D 跑了、還沒記結論 → 現在這一關,沒有 doneAt', `${v.D.state}/${v.D.doneAt}`, 'current/null');
+  // 結論是按工作區記的(CLI 沒有對話代號),所以 cwd 對得上就認
+  const found = [...base, { ts: T(4), event: 'stage_report', stage: 'D', verdict: 'found', note: '找到 2 條', cwd: '/x', source: 'claude' }];
+  v = by(stagesOfSession(found, stages, 's1', null, '/x'));
+  eq('Claude 說找到問題 → 還是現在這一關,帶著結論', `${v.D.state}/${v.D.report?.verdict}/${v.D.report?.note}`, 'current/found/找到 2 條');
+  const fixed = [...found, { ts: T(5), hook: 'PostToolUse', tool: 'Edit', session: 's1', cwd: '/x', file: '/x/src/a.js' }];
+  v = by(stagesOfSession(fixed, stages, 's1', null, '/x'));
+  eq('修了程式 → D 過期(要再跑),B 現在', `${v.D.state}/${v.B.state}`, 'stale/current');
+  const again = [...fixed,
+    { ts: T(6), hook: 'PreToolUse', tool: 'Skill', skill: 'chaos-check', session: 's1', cwd: '/x' },
+    { ts: T(7), event: 'stage_report', stage: 'D', verdict: 'ok', note: '沒對到已知死法', cwd: '/x', source: 'claude' }];
+  v = by(stagesOfSession(again, stages, 's1', null, '/x'));
+  eq('再跑一次、Claude 說沒找到 → D 結案,是 Claude 說的', `${v.D.state}/${v.closedBy ?? v.D.closedBy}/${v.D.doneAt}`, 'done/claude/' + T(7));
+  eq('B 已走過(後面的關結案了)', v.B.state, 'passed');
+  const cOnly = [...base.slice(0, 2),
+    { ts: T(3), hook: 'PreToolUse', tool: 'Skill', skill: 'cleanup', session: 's1', cwd: '/x' },
+    { ts: T(4), event: 'stage_report', stage: 'C', verdict: 'ok', note: '列了 5 條建議', cwd: '/x', source: 'claude' },
+    { ts: T(5), hook: 'PostToolUse', tool: 'Edit', session: 's1', cwd: '/x', file: '/x/src/a.js' }];
+  v = by(stagesOfSession(cOnly, stages, 's1', null, '/x'));
+  eq('C 列了建議就結案;之後改檔不會讓 C 過期(沒標 rerunAfterChange)', `${v.C.state}/${v.C.closedBy}`, 'passed/claude');
+  // 上一次跑之前的舊結論不算這一次的
+  const oldRep = [...base.slice(0, 2), { ts: T(2), event: 'stage_report', stage: 'D', verdict: 'ok', cwd: '/x', source: 'claude' }, base[2]];
+  v = by(stagesOfSession(oldRep, stages, 's1', null, '/x'));
+  eq('結論比這次跑還早 → 不算', `${v.D.state}/${v.D.report}`, 'current/null');
+  // 舊紀錄裡人按的「處理完了」還是認,而且說是你說的
+  const human = [...base, { ts: T(4), event: 'stage_cleared', stage: 'D', cwd: '/x', source: 'human' }];
+  v = by(stagesOfSession(human, stages, 's1', null, '/x'));
+  eq('人說處理完了(舊紀錄)→ done,是你說的', `${v.D.state}/${v.D.closedBy}`, 'done/human');
+}
+
+section('--report:Claude 把結論記給儀表板;只認指令關、只有 ok／found 兩種');
+{
+  const r = makeRepo({ files: { 'a.js': '1\n' } });
+  const logDir = mkdtempSync(join(tmpdir(), 'pm-log-'));
+  const run = (...args) => {
+    try { return { code: 0, out: execFileSync('node', [join(ROOT, 'status.mjs'), ...args], { cwd: r.dir, encoding: 'utf8', env: { ...process.env, PIPELINE_MONITOR_LOG_DIR: logDir } }) }; }
+    catch (e) { return { code: e.status, out: String(e.stdout ?? '') }; }
+  };
+  const ok = run('--report', 'D', 'found', '找到', '3', '條');
+  check('D found → 記下,而且說是 Claude 說的', ok.code === 0 && ok.out.includes('Claude 說') && ok.out.includes('找到 3 條'), ok.out);
+  const files = readdirSync(logDir).filter((f) => f.endsWith('.jsonl'));
+  const ev = readFileSync(join(logDir, files[0]), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).find((e) => e.event === 'stage_report');
+  check('紀錄:stage_report、verdict found、note、source claude', ev?.stage === 'D' && ev?.verdict === 'found' && ev?.note === '找到 3 條' && ev?.source === 'claude', JSON.stringify(ev));
+  eq('B(對話本身)沒有結論可記 → 失敗', run('--report', 'B', 'ok').code, 1);
+  eq('結論不是 ok／found → 失敗', run('--report', 'D', 'maybe').code, 1);
+  eq('認不出的關 → 失敗', run('--report', 'Z', 'ok').code, 1);
+  rmSync(logDir, { recursive: true, force: true }); r.cleanup();
 }
 
 process.exit(summary());

@@ -106,8 +106,8 @@ export function decide({ payload, monitorDir = MONITOR_DIR, skillHome = undefine
     const st = view.find((s) => s.id === key);
     if (!st || !st.skill) continue;                                // B、E、未建的關:不是 hook 能要求的
     const ran = st.ranAt ? Date.parse(st.ranAt) : null;
-    // A 是開工前的事,這一輪有跑過就算;C／D 要在最後一次改檔**之後**跑過才算(結案之後又改了要退回,AC-9)
-    const ok = key === 'A' ? ran !== null : (ran !== null && ran >= lastChange - SKEW_MS);
+    // 這一輪跑過就算(A、C);結論會過期的關(stages.json 標 rerunAfterChange,例如 D)要在最後一次改檔**之後**跑過才算(AC-9)
+    const ok = ran !== null && (!st.rerunAfterChange || ran >= lastChange - SKEW_MS);
     if (ok) continue;
     const cmd = commandFor(st.skill, ctx.root, ctx.mainRoot, skillHome);
     if (!cmd) continue;                                            // 指令不存在,要求了也做不到

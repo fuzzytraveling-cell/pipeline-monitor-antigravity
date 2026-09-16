@@ -84,12 +84,18 @@ allowed-tools: Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git l
 
 再一段 **「這次沒問題但值得知道」**（可選，≤3 條）：改動碰到某個模式的範圍，但這次寫對了——講一句它為什麼對。
 
-最後固定三行：
+最後固定兩行：
 - **這是「找過」，不是「通過」**——我只對了清單上的東西，清單上沒有的我看不到。
 - 我讀了哪些檔案、哪些找不到（找不到的話：用的是通用判準）。
-- 你處理完這些發現之後，跟儀表板說一聲：`pipeline-status --clear D`（或儀表板上「你說處理完了」的按鈕）。
-  沒有 `pipeline-status` 這個指令的話：`node "<pipeline-monitor 的資料夾>/status.mjs" --clear D`——
-  那個資料夾就是 `~/.claude/skills/pipeline-monitor` 指向的位置。
+
+## 收尾（一定要做：這是這一關結案的唯一證據）
+
+把結論記給儀表板，儀表板會照實標「Claude 說」：
+- 沒對到任何已知死法 → `pipeline-status --report D ok "沒對到已知死法"`
+- 有發現 → `pipeline-status --report D found "找到 N 條"`。使用者或你處理完之後**再跑一次這一關**，說沒找到才算結案。
+
+沒有 `pipeline-status` 這個指令的話：`node "<pipeline-monitor 的資料夾>/status.mjs" --report D …`——
+那個資料夾就是 `~/.claude/skills/pipeline-monitor` 指向的位置。之後又改了程式檔，這一關的結論就過期，儀表板會要求再跑一次。
 
 ## 檢查完之後
 

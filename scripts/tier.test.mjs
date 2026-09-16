@@ -100,6 +100,18 @@ section('「需要」那幾項:只講有沒有紀錄,不講通過');
   eq('問不到改動 → unknown', requirementStatus(['tests'], { stages, perStage, cleared, health: null })[0].state, 'unknown');
   check('B(對話)／E(未建)／Z(沒這關) → unknown,各有說法', by.B.state === 'unknown' && by.E.state === 'unknown' && by.Z.state === 'unknown');
   check('沒有任何一項叫 passed', rs.every((x) => !('passed' in x)));
+  // 五關自動結案:Claude 記的結論也算結案,但要說得出是 Claude 說的;結論會過期的關之後又改了程式檔就不算 ok
+  const stagesD = [{ id: 'D', name: '魔鬼教官', skill: 'chaos-check', rerunAfterChange: true }, { id: 'C', name: '打掃', skill: 'cleanup' }];
+  const ps = new Map([['D', { ts: '2026-09-16T01:00:00Z' }], ['C', { ts: '2026-09-16T01:00:00Z' }]]);
+  const reports = new Map([['D', { ts: '2026-09-16T02:00:00Z', verdict: 'ok', note: '沒對到' }], ['C', { ts: '2026-09-16T02:00:00Z', verdict: 'ok', note: '列了 3 條' }]]);
+  const rr = Object.fromEntries(requirementStatus(['D', 'C'], { stages: stagesD, perStage: ps, cleared: new Map(), health: null, reports }).map((x) => [x.key, x]));
+  check('Claude 說沒問題 → ok,而且說是 Claude 說的', rr.D.state === 'ok' && rr.D.detail.includes('Claude 說'), rr.D.detail);
+  const stale = Object.fromEntries(requirementStatus(['D', 'C'], { stages: stagesD, perStage: ps, cleared: new Map(), health: null, reports, lastEdit: '2026-09-16T03:00:00Z' }).map((x) => [x.key, x]));
+  check('結論之後又改了程式檔 → D 不算 ok,說要再跑', stale.D.state === 'ran' && stale.D.detail.includes('再跑'), stale.D.detail);
+  eq('C 沒標 rerunAfterChange → 還是 ok', stale.C.state, 'ok');
+  const foundR = new Map([['D', { ts: '2026-09-16T02:00:00Z', verdict: 'found', note: '找到 2 條' }]]);
+  const fr = requirementStatus(['D'], { stages: stagesD, perStage: ps, cleared: new Map(), health: null, reports: foundR })[0];
+  check('Claude 說找到問題 → ran,講出來', fr.state === 'ran' && fr.detail.includes('找到問題'), fr.detail);
 }
 
 section('候選提醒:只提這次動到、在程式區、名字像會存東西、不在危險清單的');

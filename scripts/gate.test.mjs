@@ -82,7 +82,8 @@ section('T1 這一回合改了程式區、C 與 D 還沒跑 → 擋一次,理由
   ]);
   writeFileSync(join(s.root, 'src/a.js'), 'changed again\n');          // 現在改的,mtime = 現在,比 D 晚
   const again = decide({ payload: s.payload, monitorDir: s.monitorDir, skillHome: s.home });
-  eq('D 之後又改了 → 只缺 C、D 裡「之後又改」的那兩個', (again?.missing ?? []).join(','), 'C,D');
+  // C 是列建議,這一輪跑過就算;D 標了 rerunAfterChange(stages.json),改了之後要再跑
+  eq('D 之後又改了 → 只缺 D(C 這一輪列過就算)', (again?.missing ?? []).join(','), 'D');
   check('理由說「最後一次改檔之後還沒再跑」', /之後還沒再跑/.test(again?.reason ?? ''), again?.reason);
   s.cleanup();
 }

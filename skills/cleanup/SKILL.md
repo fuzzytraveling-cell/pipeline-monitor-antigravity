@@ -118,6 +118,11 @@ allowed-tools: Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git l
 
 最後那段比「我改了什麼」更有價值——它告訴人這些規則正在生效。
 
+## 收尾（一定要做：這是這一關結案的唯一證據）
+
+把結果記給儀表板：`pipeline-status --report C ok "列了 N 條建議"`（沒有這個指令的話：`node "<pipeline-monitor 的資料夾>/status.mjs" --report C ok "…"`，
+那個資料夾就是 `~/.claude/skills/pipeline-monitor` 指向的位置）。列出來這一關就算結案——做不做由使用者決定，不是這一關的事。
+
 🔴 **每一項建議都白話在前、技術在後。** 讀報告的人可能不是工程師；純技術陳述（「fallback 路徑」「抽新模組」「no-unused-vars」）
 他無法判斷該不該做，那清單就只是寫給自己看的。判準：**他讀完能不能自己判斷這一項該做、該押後、還是該直接丟掉？**
 

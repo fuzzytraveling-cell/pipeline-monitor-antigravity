@@ -22,7 +22,8 @@
     {
       "id": "D",
       "name": "魔鬼教官",
-      "skill": "chaos-check"
+      "skill": "chaos-check",
+      "rerunAfterChange": true
     },
     {
       "id": "E",
@@ -53,5 +54,6 @@
         "tests"
       ]
     }
-  }
+  },
+  "_說明5": "rerunAfterChange:這一關的結論會因為之後又改了程式檔而過期(D 魔鬼教官)——儀表板標「要再跑一次」、收工 hook 會再要求。沒標的關(A、C)這一輪跑過就算。"
 }
