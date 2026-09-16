@@ -344,7 +344,8 @@ function workflow(c) {
           : '就是你在講話的那個對話（這一輪還沒改到程式檔）')
       : s === 'notbuilt' ? '這一關還沒建'
       // A 的結案是你點頭開工(之後第一次改到程式檔):講出來,不然像是憑空劃掉的
-      : s === 'passed' ? `${ago(st.ranAt)}${verb}${st.closedBy === 'nod' ? `,${ago(st.nodAt)}開始改程式檔,算你點頭開工了` : ''}——已走過`
+      // 已走過的關,結論還是要講一句(誰說的、說了什麼),不然像是憑空劃掉的
+      : s === 'passed' ? `${ago(st.ranAt)}${verb}${st.closedBy === 'nod' ? `,${ago(st.nodAt)}開始改程式檔,算你點頭開工了` : st.closedBy === 'claude' && noteHead(st) ? `,Claude 說：${noteHead(st)}` : st.closedBy === 'human' ? `,你說${said}` : ''}——已走過`
       // 結論會過期的關(D):之後又改了程式檔,要再跑一次(AC-9)。不劃掉、不打勾
       : s === 'stale' ? `${ago(st.ranAt)}${verb},之後又改了程式檔——要再跑一次`
       // 結案要說得出是誰說的(AC-11):Claude 記的結論、或你說(E 驗收、舊紀錄)
@@ -373,7 +374,8 @@ function workflow(c) {
           it.plain ? `<div class="plain">${esc(it.plain)}</div>` : ''}</span></li>`).join('')}</ul></details>`;
     // 結論的說明有清單(多行)時,一行一條列在卡上——C 的建議、D 的發現就住在這裡
     const noteLines = String(st.report?.note ?? '').split('\n').map((l) => l.trim()).filter(Boolean);
-    const noteHtml = noteLines.length > 1 && (s === 'done' || s === 'ran' || s === 'stale')
+    // 已走過的關也要列(C 已走過,它的建議還是要看得到——「有幾條就列幾條」)
+    const noteHtml = noteLines.length > 1 && (s === 'done' || s === 'ran' || s === 'stale' || s === 'passed')
       ? `<ul class="rnote">${noteLines.slice(1).map((l) => `<li>${esc(l.replace(/^[-•]\s*/, ''))}</li>`).join('')}</ul>` : '';
 
     return `<div class="railcell" data-state="${s}">

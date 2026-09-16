@@ -675,7 +675,14 @@ function renderStages(ctx, ev, facts, info = {}) {
         break;
       }
       // A 的結案是你點頭開工(之後第一次改到程式檔):講出來,不然像是憑空劃掉的
-      case 'passed':   console.log(`   ${label} ✓  ${ago(st.ranAt)}${verb}${st.closedBy === 'nod' ? `,${ago(st.nodAt)}開始改程式檔,算你點頭開工了` : ''}——已走過`); break;
+      case 'passed': {
+        const head = String(st.report?.note ?? '').split('\n')[0].trim();
+        const who = st.closedBy === 'nod' ? `,${ago(st.nodAt)}開始改程式檔,算你點頭開工了` : st.closedBy === 'claude' && head ? `,Claude 說：${head}` : st.closedBy === 'human' ? ',你說處理完了' : '';
+        console.log(`   ${label} ✓  ${ago(st.ranAt)}${verb}${who}——已走過`);
+        // 已走過的關,結論的清單還是要列(C 的建議不能因為走過了就不見)
+        for (const line of String(st.report?.note ?? '').split('\n').slice(1)) if (line.trim()) console.log(`              ${line.trim().slice(0, 90)}`);
+        break;
+      }
       // 結論會過期的關:之後又改了程式檔,要再跑一次(AC-9)。不劃掉、不打勾
       case 'stale':    console.log(`   ${label} 🔁 ${ago(st.ranAt)}${verb},之後又改了程式檔——要再跑一次`); break;
       case 'seen': {
