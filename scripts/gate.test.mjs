@@ -59,9 +59,9 @@ section('T1 這一回合改了程式區、C 與 D 還沒跑 → 擋一次,理由
   ]);
   const d = decide({ payload: s.payload, monitorDir: s.monitorDir, skillHome: s.home });
   check('擋了', d !== null, JSON.stringify(d));
-  eq('缺的是 C 跟 D', (d?.missing ?? []).join(','), 'C,D');
+  eq('缺的是 D(T1 只要 D;C 的價值跟改動大小成正比,碰到危險清單才要求)', (d?.missing ?? []).join(','), 'D');
   check('理由說這次至少 T1、碰到程式區的哪個檔', /T1/.test(d?.reason ?? '') && /src\/a\.js/.test(d?.reason ?? ''), d?.reason);
-  check('理由指名 plugin 的兩支指令', (d?.reason ?? '').includes(`/${PLUGIN}:cleanup`) && (d?.reason ?? '').includes(`/${PLUGIN}:chaos-check`), d?.reason);
+  check('理由指名 plugin 的 chaos-check,不叫 cleanup', (d?.reason ?? '').includes(`/${PLUGIN}:chaos-check`) && !(d?.reason ?? '').includes(`/${PLUGIN}:cleanup`), d?.reason);
   check('理由裡沒有程式內部值', !/null|undefined|NaN/.test(d?.reason ?? ''), d?.reason);
 
   // C 跟 D 在最後一次改檔之後都跑過 → 放行
@@ -174,7 +174,7 @@ section('整條路真的跑一次:sh gate.sh → node gate.mjs。擋的時候印
   check('擋:印出一行 JSON,decision=block,reason 是白話', parsed?.decision === 'block' && /收工前還缺/.test(parsed?.reason ?? ''), outText.slice(0, 200));
   const events = readFileSync(s.log, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
   const blocked = events.find((e) => e.event === 'gate_blocked');
-  check('留下 gate_blocked(source:gate),缺 C、D', blocked?.source === 'gate' && blocked?.missing?.join(',') === 'C,D', JSON.stringify(blocked));
+  check('留下 gate_blocked(source:gate),缺 D', blocked?.source === 'gate' && blocked?.missing?.join(',') === 'D', JSON.stringify(blocked));
   eq('放行(stop_hook_active):一個字都不印', run({ ...s.payload, stop_hook_active: true }), '');
   // 心跳:跑過就留時間,放行也留——「掛著」不等於「活著」(L13),沒有心跳的收工 hook跟沒裝一樣
   let hb = null; try { hb = JSON.parse(readFileSync(join(s.monitorDir, 'logs', '_gate.json'), 'utf8')); } catch { hb = null; }
