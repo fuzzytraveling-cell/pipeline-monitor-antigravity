@@ -361,7 +361,8 @@ function workflow(c) {
     const saidArgs = st.args
       ? `<div class="said">「${esc(st.args.slice(0, 90))}${st.args.length > 90 ? '…' : ''}」</div>` : '';
     // A 的清單就是規格檔裡的 AC,照檔案畫(AC-5)。解析不了就照原文、找不到就說找不到——不假裝
-    const cl = st.checklist;
+    // 只有 A 帶完整的清單(有 items);B 只帶進度摘要,進度已經寫在狀態列,這裡不畫——畫下去就是 undefined 的 .map(2026-09-16 實際炸過一次)
+    const cl = st.checklist && Array.isArray(st.checklist.items) ? st.checklist : null;
     const clHtml = !cl ? ''
       : cl.missing ? `<div class="acl muted">清單：找不到這一輪的規格檔（${esc(String(cl.file ?? '').split('/').slice(-3).join('/'))}）</div>`
       : !cl.parsed ? `<div class="acl muted">清單：規格檔裡沒有照格式寫的 AC${cl.head ? `，開頭是：${esc(cl.head.slice(0, 80))}` : ''}</div>`
