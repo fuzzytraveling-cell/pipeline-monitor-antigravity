@@ -96,6 +96,13 @@ export function decide({ payload, monitorDir = MONITOR_DIR, skillHome = undefine
   const cpAt = card.checkpointRelation?.state === 'ok' ? card.checkpoint?.at ?? null : null;
   const view = stagesOfSession(events, stages, sid, cpAt, path);
   const missing = [];
+  // 有規格的輪次:改了程式就要回頭對清單(AC-6)。沒標的 AC 列出來;⏳ 待討論的不算沒標——那是要跟人談,不是要 Claude 補
+  const a = view.find((v) => v.checklist?.parsed);
+  if (a && a.checklist.unmarked > 0) {
+    const ids = a.checklist.items.filter((x) => x.state === 'none').map((x) => x.id);
+    const file = String(a.checklist.file ?? '').startsWith(ctx.root) ? String(a.checklist.file).slice(ctx.root.length + 1) : a.checklist.file;
+    missing.push({ key: 'checklist', line: `- 對規格的清單：${ids.slice(0, 6).join('、')}${ids.length > 6 ? ` 等 ${ids.length} 條` : ''} 還沒標——在 ${file} 每條 AC 的標題行末尾加「✅ 對過 日期」或「⏳ 待討論：原因」` });
+  }
   for (const key of requires) {
     if (key === 'tests') {
       const n = card.health?.touchedTests ?? null;

@@ -440,4 +440,47 @@ section('--report:Claude 把結論記給儀表板;只認指令關、只有 ok／
   rmSync(logDir, { recursive: true, force: true }); r.cleanup();
 }
 
+section('五關自動結案:A 的清單就是規格檔裡的 AC(AC-5),B 對完清單才結案、有沒對的不劃掉(AC-6)');
+{
+  const stages = JSON.parse(readFileSync(join(ROOT, 'stages.json'), 'utf8')).stages;
+  const T = (h) => new Date(Date.UTC(2026, 8, 16, h)).toISOString();
+  const by = (arr) => Object.fromEntries(arr.map((s) => [s.id, s]));
+  const dir = mkdtempSync(join(tmpdir(), 'pm-spec-'));
+  mkdirSync(join(dir, 'docs', '規劃中'), { recursive: true });
+  const spec = join(dir, 'docs', '規劃中', 'y.md');
+  const write = (marks) => writeFileSync(spec, `# 功能：y\n\n## 驗收條件\n**AC-1　第一條**${marks[0]}\n> **白話**：一句白話\n**AC-2　第二條**${marks[1]}\n**AC-3　第三條**${marks[2]}\n`);
+  write(['', '', '']);
+  const ev = [
+    { ts: T(1), hook: 'UserPromptSubmit', session: 's1', cwd: dir, prompt_id: 'p1', prompt: '/spec 做 y' },
+    { ts: T(1), hook: 'PostToolUse', tool: 'Write', session: 's1', cwd: dir, prompt_id: 'p1', file: spec },
+    { ts: T(2), hook: 'PostToolUse', tool: 'Edit', session: 's1', cwd: dir, prompt_id: 'p2', file: join(dir, 'src', 'a.js') },
+  ];
+  let v = by(stagesOfSession(ev, stages, 's1', null, dir));
+  check('A 帶著清單:三條、都還沒對、白話那句有讀到', v.A.checklist?.parsed && v.A.checklist.total === 3 && v.A.checklist.unmarked === 3 && v.A.checklist.items[0].plain === '一句白話', JSON.stringify(v.A.checklist));
+  eq('B 改了程式、清單沒對:現在這一關,帶著進度', `${v.B.state}/${v.B.checklist?.unmarked}`, 'current/3');
+  const withD = [...ev, { ts: T(3), hook: 'PreToolUse', tool: 'Skill', skill: 'chaos-check', session: 's1', cwd: dir }];
+  v = by(stagesOfSession(withD, stages, 's1', null, dir));
+  eq('D 跑了、清單還沒對:B 不劃掉(要處理的樣子),D 現在', `${v.B.state}/${v.D.state}`, 'stale/current');
+  write([' ✅ 對過 2026-09-16', ' ⏳ 待討論：不確定要不要', ' ✅ 對過 2026-09-16']);
+  const marked = [...withD, { ts: T(4), hook: 'PostToolUse', tool: 'Edit', session: 's1', cwd: dir, prompt_id: 'p3', file: spec }];
+  v = by(stagesOfSession(marked, stages, 's1', null, dir));
+  check('有一條待討論:B 還是不算寫完,進度講得出 2/3、1 條待討論', v.B.state === 'stale' && v.B.checklist.checked === 2 && v.B.checklist.pending === 1, JSON.stringify(v.B.checklist));
+  eq('待討論的原因帶在清單上', v.A.checklist.items[1].note, '不確定要不要');
+  write([' ✅ 對過 2026-09-16', ' ✅ 對過 2026-09-16', ' ✅ 對過 2026-09-16']);
+  const all = [...withD, { ts: T(5), hook: 'PostToolUse', tool: 'Edit', session: 's1', cwd: dir, prompt_id: 'p3', file: spec }];
+  v = by(stagesOfSession(all, stages, 's1', null, dir));
+  eq('全部 ✅:B 結案,是 Claude 對完清單,時間 = 最後一次改規格檔', `${v.B.state}/${v.B.closedBy}/${v.B.doneAt}`, `done/checklist/${T(5)}`);
+  eq('D 變成已走過', v.D.state, 'passed');
+  // 找不到規格檔:照實說
+  const gone = ev.map((e) => (e.file === spec ? { ...e, file: join(dir, 'docs', '規劃中', '沒有.md') } : e));
+  v = by(stagesOfSession(gone, stages, 's1', null, dir));
+  check('規格檔不見了 → 清單說找不到,不當成沒有清單', v.A.checklist?.missing === true, JSON.stringify(v.A.checklist));
+  // 規格檔沒照格式:解析不了就說解析不了
+  writeFileSync(spec, '# 隨便寫的\n沒有 AC\n');
+  v = by(stagesOfSession(ev, stages, 's1', null, dir));
+  check('沒有 AC → parsed=false,給開頭幾行', v.A.checklist?.parsed === false && /隨便寫的/.test(v.A.checklist?.head ?? ''), JSON.stringify(v.A.checklist));
+  eq('沒有可用的清單 → B 照舊規則(改了程式就是現在)', v.B.state, 'current');
+  rmSync(dir, { recursive: true, force: true });
+}
+
 process.exit(summary());

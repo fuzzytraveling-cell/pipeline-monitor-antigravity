@@ -640,9 +640,12 @@ function renderStages(ctx, ev, facts, info = {}) {
     const label = `${st.id} ${st.name}`.padEnd(10, '　');
     // B(對話本身):改到程式檔就算在動;最後一次改檔的時間要印出來。不數檔案——數量在改動體檢那段(git)
     if (st.type === 'main-conversation' && st.state !== 'main') {
-      console.log(st.state === 'current'
-        ? `   ${label} ⏸ 最後一次改程式檔 ${ago(st.ranAt)}——現在在這一關`
-        : `   ${label} ✓  改過程式檔（最後一次 ${ago(st.ranAt)}）——已走過`);
+      const cl = st.checklist;
+      const prog = cl?.parsed ? `清單 ${cl.checked}/${cl.total} 對過${cl.pending ? `,${cl.pending} 條待討論` : ''}${cl.unmarked ? `,${cl.unmarked} 條還沒對` : ''}` : null;
+      console.log(st.state === 'current' ? `   ${label} ⏸ 最後一次改程式檔 ${ago(st.ranAt)}——現在在這一關${prog ? `（${prog}）` : ''}`
+        : st.state === 'stale' ? `   ${label} 🔁 改過程式檔（最後一次 ${ago(st.ranAt)}）,${prog}——清單沒對完,不算寫完`
+        : st.state === 'done' ? `   ${label} ✅ 改過程式檔（最後一次 ${ago(st.ranAt)}）,${ago(st.doneAt)}Claude 對完清單`
+        : `   ${label} ✓  改過程式檔（最後一次 ${ago(st.ranAt)}）${st.closedBy === 'checklist' ? ',Claude 對完清單' : ''}——已走過`);
       continue;
     }
     // 「被叫」的證據有兩種:你自己打的斜線指令(不經過 Skill 工具,L19)、或 Claude 自己去叫。字要跟證據一樣大:叫了,不是跑完了
@@ -685,6 +688,8 @@ function renderStages(ctx, ev, facts, info = {}) {
         if (st.args) console.log(`              「${st.args.slice(0, 46)}${st.args.length > 46 ? '…' : ''}」`);
       }
     }
+    // A 的清單就是規格檔裡的 AC,照檔案畫(AC-5):✅ 對過、⏳ 待討論、○ 還沒對。解析不了就照原文,找不到就說找不到
+    if (st.checklist) printChecklist(st.checklist);
   }
 
   if (firstTs) {
@@ -696,6 +701,18 @@ function renderStages(ctx, ev, facts, info = {}) {
   // 只有驗收那一關由人說;其他關由儀表板自動辨識,不用你按(五關自動結案 AC-10)
   const e = view.stages.find((v) => v.type === 'browser' && v.state === 'seen');
   if (e) console.log(`   驗收過了要留紀錄：  pipeline-status --clear ${e.id}`);
+}
+
+/** 規格檔裡的 AC 清單(五關自動結案 AC-5)。給人看的是標題與白話那一句,不印技術那層。 */
+function printChecklist(cl) {
+  const rel = (f) => (typeof f === 'string' ? f.split('/').slice(-3).join('/') : '');
+  if (cl.missing) { console.log(`              清單：找不到這一輪的規格檔（${rel(cl.file)}）`); return; }
+  if (!cl.parsed) { console.log(`              清單：規格檔裡沒有照格式寫的 AC（${rel(cl.file)}）${cl.head ? `,開頭是：${cl.head.slice(0, 60)}` : ''}`); return; }
+  for (const it of cl.items) {
+    const mark = it.state === 'checked' ? '✅' : it.state === 'pending' ? '⏳' : '○';
+    console.log(`              ${mark} ${it.id} ${it.title}${it.state === 'pending' && it.note ? `（待討論：${it.note}）` : ''}`);
+    if (it.plain) console.log(`                 ${it.plain.slice(0, 70)}${it.plain.length > 70 ? '…' : ''}`);
+  }
 }
 
 /** 人蓋的結案章(AC-9)。⚠️ 寫進同一份 append-only 紀錄,但標明 source:'human'。 */

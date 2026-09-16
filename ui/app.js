@@ -77,6 +77,8 @@ const clock = (iso) => {
 // 狀態是伺服器算好的(lib/events.mjs 的 roundView):main／notbuilt／none／passed／current／done。
 // 畫面上 current 沿用「ran」的樣式(亮),passed 是劃掉變淡,done 是劃掉但深色(你說處理完了)。
 const stageState = (st) => st.state === 'current' ? 'ran' : (st.state ?? 'none');   // stale(結論過期,要再跑)照原樣給 CSS
+/** B 的清單進度一句話:「3/5 對過,1 條待討論,1 條還沒對」。沒有清單就空字串 */
+const clProg = (cl) => cl?.parsed ? `清單 ${cl.checked}/${cl.total} 對過${cl.pending ? `,${cl.pending} 條待討論` : ''}${cl.unmarked ? `,${cl.unmarked} 條還沒對` : ''}` : '';
 /** 感測器看得到的關(有 skill 或 tools 的)。B 是你在講話的那個對話、未建的關,都不算分母。 */
 const sensed = (st) => st.type !== 'main-conversation' && st.type !== 'not-built';
 
@@ -330,8 +332,11 @@ function workflow(c) {
     const status =
       // B(對話本身):改到程式檔就算在動,印最後一次改檔的時間;不數檔案——那要看 git(未檢查清單那張卡)
       st.type === 'main-conversation'
-        ? (s === 'ran' ? `最後一次改程式檔 ${ago(st.ranAt)}——現在在這一關`
-          : s === 'passed' ? `改過程式檔（最後一次 ${ago(st.ranAt)}）——已走過`
+        ? (s === 'ran' ? `最後一次改程式檔 ${ago(st.ranAt)}——現在在這一關${clProg(st.checklist) ? `（${clProg(st.checklist)}）` : ''}`
+          // 清單沒對完:不劃掉,用「要處理」的樣子(AC-6)
+          : s === 'stale' ? `改過程式檔（最後一次 ${ago(st.ranAt)}）,${clProg(st.checklist)}——清單沒對完,不算寫完`
+          : s === 'done' ? `改過程式檔（最後一次 ${ago(st.ranAt)}）,${ago(st.doneAt)}Claude 對完清單`
+          : s === 'passed' ? `改過程式檔（最後一次 ${ago(st.ranAt)}）${st.closedBy === 'checklist' ? ',Claude 對完清單' : ''}——已走過`
           : '就是你在講話的那個對話（這一輪還沒改到程式檔）')
       : s === 'notbuilt' ? '這一關還沒建'
       // A 的結案是你點頭開工(之後第一次改到程式檔):講出來,不然像是憑空劃掉的
@@ -351,6 +356,14 @@ function workflow(c) {
       : (c.sensor?.state === 'ok' ? '這一輪還沒跑' : '感測器沒有資料');
     const saidArgs = st.args
       ? `<div class="said">「${esc(st.args.slice(0, 90))}${st.args.length > 90 ? '…' : ''}」</div>` : '';
+    // A 的清單就是規格檔裡的 AC,照檔案畫(AC-5)。解析不了就照原文、找不到就說找不到——不假裝
+    const cl = st.checklist;
+    const clHtml = !cl ? ''
+      : cl.missing ? `<div class="acl muted">清單：找不到這一輪的規格檔（${esc(String(cl.file ?? '').split('/').slice(-3).join('/'))}）</div>`
+      : !cl.parsed ? `<div class="acl muted">清單：規格檔裡沒有照格式寫的 AC${cl.head ? `，開頭是：${esc(cl.head.slice(0, 80))}` : ''}</div>`
+      : `<ul class="acl">${cl.items.map((it) => `<li data-state="${esc(it.state)}"><span class="mark">${it.state === 'checked' ? '✅' : it.state === 'pending' ? '⏳' : '○'}</span>
+          <span><b>${esc(it.id)}</b> ${esc(it.title)}${it.state === 'pending' && it.note ? `<span class="muted">（待討論：${esc(it.note)}）</span>` : ''}${
+          it.plain ? `<div class="plain">${esc(it.plain)}</div>` : ''}</span></li>`).join('')}</ul>`;
 
     return `<div class="railcell" data-state="${s}">
         <span class="rlab">${esc(st.id)}</span>
@@ -364,7 +377,7 @@ function workflow(c) {
             <span class="ahouse">${esc(r.house)}</span></div>
           <div class="adoes">${esc(r.does)}</div>
           <div class="astatus">${esc(status)}</div>
-          ${saidArgs}${stamp}
+          ${saidArgs}${clHtml}${stamp}
         </div>
         <span class="lamp" title="${s === 'passed' ? '已走過' : s === 'done' || s === 'ran' ? '現在這一關' : s === 'stale' ? '結論過期,要再跑一次' : s === 'seen' ? '開過瀏覽器' : '這一輪還沒跑'}"></span>
       </div>`;

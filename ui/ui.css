@@ -428,3 +428,11 @@ a.ext { color: var(--color-lake-blue); }
 .pcard { min-width: 0; }
 .pcard .meta.focus { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ov-subject { color: var(--color-smoke); font-size: var(--text-caption); }
+
+/* A 底下的驗收清單:照規格檔畫,一條一行;白話那句用次要色 */
+.acl { list-style: none; margin: .45rem 0 0; padding: 0; font-size: 12px; line-height: 1.5; }
+.acl li { display: flex; gap: .45rem; align-items: flex-start; margin: .15rem 0; }
+.acl .mark { flex: 0 0 auto; }
+.acl .plain, .acl .muted, .acl.muted { color: var(--color-smoke); }
+.acl li[data-state="checked"] { opacity: .7; }
+

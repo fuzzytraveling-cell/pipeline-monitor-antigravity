@@ -181,4 +181,25 @@ section('整條路真的跑一次:sh gate.sh → node gate.mjs。擋的時候印
   s.cleanup();
 }
 
+section('有規格的輪次:改了程式、清單還有沒標的 → 先對清單(AC-6)');
+{
+  const s = scene();
+  mkdirSync(join(s.root, 'docs', '規劃中'), { recursive: true });
+  const spec = join(s.root, 'docs', '規劃中', 'x.md');
+  writeFileSync(spec, '# 功能：x\n**AC-1　一**\n**AC-2　二** ✅ 對過 2026-09-16\n');
+  s.write([
+    { ts: T(-6 * MIN), hook: 'UserPromptSubmit', prompt: '/pipeline-monitor:spec 做 x', prompt_id: 'p1' },
+    { ts: T(-6 * MIN), hook: 'PostToolUse', tool: 'Write', file: spec, prompt_id: 'p1' },
+    { ts: T(-5 * MIN), hook: 'UserPromptSubmit', prompt: '好,開工', prompt_id: 'p2' },
+    { ts: T(-4 * MIN), hook: 'PostToolUse', tool: 'Edit', file: join(s.root, 'src/a.js'), prompt_id: 'p2' },
+    { ts: T(-3 * MIN), hook: 'PreToolUse', tool: 'Skill', skill: 'cleanup' },
+    { ts: T(-3 * MIN), hook: 'PreToolUse', tool: 'Skill', skill: 'chaos-check' },
+  ]);
+  const d = decide({ payload: s.payload, monitorDir: s.monitorDir, skillHome: s.home });
+  check('C、D 都跑過,只剩清單 → 擋,理由點名 AC-1 跟檔案', d?.missing?.join(',') === 'checklist' && /AC-1/.test(d?.reason ?? '') && /x\.md/.test(d?.reason ?? '') && !/AC-2/.test(d?.reason ?? ''), d?.reason);
+  writeFileSync(spec, '# 功能：x\n**AC-1　一** ⏳ 待討論：要問人\n**AC-2　二** ✅ 對過 2026-09-16\n');
+  eq('都標了(⏳ 也算標了,那是要跟人談)→ 放行', decide({ payload: s.payload, monitorDir: s.monitorDir, skillHome: s.home }), null);
+  s.cleanup();
+}
+
 process.exit(summary());
