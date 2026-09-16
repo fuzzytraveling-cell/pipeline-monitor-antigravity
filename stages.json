@@ -31,7 +31,7 @@
       "tools": "^mcp__(Claude_Browser|claude-in-chrome)__"
     }
   ],
-  "_說明4": "分級(tiers)的三級預設值住在 tierLevels:none=沒碰到程式區、code=碰到程式區、danger=碰到危險清單。requires 是關卡代號,或 tests(這次必須有新增或修改的測試檔)。專案的 .claude/pipeline-stages.json 可用 tiers.levels 覆寫。",
+  "_說明4": "分級(tiers)的三級預設值住在 tierLevels:none=沒碰到程式區、code=碰到程式區、danger=碰到危險清單。requires 是這一級「會跑哪幾關」(收工 hook 會擋著要求跑;規格:docs/進行中/五關自動結案.md),關卡代號或 tests(這次必須有新增或修改的測試檔)。C 是列打掃建議,做不做人決定;E 永遠不在清單裡,它是人的。專案的 .claude/pipeline-stages.json 可用 tiers.levels 覆寫。",
   "tierLevels": {
     "none": {
       "id": "T0",
@@ -40,6 +40,7 @@
     "code": {
       "id": "T1",
       "requires": [
+        "C",
         "D"
       ]
     },
@@ -47,6 +48,7 @@
       "id": "T2",
       "requires": [
         "A",
+        "C",
         "D",
         "tests"
       ]

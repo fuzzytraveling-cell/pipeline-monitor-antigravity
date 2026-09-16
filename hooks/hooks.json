@@ -4,18 +4,78 @@
   "_說明3": "SessionStart 接的是 remind.sh(不是 hook.sh):對話開始時、專案還沒設定分級 → 給 Claude 一行提示。兩支契約相反,刻意分開。",
   "hooks": {
     "SessionStart": [
-      { "matcher": "", "hooks": [{ "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/remind.sh\"" }] }
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/remind.sh\""
+          }
+        ]
+      }
     ],
     "UserPromptSubmit": [
-      { "matcher": "", "hooks": [{ "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hook.sh\"" }] }
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hook.sh\""
+          }
+        ]
+      }
     ],
     "PreToolUse": [
-      { "matcher": "Skill", "hooks": [{ "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hook.sh\"" }] },
-      { "matcher": "mcp__Claude_Browser__.*|mcp__claude-in-chrome__.*", "hooks": [{ "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hook.sh\"" }] }
+      {
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hook.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__Claude_Browser__.*|mcp__claude-in-chrome__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hook.sh\""
+          }
+        ]
+      }
     ],
     "PostToolUse": [
-      { "matcher": "Skill", "hooks": [{ "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hook.sh\"" }] },
-      { "matcher": "Edit|Write|NotebookEdit", "hooks": [{ "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hook.sh\"" }] }
+      {
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hook.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hook.sh\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/gate.sh\""
+          }
+        ]
+      }
     ]
-  }
+  },
+  "_說明4": "Stop 接的是 gate.sh(收工 hook):Claude 準備收工時,這次改動的分級要求的關還沒跑 → 擋一次叫它先跑。第三支 hook,契約跟前兩支都不同:只在該跑的沒跑時出聲、同一個 prompt 最多擋一次、任何錯誤一律放行。規格:docs/進行中/五關自動結案.md"
 }

@@ -19,8 +19,9 @@ if [ -f "$MONITOR_DIR/.git" ]; then
   _C=$(git -C "$MONITOR_DIR" rev-parse --git-common-dir 2>/dev/null)
   case "$_C" in /*) MONITOR_DIR=$(dirname "$_C") ;; ?*) MONITOR_DIR=$(dirname "$MONITOR_DIR/$_C") ;; esac
 fi
-# 紀錄位置可以用環境變數換掉。這是**設定**不是測試專用後門——
-# 測試要能在自己的暫存資料夾裡跑,而且真的有人會想把紀錄放別的地方。
+# 「家」跟紀錄位置都可以用環境變數換掉。這是**設定**不是測試專用後門——
+# 測試要能在自己的暫存資料夾裡跑,而且真的有人會想把紀錄放別的地方。lib/paths.mjs 看同一個 PIPELINE_MONITOR_HOME。
+MONITOR_DIR="${PIPELINE_MONITOR_HOME:-$MONITOR_DIR}"
 LOG_DIR="${PIPELINE_MONITOR_LOG_DIR:-$MONITOR_DIR/logs}"
 mkdir -p "$LOG_DIR" 2>/dev/null
 
