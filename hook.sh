@@ -76,6 +76,8 @@ done
 #    二分法的圈數寫死(12 圈,2^12 比任何一個上限都大)、沒有「跑到條件成立為止」的迴圈——熱路徑不准有機會卡住(AC-2)。
 #    上限是看過真的卡才訂的(2026-09-17):title、tldr、cwd 都留得全;prompt 常常比整行的上限還長,留不全是 AC-4 的代價。
 #    四段同時截滿也要離 4096 有一段距離——這一行還有沒截的舊欄位(cwd、對話與工具的代號),它們吃的是同一個空間。
+# ⚠️ Claude 收回建議卡時(2026-09-17 接),參數裡的 task_id 與 reason 也記(in_task／in_reason),同一個 cut、同一個 in_cut。
+#    上限一樣看過真的才訂:task_id 是 13 個字、理由最長 235 bytes。六段全部截滿也要放得進一行(測試真的跑一次量)。
 printf '%s' "$PAYLOAD" | jq -c --arg head "${HEAD:-}" '
 def cut($max):
   if type != "string" or . == "" then null else
@@ -93,6 +95,8 @@ def cut($max):
 (.tool_input.tldr   | cut(500))  as $l |
 (.tool_input.prompt | cut(2000)) as $p |
 (.tool_input.cwd    | cut(300))  as $w |
+(.tool_input.task_id | cut(60))  as $k |
+(.tool_input.reason | cut(300))  as $r |
 {
   ts:        (now | todateiso8601),
   hook:       .hook_event_name,
@@ -114,8 +118,11 @@ def cut($max):
   in_tldr:    $l,
   in_prompt:  $p,
   in_cwd:     $w,
+  in_task:    $k,
+  in_reason:  $r,
   in_cut:     ([["title", $t, .tool_input.title], ["tldr", $l, .tool_input.tldr],
-                ["prompt", $p, .tool_input.prompt], ["cwd", $w, .tool_input.cwd]]
+                ["prompt", $p, .tool_input.prompt], ["cwd", $w, .tool_input.cwd],
+                ["task", $k, .tool_input.task_id], ["reason", $r, .tool_input.reason]]
                  | map(select(.[1] != null and .[1] != .[2]) | .[0]) | if length > 0 then . else null end)
 } | with_entries(select(.value != null))' >> "$LOG_DIR/$PROJECT.jsonl" 2>/dev/null
 

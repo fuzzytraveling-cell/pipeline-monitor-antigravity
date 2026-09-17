@@ -258,6 +258,7 @@ section('建議新增的對話:一張卡都沒有也要畫這一區;伺服器沒
       { name: 'x', suggestions: [sgCard({ title: undefined, tldr: null, prompt: '', ts: undefined, fromTitle: null, session: null })], appCardsSince: '壞掉的時間' },
       { name: 'x', suggestions: [sgCard({ cut: ['title', 'tldr', 'prompt', 'cwd'], openIn: { project: null, name: null } }), sgCard({ id: 'b', source: 'claude', tldr: null, session: null, fromTitle: null })], appCardsSince: TS },
       { name: 'x', suggestions: [sgCard({ startedBy: 's9', startedTitle: null })], appCardsSince: TS, incomingSuggestions: [{ project: 'o', name: null, count: 1 }] },
+      { name: 'x', suggestions: [sgCard({ withdrawals: [{}, { ts: null, reason: undefined }] }), sgCard({ id: 'w2', withdrawals: null })], appCardsSince: TS },
     ];
     const leaks = odd.map((o) => block(o)).filter((html) => /undefined|NaN|\bnull\b|\[object/.test(html));
     check('缺欄位、怪欄位都不會把 undefined／NaN／null 印到畫面上', leaks.length === 0, leaks.map((h) => h.match(/.{30}(undefined|NaN|null|\[object).{30}/s)?.[0]).join('\n      '));
@@ -274,14 +275,32 @@ section('建議新增的對話:這一區看不到的那幾條路,畫面要明講
       sgCard({ id: 'both', startedBy: 's9', startedTitle: '照著開的對話', dismissedAt: TS }),   // 既已開始、又按過不做了:只能算一次
       sgCard({ id: 'gone', dismissedAt: TS }),
     ] });
-    check('講得出「你在 app 把卡按掉,這裡看不到」', html.includes('app 把建議卡按掉'), html.slice(0, 400));
-    check('講得出「Claude 自己把卡收回,這裡也看不到」(實測大半的卡被收回過)', html.includes('收回'), html.slice(0, 400));
+    check('講得出「卡在 app 裡怎麼不見的(你按掉、被新卡擠掉),這裡看不到」', html.includes('你按掉、或被後來的新卡擠掉'), html.slice(0, 400));
+    check('講得出「Claude 叫了收回會標在卡上,但分不出是哪一張」', html.includes('分不出收回的是哪一張'), html.slice(0, 600));
     check('卡上不寫「你已取消」(AC-2:感測器看不到 app 的叉叉,那句話沒有任何證據)', !html.includes('取消'));
     check('收起來的 2 張 = 已開始 1 ＋ 你說不做了 1(同一張卡不算兩次)', html.includes('收起來的 2 張（已開始 1、你說不做了 1）'), html.match(/收起來的[^<]*/)?.[0]);
     check('還沒處理的那張有「不做了」按鈕,收起來的沒有', (html.match(/data-dismiss=/g) ?? []).length === 1);
     check('兩種來源各有一小行(AC-5)', block({ name: 'x', appCardsSince: TS, suggestions: [sgCard(), sgCard({ id: 'c', source: 'claude' })] }).includes('Claude 在對話裡提的建議卡')
       && block({ name: 'x', appCardsSince: TS, suggestions: [sgCard({ id: 'c', source: 'claude' })] }).includes('Claude 用 --suggest 放的'));
     check('被截短的卡標「已截短」,而且講完整的在哪(AC-4)', block({ name: 'x', appCardsSince: TS, suggestions: [sgCard({ cut: ['prompt'] })] }).includes('已截短'));
+    // AC-7:Claude 叫過收回 → 卡上一行,附理由,不收卡、不說「已收回」「已取消」(記到的只是叫了收回)
+    const wdHtml = block({ name: 'x', appCardsSince: TS, suggestions: [sgCard({ withdrawals: [{ ts: TS, reason: '已經在<b>這裡</b>做完', cut: true }, { ts: TS, reason: null, cut: false }] })] });
+    check('卡上講「Claude 後來在這個對話裡叫過 2 次收回」', wdHtml.includes('叫過 2 次收回'), wdHtml);
+    check('附 Claude 說的理由(被截的加…、沒寫的講沒寫)', wdHtml.includes('已經在&lt;b&gt;這裡&lt;/b&gt;做完…') && wdHtml.includes('（沒寫理由）'), wdHtml);
+    check('理由是 Claude 寫的字:一律跳脫,不准變成網頁上的標籤', !wdHtml.includes('<b>這裡</b>'));
+    check('講「分不出收回的是不是這一張」,不講「已收回」「已取消」', wdHtml.includes('分不出收回的是不是這一張') && !wdHtml.includes('已收回') && !wdHtml.includes('已取消'), wdHtml);
+    check('卡照樣掛著、「不做了」還在(收回不會替你收)', wdHtml.includes('data-dismiss=') && !wdHtml.includes('收起來的'));
+    const startedWd = block({ name: 'x', appCardsSince: TS, suggestions: [sgCard({ startedBy: 's9', startedTitle: '照著開的對話', withdrawals: [{ ts: TS, reason: '做完了', cut: false }] })] });
+    // 只看卡上那一行(區塊上方的說明文字本來就講「按不做了」,那是給還掛著的卡看的)
+    const wdLine = startedWd.match(/<span class="smeta">⚠️[^<]*<\/span>/)?.[0] ?? '';
+    check('已經收起來的卡也標收回,但卡上不叫人去按一顆不存在的「不做了」', wdLine.includes('叫過 1 次收回') && !wdLine.includes('不做了') && !startedWd.includes('data-dismiss='), wdLine || startedWd);
+    const openLine = wdHtml.match(/<span class="smeta">⚠️[^<]*<\/span>/)?.[0] ?? '';
+    check('還掛著的卡,卡上那一行才叫人按「不做了」', openLine.includes('按「不做了」'), openLine);
+    const many = block({ name: 'x', appCardsSince: TS, suggestions: [sgCard({ withdrawals: [1, 2, 3, 4, 5].map((n) => ({ ts: TS, reason: `理由${n}`, cut: false })) })] });
+    check('收回很多次:只列前 3 個理由,講共幾次', many.includes('叫過 5 次收回') && many.includes('理由3') && !many.includes('理由4') && many.includes('等 5 次'), many);
+    const dismissedWd = block({ name: 'x', appCardsSince: TS, suggestions: [sgCard({ dismissedAt: TS, withdrawals: [{ ts: TS, reason: '做完了', cut: false }] })] });
+    const dismissedLine = dismissedWd.match(/<span class="smeta">⚠️[^<]*<\/span>/)?.[0] ?? '';
+    check('你按過「不做了」的卡也一樣:卡上不叫你再去按一次', dismissedLine.includes('叫過 1 次收回') && !dismissedLine.includes('不做了'), dismissedLine || dismissedWd);
     check('空的卡講「這張卡沒有內容」,不是不畫(混沌推導:輸入畸形)', block({ name: 'x', appCardsSince: TS, suggestions: [sgCard({ tldr: null, prompt: '' })] }).includes('這張卡沒有內容'));
   }
 }

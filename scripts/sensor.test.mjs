@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
-import { readEvents, loadStages, safeName, sessionsOf, lastRunPerStage, runsPerStage, roundView, stagesOfSession, suggestionsOf, firstPromptsOf, perStageOfRound, SUGGEST_TOOL } from '../lib/events.mjs';
+import { readEvents, loadStages, safeName, sessionsOf, lastRunPerStage, runsPerStage, roundView, stagesOfSession, suggestionsOf, firstPromptsOf, perStageOfRound, SUGGEST_TOOL, WITHDRAW_TOOL } from '../lib/events.mjs';
 import { parseChecklist } from '../lib/checklist.mjs';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 
@@ -395,6 +395,59 @@ section('app 建議卡(AC-4):一張卡不能把紀錄檔寫壞——再長、再
   r.cleanup();
 }
 
+section('app 建議卡(AC-7):Claude 叫了收回,感測器記代號跟理由;讀取端只列在同一個對話、收回之前提的卡上,不配對、不自動收（真的跑 hook.sh）', 'P6');
+{
+  const r = makeRepo({ files: { 'a.js': '1\n' } });
+  // 形狀照真的呼叫(2026-09-17 從對話紀錄量的):參數只有 task_id 跟 reason,task_id 13 個字,理由最長 235 bytes
+  const WD = (over = {}, input = {}) => ({
+    hook_event_name: 'PreToolUse', session_id: SRC, prompt_id: '7c9e6679-7425-40de-944b-e07fc1f90ae7', permission_mode: 'default', transcript_path: '/x/t.jsonl',
+    tool_name: WITHDRAW_TOOL, tool_use_id: 'toolu_01WithdrawWithdrawWith', tool_input: { task_id: 'task_cc1bbc82', reason: '前提已被推翻：同一把金鑰今天成功了，401 的原因是金鑰被連貼兩次。', ...input }, ...over,
+  });
+  const out = runHook(WD({ cwd: r.dir }));
+  eq('離開碼 0、零輸出', `${out.code}/${out.stdout}`, '0/');
+  const rec = JSON.parse(out.lines[0]);
+  eq('代號記到了', rec.in_task, 'task_cc1bbc82');
+  eq('理由記到了', rec.in_reason, '前提已被推翻：同一把金鑰今天成功了，401 的原因是金鑰被連貼兩次。');
+  check('沒被截的收回沒有 in_cut(不然畫面每個理由後面都會多一個「…」)', !('in_cut' in rec), JSON.stringify(rec.in_cut));
+  check('沒有卡的欄位(收回不是一張卡)', !('in_title' in rec) && !('in_prompt' in rec) && !('title' in rec) && !('prompt' in rec), Object.keys(rec).join(','));
+  // 一行最胖的樣子:六段(卡的四段＋收回的兩段)全部超長。hook.sh 不認工具名,所以要照「任何工具都可能帶這六個鍵」來量
+  const fat = runHook(CARD({ cwd: r.dir }, { title: '標'.repeat(500), tldr: '說'.repeat(2000), prompt: '貼'.repeat(5000), cwd: `/${'夾'.repeat(400)}`, task_id: '代'.repeat(300), reason: '因'.repeat(2000) }));
+  const fatBytes = fat.lines.length === 1 ? Buffer.byteLength(fat.lines[0]) : Infinity;
+  check(`六段同時截滿:實測 ${fatBytes} bytes,離 4096 還有 ${4096 - fatBytes} bytes(至少要留 200 給沒截的 cwd)`, 4096 - fatBytes >= 200);
+  eq('六段都標了已截短', JSON.stringify(JSON.parse(fat.lines[0]).in_cut), JSON.stringify(['title', 'tldr', 'prompt', 'cwd', 'task', 'reason']));
+  r.cleanup();
+
+  // 讀取端
+  const T = (m) => new Date(Date.UTC(2026, 8, 17, 3, m)).toISOString();
+  const card = (id, m, o = {}) => ({ ts: T(m), hook: 'PreToolUse', tool: SUGGEST_TOOL, session: 'src', cwd: '/x', use_id: id, in_title: id, in_prompt: `${id} 的說明,要夠長才比得出開頭,所以多寫幾個字湊到六十個字以上,再多寫一點點。`, ...o });
+  const wd = (m, o = {}) => ({ ts: T(m), hook: 'PreToolUse', tool: WITHDRAW_TOOL, session: 'src', cwd: '/x', use_id: `toolu_wd${m}`, in_task: `task_${m}`, in_reason: `第 ${m} 分鐘收回`, ...o });
+  const by = (ev) => Object.fromEntries(suggestionsOf(ev).map((s) => [s.id, s]));
+  // 真的發生過的順序(Forma Pro 9/16):先收回一張舊的,十幾秒後才提新的 → 新的那張不該被標
+  let c = by([card('old', 1), wd(2), card('new', 3)]);
+  eq('收回之前提的卡 → 標上那次收回', c.old.withdrawals.length, 1);
+  eq('收回之後才提的卡 → 不標(收回的不可能是它)', c.new.withdrawals.length, 0);
+  eq('標上的是 Claude 說的理由', c.old.withdrawals[0].reason, '第 2 分鐘收回');
+  // 真的發生過的順序(pipeline-monitor 9/17):提了新的、五秒後收回舊的(換一張)→ 兩張都在收回之前,都標,分不出是哪一張
+  c = by([card('v1', 1), card('v2', 2), wd(2)]);
+  eq('換一張:兩張都在收回之前 → 兩張都標(不猜是哪一張)', `${c.v1.withdrawals.length}/${c.v2.withdrawals.length}`, '1/1');
+  eq('同一秒的收回也算(感測器的時間只到秒,分不出先後)', by([card('same', 2), wd(2)]).same.withdrawals.length, 1);
+  eq('別的對話叫的收回 → 不標', by([card('mine', 1), wd(2, { session: 'other' })]).mine.withdrawals.length, 0);
+  eq('同一個 task_id 記到兩次(plugin 跟舊接法同時掛著)→ 算一次', by([card('dup', 1), wd(2), wd(2, { use_id: 'toolu_again' })]).dup.withdrawals.length, 1);
+  eq('沒有 task_id:用 use_id 分,兩次不同的收回照樣算兩次', by([card('noid', 1), wd(2, { in_task: undefined }), wd(3, { in_task: undefined })]).noid.withdrawals.length, 2);
+  eq('什麼代號都沒有:每一筆各算一次(寧可多算,不准把兩次併成一次)', by([card('bare', 1), wd(2, { in_task: undefined, use_id: undefined }), wd(2, { in_task: undefined, use_id: undefined })]).bare.withdrawals.length, 2);
+  eq('沒寫理由 → reason 是 null(畫面講「沒寫理由」,不編)', by([card('noreason', 1), wd(2, { in_reason: '' })]).noreason.withdrawals[0].reason, null);
+  eq('理由被截過 → 帶著記號', by([card('long', 1), wd(2, { in_cut: ['reason'] })]).long.withdrawals[0].cut, true);
+  eq('時間讀不出來 → 列著(看不懂不等於比較早)', by([card('badts', 1), wd(2, { ts: '壞掉的時間' })]).badts.withdrawals.length, 1);
+  const order = by([card('ord', 1), wd(5), wd(3)]).ord.withdrawals.map((w) => w.reason);
+  eq('卡上的收回照時間排(紀錄檔裡的順序不一定是時間順序)', order.join('／'), '第 3 分鐘收回／第 5 分鐘收回');
+  eq('代號被截過:不拿來分(開頭一樣的長代號截完會撞在一起),改用那次呼叫的代號', by([card('longid', 1), wd(2, { in_task: 'task_同樣的開頭', in_cut: ['task'] }), wd(3, { in_task: 'task_同樣的開頭', in_cut: ['task'] })]).longid.withdrawals.length, 2);
+  // --suggest 的卡平常沒有對話代號;故意給一個,確認擋住它的是「來源不是 app」,不是剛好沒有代號
+  const withSuggest = by([{ ts: T(1), event: 'suggestion', id: 'sg-1', title: 't', prompt: 'p', cwd: '/x', source: 'claude', session: 'src' }, wd(2)]);
+  eq('--suggest 放的卡不標(收回的工具只收得回 app 的卡)', withSuggest['sg-1'].withdrawals.length, 0);
+  const all = by([card('a1', 1), wd(2), card('a2', 3), { ts: T(4), event: 'suggestion_dismissed', id: 'a1', source: 'human' }]);
+  eq('收回不會把卡收起來:只有你按的「不做了」會', `${all.a1.dismissedAt}/${all.a2.dismissedAt}`, `${T(4)}/null`);
+}
+
 section('app 建議卡(輸入畸形):prompt 不是字串、是空的、整個 tool_input 不見 → 記 null,還是一張卡(「沒有內容」不等於「沒有這張卡」)');
 {
   const r = makeRepo({ files: { 'a.js': '1\n' } });
@@ -412,7 +465,7 @@ section('app 建議卡(輸入畸形):prompt 不是字串、是空的、整個 to
   r.cleanup();
 }
 
-section('app 建議卡:讀取端認的工具名,感測器真的有接(hooks.json 對得上 SUGGEST_TOOL);hook.sh 自己不認工具名', 'P2');
+section('app 建議卡:讀取端認的兩個工具名(提卡、收回),感測器真的有接(hooks.json 對得上);hook.sh 自己不認工具名', 'P2');
 {
   // 這個工具名住兩個地方(hooks.json 的 matcher、lib/events.mjs 的 SUGGEST_TOOL)。對不上的話卡一張都進不來,而且沒有任何東西會紅
   const pre = JSON.parse(readFileSync(join(ROOT, 'hooks', 'hooks.json'), 'utf8')).hooks.PreToolUse;
@@ -423,9 +476,12 @@ section('app 建議卡:讀取端認的工具名,感測器真的有接(hooks.json
   eq('獨立的一筆,不是併進別的 matcher', hits(SUGGEST_TOOL)[0]?.matcher, SUGGEST_TOOL);
   check('瀏覽器那一筆的 matcher 沒被動到', pre.some((e) => e.matcher === 'mcp__Claude_Browser__.*|mcp__claude-in-chrome__.*'));
   check('hook.sh 裡沒有寫死這個工具名(哪個工具算建議卡,只有讀取端說了算)', !readFileSync(join(ROOT, 'hook.sh'), 'utf8').includes(SUGGEST_TOOL));
-  // dismiss_task 是 **Claude 自己收回卡**的工具(不是 app 的叉叉——叉叉是人按的,沒有工具呼叫)。它帶的代號只出現在提卡那次的回傳裡,
-  // 感測器不讀回傳,對不回是哪一張,所以現在不接;哪天要接,讀取端跟畫面要一起改(畫面現在明講「Claude 收回的這裡看不到」)
-  eq('Claude 收回卡的工具(dismiss_task)現在不接', hits('mcp__ccd_session__dismiss_task').length, 0);
+  // 收回卡的工具(不是 app 的叉叉——叉叉是人按的,沒有工具呼叫)同一套規矩:剛好一筆、獨立、跑 hook.sh、hook.sh 不寫死它的名字
+  eq('收回卡的工具:PreToolUse 剛好一筆接得到它', hits(WITHDRAW_TOOL).length, 1);
+  eq('收回卡的工具:獨立的一筆', hits(WITHDRAW_TOOL)[0]?.matcher, WITHDRAW_TOOL);
+  check('收回卡的工具:那一筆跑的是感測器 hook.sh', hits(WITHDRAW_TOOL)[0]?.hooks?.[0]?.command?.endsWith('/hook.sh"') === true);
+  check('hook.sh 裡也沒有寫死收回卡的工具名', !readFileSync(join(ROOT, 'hook.sh'), 'utf8').includes(WITHDRAW_TOOL));
+  check('提卡那一筆不會順便接到收回(兩個工具各記各的,不會一次記兩筆)', hits(SUGGEST_TOOL)[0] !== hits(WITHDRAW_TOOL)[0]);
 }
 
 section('app 建議卡(AC-2、AC-3、AC-5):只有儀表板的「不做了」收得掉它;對話真的照說明開了才算已開始,對不上、分不出來都不收');
@@ -435,10 +491,11 @@ section('app 建議卡(AC-2、AC-3、AC-5):只有儀表板的「不做了」收�
   const says = (h, session, prompt) => ({ ts: T(h), hook: 'UserPromptSubmit', session, cwd: '/x', prompt });
   const one = (ev, opt) => suggestionsOf(ev, opt).find((s) => s.id === 'toolu_1');
 
-  // AC-2:你在 app 按叉叉不會留下任何事件,卡當然還在。Claude 自己收回卡(dismiss_task)就算哪天被記到,也不准拿來收卡——
-  // 它帶的是另一種代號(task_…),跟 use_id 對不起來,硬配會收錯張
-  const withdrawn = [card(), { ts: T(3), hook: 'PreToolUse', tool: 'mcp__ccd_session__dismiss_task', session: 'src', cwd: '/x', use_id: 'toolu_2' }];
-  eq('同一個對話裡 Claude 收回過卡 → 這張還在(不亂配對)', one(withdrawn).dismissedAt, null);
+  // AC-2:你在 app 按叉叉不會留下任何事件,卡當然還在。Claude 自己叫了收回(AC-7)也不准拿來收卡——
+  // 它帶的是另一種代號(task_…),跟 use_id 對不起來,硬配會收錯張;只准列在卡上
+  const withdrawn = [card(), { ts: T(3), hook: 'PreToolUse', tool: WITHDRAW_TOOL, session: 'src', cwd: '/x', use_id: 'toolu_2', in_task: 'task_aaaa1111', in_reason: '已經在這個對話裡做完' }];
+  eq('同一個對話裡 Claude 叫過收回 → 這張還在(不亂配對、不自動收)', `${one(withdrawn).dismissedAt}/${one(withdrawn).startedBy}`, 'null/null');
+  eq('…但卡上帶著那次收回(AC-7)', one(withdrawn).withdrawals.length, 1);
   eq('儀表板的「不做了」→ 收起來,記的是那一筆的時間', one([card(), { ts: T(4), event: 'suggestion_dismissed', id: 'toolu_1', source: 'human' }]).dismissedAt, T(4));
 
   // AC-3:新對話的第一句話開頭對得上 → 已開始;對不上 → 還沒開始,不猜

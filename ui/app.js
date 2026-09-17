@@ -503,7 +503,8 @@ function projectPage(name) {
  * 建議另開的對話。兩條路來的卡長得一樣,卡上寫是哪條(app建議卡 AC-5):Claude 用 --suggest 放的、或 Claude 在 app 的對話裡提的建議卡。
  * ⚠️ 儀表板開不了對話——只能讓你複製說明、貼進新對話的第一句。
  * ⚠️ 儀表板也看不到 app 的叉叉:在 app 把卡按掉,這裡那張還在,卡上不准寫「你已取消」(AC-2)。
- *    Claude 自己在對話裡把卡收回(做完了、前提變了、換一張新的)這裡一樣看不到——實測大半的卡都被收回過,所以畫面要明講。
+ *    Claude 自己在對話裡叫了收回(做完了、前提變了、換一張新的):對不回是哪一張,
+ *    所以標在**那個對話、收回之前提的每一張**卡上,附 Claude 說的理由,卡照樣掛著——撕不撕你決定(app建議卡 AC-7)。
  *    app 那條記到的是「Claude 叫了這張卡」,不是「卡真的跳出來了」——文案只講 Claude 提了(R2)。
  * ⚠️ 一張卡都沒有也要畫這一區:「沒有建議」跟「感測器根本沒記到」長得一樣(老毛病 P5),那句「不代表沒跳過」就是為這種時候寫的。
  */
@@ -532,6 +533,14 @@ function suggestionsBlock(p) {
     if (s.openIn) {
       lines.push(s.openIn.project ? `要開在別的專案：<a href="#/p/${encodeURIComponent(s.openIn.project)}">${esc(s.openIn.name ?? s.openIn.project)}</a>`
         : s.openIn.name ? `要開在別的資料夾：${esc(s.openIn.name)}` : '要開在別的資料夾（路徑太長,沒記完整）');
+    }
+    // Claude 後來在這個對話裡叫過收回(AC-7):分不出是不是這一張,照實講,附它說的理由。記到的是「叫了收回」,不是「收回成功」(R2)
+    const wd = Array.isArray(s.withdrawals) ? s.withdrawals : [];
+    if (wd.length) {
+      const reasons = wd.slice(0, 3).map((w) => (w.reason ? `「${esc(w.reason)}${w.cut ? '…' : ''}」` : '（沒寫理由）')).join('、');
+      // 已經收起來的卡(已開始、你說不做了)沒有「不做了」按鈕,不叫人去按一顆不存在的按鈕
+      const next = s.dismissedAt || s.startedBy ? '' : '，過時的話按「不做了」';
+      lines.push(`⚠️ Claude 後來在這個對話裡叫過 ${wd.length} 次收回建議卡，理由：${reasons}${wd.length > 3 ? ` 等 ${wd.length} 次` : ''}——分不出收回的是不是這一張${next}`);
     }
     // 收起來的理由:看得到的事實優先(真的有對話這樣開頭),再來才是你按的
     if (s.startedBy) {
@@ -587,8 +596,8 @@ function suggestionsBlock(p) {
       <h2 class="section serif">建議新增的對話</h2>
       <p class="section-note">Claude 覺得該另開一個對話做的事。這裡開不了對話——<b>複製說明</b>，在 app 開新對話，貼進第一句。
         有對話真的照這段說明開了，這張會自己收到最下面（點開看得到是哪個對話）；不想做了按<b>不做了</b>。</p>
-      <p class="section-note">這一區看不到兩件事：你在 app 把建議卡按掉、Claude 自己在對話裡把卡收回（做完了、前提變了、換了一張新的）。
-        這兩種卡在這裡都會繼續掛著，過時的要自己按「不做了」。${since}</p>
+      <p class="section-note">這一區看不到卡在 app 裡是怎麼不見的（你按掉、或被後來的新卡擠掉）——那種卡在這裡會繼續掛著。
+        Claude 自己在對話裡叫了收回（做完了、前提變了、換了一張新的），會標在那個對話先前提的卡上，但分不出收回的是哪一張；過時的要自己按「不做了」。${since}</p>
       ${incomingNote}
       ${open.length ? `<div class="slist">${open.map(row).join('')}</div>` : '<p class="section-note">現在沒有還沒處理的建議。</p>'}
       ${foldedBox}
