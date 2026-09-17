@@ -1,5 +1,5 @@
 /**
- * gate.test.mjs —— 收工 hook(gate.mjs / gate.sh)。規格:docs/進行中/五關自動結案.md AC-1
+ * gate.test.mjs —— 收工 hook(gate.mjs / gate.sh)。規格:五關自動結案 AC-1(路徑看 CLAUDE.md 的表)
  *
  * 釘的是「會安靜出錯」的那幾條:
  *   ① 該擋的要擋(T1 缺 C、D;T2 缺 A、測試檔),理由要指名該叫哪個指令

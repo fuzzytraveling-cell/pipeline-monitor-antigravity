@@ -1,5 +1,5 @@
 #!/bin/sh
-# remind.sh —— 唯一會出聲的 hook。規格:docs/進行中/分級.md
+# remind.sh —— 唯一會出聲的 hook。規格:分級(路徑看 CLAUDE.md 的表)
 #
 # 對話開始(SessionStart)時看一眼:是 git 專案、有在記錄、但**還沒設定分級** → 給 Claude 一行提示,
 # 讓它回第一句話時順帶問「要不要設定分級」。就這樣,沒有第二件事。

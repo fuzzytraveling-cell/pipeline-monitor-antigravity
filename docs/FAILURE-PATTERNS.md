@@ -33,9 +33,11 @@
 - 文件抄第二次就是第二個真相來源（L9）
 - 同一個畫面上「還沒存進保險箱」與「改動」用兩種問法算，3 大於 2（L2 第二次、第三次）
 - 「專案名 → 檔名」在 hook.sh、讀紀錄、寫章三處各寫一次（誠實修補 C）
+- 規格的路徑抄在 README、`package.json`、`hooks.json`、`stages.json` 與程式檔標頭；工作項一換狀態（搬資料夾）全部靜默過期，只有 CLAUDE.md 的表有測試守著（L21）
 
 **哪裡會再犯**：hook.sh（sh）與 status.mjs（node）要對同一件事有共識的任何地方；
 同一個畫面上兩個看起來應該相等的數字。
+在 docs/ 以外寫 `docs/…` 路徑的任何地方——路徑只住 CLAUDE.md 的表，別處只寫名字（L21）。
 兩種語言各寫一次的規則，一定要有一條**真的跑兩邊**的測試釘住——翻譯得再像也是兩份。
 **釘住它的測試**：`scripts/status.test.mjs` 標 P2 的段落；`scripts/sensor.test.mjs` 真的跑 hook.sh 對 `safeName()` 的那段；
 `scripts/skills.test.mjs` 對 `stages.json` 的 skill 名與 `skills/` 資料夾的那段。

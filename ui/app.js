@@ -1,5 +1,5 @@
 /**
- * app.js —— 畫面。規格:docs/進行中/pipeline-ui.md
+ * app.js —— 畫面。規格:pipeline-ui(路徑看 CLAUDE.md 的表)
  *
  * 兩層:  #/          案件列表(有哪些專案接上了)
  *        #/p/<名字>  那個案件的儀表板

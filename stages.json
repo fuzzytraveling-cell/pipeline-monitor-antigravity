@@ -32,7 +32,7 @@
       "tools": "^mcp__(Claude_Browser|claude-in-chrome)__"
     }
   ],
-  "_說明4": "分級(tiers)的三級預設值住在 tierLevels:none=沒碰到程式區、code=碰到程式區、danger=碰到危險清單。requires 是這一級「會跑哪幾關」(收工 hook 會擋著要求跑;規格:docs/升級摘要/五關自動結案.md),關卡代號或 tests(這次必須有新增或修改的測試檔)。T1 只要 D:D 的價值跟改動大小無關,一行改錯就能讓畫面說謊;C 的價值跟改動大小成正比,碰到危險清單(T2)才要求(Oscar 2026-09-16:調一個標籤對齊就跑 C 是純成本)。E 永遠不在清單裡,它是人的。專案的 .claude/pipeline-stages.json 可用 tiers.levels 覆寫。",
+  "_說明4": "分級(tiers)的三級預設值住在 tierLevels:none=沒碰到程式區、code=碰到程式區、danger=碰到危險清單。requires 是這一級「會跑哪幾關」(收工 hook 會擋著要求跑;規格:五關自動結案,路徑看 CLAUDE.md 的表),關卡代號或 tests(這次必須有新增或修改的測試檔)。T1 只要 D:D 的價值跟改動大小無關,一行改錯就能讓畫面說謊;C 的價值跟改動大小成正比,碰到危險清單(T2)才要求(Oscar 2026-09-16:調一個標籤對齊就跑 C 是純成本)。E 永遠不在清單裡,它是人的。專案的 .claude/pipeline-stages.json 可用 tiers.levels 覆寫。",
   "tierLevels": {
     "none": {
       "id": "T0",

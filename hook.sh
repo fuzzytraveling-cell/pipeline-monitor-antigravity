@@ -1,5 +1,5 @@
 #!/bin/sh
-# hook.sh —— 感測器的熱路徑。規格:<專案>/docs/進行中/pipeline-sensor.md
+# hook.sh —— 感測器的熱路徑。規格:pipeline-sensor(路徑看 CLAUDE.md 的表)
 #
 # ⚠️ 這支的第一守則是 **AC-2:絕不影響 Claude**。
 #    所以它:不驗證、不重試、不輸出、不回傳非零。最後一行永遠是 exit 0。

@@ -1,5 +1,5 @@
 #!/bin/sh
-# gate.sh —— 收工 hook(Stop)的殼。規格:docs/進行中/五關自動結案.md
+# gate.sh —— 收工 hook(Stop)的殼。規格:五關自動結案(路徑看 CLAUDE.md 的表)
 #
 # 判斷住在 gate.mjs(node):它要讀分級、git、紀錄,用 sh 寫會變成第二份實作(老毛病 P2)。
 # 這支只做一件事:找到 node 就把 stdin 原封不動交給 gate.mjs;找不到就**安靜放行**。

@@ -2,9 +2,7 @@
 
 一個指令看完：**我在哪、我回得去哪、這次動了多少。**
 
-規格住在試驗場專案裡：`ai-english-course/docs/進行中/pipeline-status.md`
-（⚠️ 這是刻意的——這個工具還在拿 TutorPod 當試驗場，還沒獨立成 repo。
-觸發條件是「有第二個專案要裝」。）
+規格在哪：看 [`CLAUDE.md`](CLAUDE.md)「動手前該讀哪一份」那張表。那張表有測試守著；這裡不另抄一份路徑，抄了會靜默過期。
 
 ## 安裝（一行，加到 `~/.zshrc`）
 
@@ -69,7 +67,7 @@ pipeline-status --install
 感測器記到的名字不一樣（`spec` 與 `pipeline-monitor:spec`），但讀取端**兩種都算同一關**——五關的 A 不會因為你叫的是 plugin 版就沒亮。
 
 ⚠️ 跟感測器一樣，工具只能確認「檔案在 plugin 裡」，不能確認 Claude Code 載入了——新對話才會生效（現有的打 `/reload-plugins`）。
-差異表與規格：`docs/進行中/通用三關.md`。
+差異表與規格：通用三關（路徑看 `CLAUDE.md` 的表）。
 
 ## 分級：這次要多小心
 

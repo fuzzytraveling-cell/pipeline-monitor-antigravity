@@ -1,5 +1,5 @@
 /**
- * skills.test.mjs —— plugin 帶的三關指令(skills/spec、cleanup、chaos-check)。規格:docs/進行中/通用三關.md
+ * skills.test.mjs —— plugin 帶的三關指令(skills/spec、cleanup、chaos-check)。規格:通用三關(路徑看 CLAUDE.md 的表)
  *
  * 釘三件會安靜說謊的事:
  *   ① stages.json 說這一關有 skill,plugin 卻沒帶 → 別的專案這一關永遠「找不到這個指令」(老毛病 P2:兩份清單各說各話)

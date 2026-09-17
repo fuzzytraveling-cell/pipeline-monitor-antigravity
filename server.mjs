@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * server.mjs —— ③ 畫面的本機伺服器
- * 規格:docs/進行中/pipeline-ui.md
+ * 規格:pipeline-ui(路徑看 CLAUDE.md 的表)
  *
  * ⚠️ AC-7:只綁 127.0.0.1,而且**刻意不提供對外的開關**。
  *    這個畫面看得到你所有專案的路徑、分支、你打過的字。
