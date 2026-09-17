@@ -2,6 +2,7 @@
   "_說明": "感測器的接點,**唯一的一份**。舊接法(pipeline-status --on)也是從這裡讀,把 ${CLAUDE_PLUGIN_ROOT} 換成安裝位置。",
   "_說明2": "PreToolUse 多接瀏覽器工具:E 驗收記的是「開了瀏覽器做動作」,永遠不是「驗收通過」(R2)。",
   "_說明3": "SessionStart 接的是 remind.sh(不是 hook.sh):對話開始時、專案還沒設定分級 → 給 Claude 一行提示。兩支契約相反,刻意分開。",
+  "_說明5": "PreToolUse 再接 app 的「建議新開對話」卡(mcp__ccd_session__spawn_task):在 app 按叉叉那張卡就永久消失,儀表板要留得住。記到的是「Claude 叫了這張卡」,不是「卡真的跳出來了」(R2)。刻意獨立一筆、不併進瀏覽器那個 matcher:舊接法靠 matcher 字串認「掛過了沒」,改既有的字串會讓舊的那筆留著,瀏覽器動作就記兩次。讀取端認的工具名在 lib/events.mjs 的 SUGGEST_TOOL,測試釘住兩邊對得上。Claude 還有一個收回卡的工具(dismiss_task:做完了、前提變了、換一張新的),現在不接——它帶的代號只出現在提卡那次的回傳裡,感測器不讀回傳,對不回是哪一張;被收回的卡在儀表板會繼續掛著,畫面有明講。它不是 app 的叉叉(叉叉是人按的,沒有工具呼叫)。規格:app建議卡(路徑看 CLAUDE.md 的表)",
   "hooks": {
     "SessionStart": [
       {
@@ -37,6 +38,15 @@
       },
       {
         "matcher": "mcp__Claude_Browser__.*|mcp__claude-in-chrome__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hook.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__ccd_session__spawn_task",
         "hooks": [
           {
             "type": "command",

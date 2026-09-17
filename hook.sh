@@ -66,7 +66,34 @@ done
 # ⚠️ 瀏覽器工具只記**主機名**(url_host),不記整個網址:E 驗收要講得出「去了哪」,才分得出是在測專案還是在看儀表板。
 # ⚠️ E3(2026-09-11):worktree 對話的第一則訊息前面會被系統附加一段 <system-reminder>…</system-reminder>,
 #    截 200 字之後使用者打的字整個不見。先剝掉那段再截——記的是「使用者說了什麼」,不是系統塞了什麼。
-printf '%s' "$PAYLOAD" | jq -c --arg head "${HEAD:-}" '{
+# ⚠️ app 建議卡(2026-09-17):Claude 在 app 裡叫「建議新開對話」的卡時,工具參數的 title／tldr／prompt／cwd 都記——
+#    在 app 按叉叉那張卡就永久消失,儀表板要留得住。欄位叫 in_*(tool_input 的):title、prompt、cwd 這三個名字
+#    已經是「對話標題」「使用者說的話」「對話在哪個資料夾」,混用的話讀取端會把對話改名成卡的標題。
+#    cwd 是「這張卡要開在哪」——實測有一半的卡是開在別的專案,不記的話「已開始」永遠對不到。
+#    這裡照舊**不認工具名**(AC-6):哪個工具算建議卡,讀取端說了算(lib/events.mjs 的 SUGGEST_TOOL)。
+#    cut 照 **bytes** 截、不照字數:算的是寫進這一行之後佔幾個 bytes(中文 3、emoji 4、換行與引號 2、控制字元 6),
+#    照字數截保證不了 AC-4。不是字串、或是空的 → null(不猜)。有被截的欄位記在 in_cut,畫面才標得出「已截短」。
+#    二分法的圈數寫死(12 圈,2^12 比任何一個上限都大)、沒有「跑到條件成立為止」的迴圈——熱路徑不准有機會卡住(AC-2)。
+#    上限是看過真的卡才訂的(2026-09-17):title、tldr、cwd 都留得全;prompt 常常比整行的上限還長,留不全是 AC-4 的代價。
+#    四段同時截滿也要離 4096 有一段距離——這一行還有沒截的舊欄位(cwd、對話與工具的代號),它們吃的是同一個空間。
+printf '%s' "$PAYLOAD" | jq -c --arg head "${HEAD:-}" '
+def cut($max):
+  if type != "string" or . == "" then null else
+    .[0:$max] as $s
+    | if ($s | tojson | utf8bytelength) <= $max then $s else
+        reduce range(0; 12) as $_ ({lo: 0, hi: ($s | length)};
+          if .lo >= .hi then . else
+            ((.lo + .hi + 1) / 2 | floor) as $m
+            | if ($s[0:$m] | tojson | utf8bytelength) <= $max then .lo = $m else .hi = $m - 1 end
+          end)
+        | $s[0:.lo]
+      end
+  end;
+(.tool_input.title  | cut(200))  as $t |
+(.tool_input.tldr   | cut(500))  as $l |
+(.tool_input.prompt | cut(2000)) as $p |
+(.tool_input.cwd    | cut(300))  as $w |
+{
   ts:        (now | todateiso8601),
   hook:       .hook_event_name,
   session:    .session_id,
@@ -82,7 +109,14 @@ printf '%s' "$PAYLOAD" | jq -c --arg head "${HEAD:-}" '{
                  | capture("^[a-zA-Z]+://(?<h>[^/?#]+)")] | .[0].h // null),
   prompt:     ((.prompt // null)        | if type=="string"
                  then (gsub("<system-reminder>[\\s\\S]*?</system-reminder>\\s*"; "") | .[0:200]) else . end),
-  title:      .session_title
+  title:      .session_title,
+  in_title:   $t,
+  in_tldr:    $l,
+  in_prompt:  $p,
+  in_cwd:     $w,
+  in_cut:     ([["title", $t, .tool_input.title], ["tldr", $l, .tool_input.tldr],
+                ["prompt", $p, .tool_input.prompt], ["cwd", $w, .tool_input.cwd]]
+                 | map(select(.[1] != null and .[1] != .[2]) | .[0]) | if length > 0 then . else null end)
 } | with_entries(select(.value != null))' >> "$LOG_DIR/$PROJECT.jsonl" 2>/dev/null
 
 exit 0

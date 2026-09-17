@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { describeFreshness, STALE_AFTER_SECONDS } from '../lib/freshness.mjs';
 import { createApp } from '../server.mjs';
+import { SUGGEST_TOOL } from '../lib/events.mjs';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -191,6 +192,8 @@ section('「你說驗收過了」按鈕:只准認識的工作區、只准驗收�
     JSON.stringify({ ts, hook: 'PreToolUse', tool: 'Skill', skill: 'chaos-check', session: 's1', cwd: root }),
     JSON.stringify({ ts, hook: 'PreToolUse', tool: 'mcp__Claude_Browser__navigate', session: 's1', cwd: root }),
     JSON.stringify({ ts, event: 'suggestion', id: 'sg-9', title: 't', prompt: 'p', cwd: root, source: 'claude' }),
+    // app 對話裡叫出來的建議卡(感測器記的 PreToolUse):代號是 use_id,「不做了」也要收得掉它
+    JSON.stringify({ ts, hook: 'PreToolUse', tool: SUGGEST_TOOL, use_id: 'toolu_9', session: 's1', cwd: root, in_title: 'app 的卡', in_tldr: '說明', in_prompt: '要貼的話' }),
   ].join('\n') + '\n');
   const server = createApp({ monitorDir });
   await new Promise((res) => server.listen(0, '127.0.0.1', res));
@@ -204,10 +207,83 @@ section('「你說驗收過了」按鈕:只准認識的工作區、只准驗收�
   eq('按完 E 是 done(你說驗收過了)', st.state, 'done');
   eq('不認識的建議 → 400', (await post('/api/suggest-dismiss', { project: name, id: 'sg-x' })).status, 400);
   eq('認識的建議 → 200', (await post('/api/suggest-dismiss', { project: name, id: 'sg-9' })).status, 200);
-  const sg = (await (await fetch(`http://127.0.0.1:${port}/api/status`)).json()).projects.find((x) => x.name === name).suggestions[0];
-  check('建議標成不做了', !!sg.dismissedAt);
+  const sgs = async () => Object.fromEntries((await (await fetch(`http://127.0.0.1:${port}/api/status`)).json()).projects.find((x) => x.name === name).suggestions.map((s) => [s.id, s]));
+  let sg = await sgs();
+  check('建議標成不做了', !!sg['sg-9']?.dismissedAt);
+  check('app 的建議卡也在清單上,而且還沒被收(在 app 按取消不會傳到這裡,只有這個按鈕會收)', sg.toolu_9?.source === 'app' && sg.toolu_9?.dismissedAt === null, JSON.stringify(sg.toolu_9));
+  eq('app 的建議卡用 use_id 按「不做了」→ 200', (await post('/api/suggest-dismiss', { project: name, id: 'toolu_9' })).status, 200);
+  sg = await sgs();
+  check('app 的建議卡標成不做了,而且還在清單上(收起來不是刪掉)', !!sg.toolu_9?.dismissedAt);
   server.close();
   rmSync(monitorDir, { recursive: true, force: true }); r.cleanup();
+}
+
+/**
+ * 把 ui/app.js 裡的 suggestionsBlock **原封不動**拿出來跑(L20:畫面的程式跑在瀏覽器裡,十幾支測試全綠也沒有一支真的畫過)。
+ * 這個函式不碰 DOM,補上它用到的五個外部名字就能在 node 裡跑。拿不出來要紅——不准安靜地跳過。
+ * ⚠️ 不把它搬成獨立的檔案給兩邊 import:常駐的儀表板服務只送它啟動那一刻白名單裡的檔案,多一個新檔,更新後沒重啟的那段時間整個畫面會載不進來。
+ */
+function loadSuggestionsBlock(latest) {
+  const m = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8').match(/^function suggestionsBlock\(p\) \{\n[\s\S]*?\n\}\n/m);
+  if (!m) return null;
+  const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const ago = (iso) => (iso ? '3 分鐘前' : '');
+  const clock = (iso) => (Number.isFinite(new Date(iso).getTime()) ? '9/17 12:00' : '時間對不上');
+  return new Function('esc', 'ago', 'clock', 'foldOpen', 'latest', `${m[0]}; return suggestionsBlock;`)(esc, ago, clock, () => false, latest);
+}
+const TS = '2026-09-17T04:00:00Z';
+const sgCard = (o) => ({ id: 'toolu_1', ts: TS, source: 'app', title: '修徽章', tldr: '一句說明', prompt: '要貼的話', cwd: '/x', session: 's1', target: null, cut: [],
+  dismissedAt: null, startedBy: null, startedIn: null, openIn: null, startedTitle: null, startedProject: null, fromTitle: '提建議的對話', ...o });
+
+section('建議新增的對話:一張卡都沒有也要畫這一區;伺服器沒回答不准講成「沒有」;要開在這裡的卡掛在別頁要指路（真的跑 ui/app.js 的 suggestionsBlock）', 'P5');
+{
+  const block = loadSuggestionsBlock({ retainDays: 90 });
+  check('從 ui/app.js 拿得出 suggestionsBlock(拿不出來這一段就什麼都沒測到)', typeof block === 'function');
+  if (typeof block === 'function') {
+    const empty = block({ name: 'x', suggestions: [], appCardsSince: null, incomingSuggestions: [] });
+    check('一張都沒有也畫這一區(沒有卡跟根本沒在記長得一樣,不准整區不見)', empty.includes('建議新增的對話'), empty.slice(0, 80));
+    check('而且講「不代表沒跳過」,三種可能都講(含保留期限,天數是伺服器給的)', empty.includes('不代表沒跳過') && empty.includes('還沒重開的對話') && empty.includes('90 天'), empty);
+    // 常駐服務跑的是它啟動那一刻的程式:更新後沒重啟,這支新畫面配到的是不認得 app 建議卡的舊資料(沒有 appCardsSince 這個欄位)
+    const stale = loadSuggestionsBlock({})({ name: 'x', suggestions: [] });
+    check('伺服器沒回答這一題(舊程式)→ 講真正的原因與下一步(--serve-restart)', stale.includes('--serve-restart'), stale);
+    check('而且不准講成「紀錄裡沒有…不代表沒跳過」那三個理由——那三個都不是原因', !stale.includes('不代表沒跳過'), stale);
+    const some = block({ name: 'x', suggestions: [sgCard()], appCardsSince: TS, incomingSuggestions: [] });
+    check('有紀錄之後也要帶「還沒重開的對話裡跳的看不到」那半句', some.includes('開始有紀錄') && some.includes('還沒重開的對話'), some);
+    const pointed = block({ name: 'x', suggestions: [], appCardsSince: null, incomingSuggestions: [{ project: 'other_repo', name: 'other repo', count: 2 }] });
+    check('別的專案掛著 2 張要開在這裡的卡 → 這一頁指路過去', pointed.includes('2 張要開在這裡') && pointed.includes('#/p/other_repo'), pointed);
+    // 程式的內部值漏到畫面上等於沒有畫面:缺欄位、怪欄位都餵一次
+    const odd = [
+      { name: 'x' }, { name: 'x', suggestions: null, appCardsSince: null },
+      { name: 'x', suggestions: [{ id: 'a' }], appCardsSince: null },
+      { name: 'x', suggestions: [sgCard({ title: undefined, tldr: null, prompt: '', ts: undefined, fromTitle: null, session: null })], appCardsSince: '壞掉的時間' },
+      { name: 'x', suggestions: [sgCard({ cut: ['title', 'tldr', 'prompt', 'cwd'], openIn: { project: null, name: null } }), sgCard({ id: 'b', source: 'claude', tldr: null, session: null, fromTitle: null })], appCardsSince: TS },
+      { name: 'x', suggestions: [sgCard({ startedBy: 's9', startedTitle: null })], appCardsSince: TS, incomingSuggestions: [{ project: 'o', name: null, count: 1 }] },
+    ];
+    const leaks = odd.map((o) => block(o)).filter((html) => /undefined|NaN|\bnull\b|\[object/.test(html));
+    check('缺欄位、怪欄位都不會把 undefined／NaN／null 印到畫面上', leaks.length === 0, leaks.map((h) => h.match(/.{30}(undefined|NaN|null|\[object).{30}/s)?.[0]).join('\n      '));
+  }
+}
+
+section('建議新增的對話:這一區看不到的那幾條路,畫面要明講;收起來的數字要自洽（真的跑 ui/app.js 的 suggestionsBlock）', 'P6');
+{
+  const block = loadSuggestionsBlock({ retainDays: 90 });
+  check('從 ui/app.js 拿得出 suggestionsBlock', typeof block === 'function');
+  if (typeof block === 'function') {
+    const html = block({ name: 'x', appCardsSince: TS, incomingSuggestions: [], suggestions: [
+      sgCard({ id: 'open1' }),
+      sgCard({ id: 'both', startedBy: 's9', startedTitle: '照著開的對話', dismissedAt: TS }),   // 既已開始、又按過不做了:只能算一次
+      sgCard({ id: 'gone', dismissedAt: TS }),
+    ] });
+    check('講得出「你在 app 把卡按掉,這裡看不到」', html.includes('app 把建議卡按掉'), html.slice(0, 400));
+    check('講得出「Claude 自己把卡收回,這裡也看不到」(實測大半的卡被收回過)', html.includes('收回'), html.slice(0, 400));
+    check('卡上不寫「你已取消」(AC-2:感測器看不到 app 的叉叉,那句話沒有任何證據)', !html.includes('取消'));
+    check('收起來的 2 張 = 已開始 1 ＋ 你說不做了 1(同一張卡不算兩次)', html.includes('收起來的 2 張（已開始 1、你說不做了 1）'), html.match(/收起來的[^<]*/)?.[0]);
+    check('還沒處理的那張有「不做了」按鈕,收起來的沒有', (html.match(/data-dismiss=/g) ?? []).length === 1);
+    check('兩種來源各有一小行(AC-5)', block({ name: 'x', appCardsSince: TS, suggestions: [sgCard(), sgCard({ id: 'c', source: 'claude' })] }).includes('Claude 在對話裡提的建議卡')
+      && block({ name: 'x', appCardsSince: TS, suggestions: [sgCard({ id: 'c', source: 'claude' })] }).includes('Claude 用 --suggest 放的'));
+    check('被截短的卡標「已截短」,而且講完整的在哪(AC-4)', block({ name: 'x', appCardsSince: TS, suggestions: [sgCard({ cut: ['prompt'] })] }).includes('已截短'));
+    check('空的卡講「這張卡沒有內容」,不是不畫(混沌推導:輸入畸形)', block({ name: 'x', appCardsSince: TS, suggestions: [sgCard({ tldr: null, prompt: '' })] }).includes('這張卡沒有內容'));
+  }
 }
 
 process.exit(summary());

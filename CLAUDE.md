@@ -100,13 +100,13 @@
 | **③ 畫面要做什麼、不做什麼** | [`docs/進行中/pipeline-ui.md`](docs/進行中/pipeline-ui.md)——**施作中** |
 | 通用三關：plugin 帶的 A 寫規格／C 打掃／D 魔鬼教官 skill——通用版跟 TutorPod 版差在哪、專案專屬的東西從哪裡來 | [`docs/升級摘要/通用三關.md`](docs/升級摘要/通用三關.md) |
 | 五關自動結案：分級決定會跑哪幾關（收工 hook）、每一關自動辨識與結案、AC 清單來自規格檔、只有 E 有按鈕 | [`docs/升級摘要/五關自動結案.md`](docs/升級摘要/五關自動結案.md) |
-| 感測器收 app 跳出的「建議新開對話」卡，讓它進儀表板、按取消不會消失 | [`docs/規劃中/app建議卡.md`](docs/規劃中/app建議卡.md)——**等點頭** |
+| 感測器收 app 跳出的「建議新開對話」卡，讓它進儀表板、按取消不會消失 | [`docs/進行中/app建議卡.md`](docs/進行中/app建議卡.md)——**施作中** |
 | E 自動驗收：Claude 自己開網頁照規格的 AC 走一遍、每條看到了／沒看到／驗不了、人做第二次查核 | [`docs/規劃中/E自動驗收.md`](docs/規劃中/E自動驗收.md)——**等點頭** |
 | 想把感測器裝到**新的專案** | 裝成 plugin 一次就好：`pipeline-status --install`，之後每個專案自動記；不想記的專案 `--off`（或儀表板的按鈕）。做法與驗證在 [`docs/升級摘要/plugin.md`](docs/升級摘要/plugin.md)。舊接法（每個專案 `--on`）與它處理過的坑見 [`docs/升級摘要/sensor-install.md`](docs/升級摘要/sensor-install.md) |
 | **分級**（這次要多小心、程式區、危險清單、調高） | [`docs/升級摘要/分級.md`](docs/升級摘要/分級.md)。規則只有一條：沒有清單就不分級，工具不猜危險清單 |
 | 做畫面／碰任何顏色、字體、間距 | [`docs/DESIGN.md`](docs/DESIGN.md)——設計系統的唯一出處。實際的 token 檔在 `ui設計規格/`（`variables.css`／`tokens.json`），**畫面直接 import 那份，不要抄一份數值進程式碼** |
 | 碰還原點的「回去」指令、改動計數、感測器狀態、專案名→檔名 | [`docs/升級摘要/誠實修補.md`](docs/升級摘要/誠實修補.md)——2026-09-11 三批修完的 16 個「畫面說謊」問題，分組、根源與施作紀錄都在裡面 |
-| 犯過的錯**又**出現、或想知道有哪些老毛病 | [`docs/FAILURE-PATTERNS.md`](docs/FAILURE-PATTERNS.md)——四種會一再回來的形狀。測試的 `section()` 用它的代號標記，紅的時候會印出來 |
+| 犯過的錯**又**出現、或想知道有哪些老毛病 | [`docs/FAILURE-PATTERNS.md`](docs/FAILURE-PATTERNS.md)——會一再回來的那幾種形狀。測試的 `section()` 用它的代號標記，紅的時候會印出來 |
 
 ## 工作項的狀態就是路徑
 

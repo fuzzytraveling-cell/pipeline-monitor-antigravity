@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
-import { readEvents, loadStages, safeName, sessionsOf, lastRunPerStage, runsPerStage, roundView, stagesOfSession, suggestionsOf, perStageOfRound } from '../lib/events.mjs';
+import { readEvents, loadStages, safeName, sessionsOf, lastRunPerStage, runsPerStage, roundView, stagesOfSession, suggestionsOf, firstPromptsOf, perStageOfRound, SUGGEST_TOOL } from '../lib/events.mjs';
 import { parseChecklist } from '../lib/checklist.mjs';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 
@@ -312,6 +312,187 @@ section('建議新增的對話:寫進紀錄、不做了、對話真的這樣開�
   check('第二張:不做了', !!sg['sg-2'].dismissedAt && sg['sg-2'].startedBy === null);
 }
 
+/** Claude 在 app 的對話裡叫「建議新開對話」的卡時,Claude Code 餵給 PreToolUse hook 的東西(形狀照真的對話紀錄裡的呼叫)。 */
+const CARD_PROMPT = '在這個專案裡,把 README 最上面的徽章換成新的網址。先讀 CLAUDE.md,改完跑 npm test,不要動別的檔案。\n\n背景:舊網址上個月就失效了。';
+// 代號用真的長度(對話與 prompt 是 UUID、工具呼叫是 toolu_ 加 24 個字):整行的空間是跟這些沒截的舊欄位一起分的,
+// 用短代號量出來的行長會比真的少一百多 bytes,AC-4 那條就量不準
+const SRC = '0f8fad5b-d9cb-469f-a165-70867728950e';
+const CARD = (over = {}, input = {}) => ({
+  hook_event_name: 'PreToolUse', session_id: SRC, prompt_id: '7c9e6679-7425-40de-944b-e07fc1f90ae7', permission_mode: 'default', transcript_path: '/x/t.jsonl',
+  tool_name: SUGGEST_TOOL, tool_use_id: 'toolu_01CardCardCardCardCardCa',
+  tool_input: { title: '修 README 的徽章', tldr: '剛剛看到徽章指到舊的網址。新對話會把它換掉。', prompt: CARD_PROMPT, ...input },
+  ...over,
+});
+
+section('app 建議卡(AC-1、AC-6):Claude 在 app 裡叫建議卡,感測器記一行、讀取端當成一張卡,而且照舊不影響對話（真的跑 hook.sh）', 'P6');
+{
+  const r = makeRepo({ files: { 'a.js': '1\n' } });
+  const out = runHook(CARD({ cwd: r.dir }), { keep: true });
+  eq('離開碼 0', out.code, 0);
+  eq('不輸出任何東西', out.stdout, '');
+  eq('記了一行', out.lines.length, 1);
+  const rec = JSON.parse(out.lines[0]);
+  eq('標題記到了', rec.in_title, '修 README 的徽章');
+  eq('一句說明記到了', rec.in_tldr, '剛剛看到徽章指到舊的網址。新對話會把它換掉。');
+  eq('要貼的話整段記到了(含換行)', rec.in_prompt, CARD_PROMPT);
+  check('沒被截的卡沒有 in_cut', !('in_cut' in rec), JSON.stringify(rec.in_cut));
+  // 撞名:title／prompt 這兩個欄位已經是「對話標題」跟「使用者說的話」,卡的內容寫進去的話對話會被改名
+  check('沒有寫進 title／prompt 這兩個欄位', !('title' in rec) && !('prompt' in rec), Object.keys(rec).join(','));
+  const named = sessionsOf([{ ts: rec.ts, hook: 'UserPromptSubmit', session: SRC, cwd: r.dir, prompt: 'hi', title: '原本的對話標題' }, rec]);
+  eq('對話不會被改名成卡的標題', named[0].title, '原本的對話標題');
+  check('沒有 success／tool_response(感測器 AC-3 不變)', !('success' in rec) && !('tool_response' in rec));
+  // 讀取端:從紀錄檔讀回來就是一張卡
+  const back = readEvents(out.logDir, r.dir.split('/').pop());
+  eq('紀錄檔讀得回來', back.events.length, 1);
+  const cards = suggestionsOf(back.events);
+  eq('一張卡', cards.length, 1);
+  eq('代號用感測器記的 use_id', cards[0].id, 'toolu_01CardCardCardCardCardCa');
+  eq('來源標 app(AC-5)', cards[0].source, 'app');
+  eq('標題、說明、要貼的話都在', `${cards[0].title}|${cards[0].tldr}|${cards[0].prompt === CARD_PROMPT}`, '修 README 的徽章|剛剛看到徽章指到舊的網址。新對話會把它換掉。|true');
+  eq('知道是哪個對話提的', cards[0].session, SRC);
+  // 要開在別的資料夾的卡(真的卡有一半是這種):記下來,畫面才講得出「要開在哪」
+  const away = JSON.parse(runHook(CARD({ cwd: r.dir }, { cwd: '/somewhere/other-repo' })).lines[0]);
+  eq('卡指定的資料夾記在 in_cwd', away.in_cwd, '/somewhere/other-repo');
+  eq('對話自己的 cwd 不受影響', away.cwd, r.dir);
+  eq('讀取端:target 是卡要開的地方', suggestionsOf([away])[0].target, '/somewhere/other-repo');
+  // 一次對話跳好幾張:每張一行、各自有代號,不合併
+  const three = ['toolu_a', 'toolu_b', 'toolu_c'].flatMap((id) => runHook(CARD({ cwd: r.dir, tool_use_id: id })).lines).map((l) => JSON.parse(l));
+  eq('三張卡 → 三張,不合併', suggestionsOf(three).length, 3);
+  rmSync(out.logDir, { recursive: true, force: true }); r.cleanup();
+}
+
+section('app 建議卡(AC-4):一張卡不能把紀錄檔寫壞——再長、再怪的內容,那一行都小於 4096 bytes、讀得回來、標了已截短（真的跑 hook.sh）');
+{
+  const r = makeRepo({ files: { 'a.js': '1\n' } });
+  const jbytes = (s) => Buffer.byteLength(JSON.stringify(s));
+  // 四段全部超長(連「要開在哪」的路徑都是):這是這一行最胖的樣子
+  const long = { title: '標'.repeat(500), tldr: '說'.repeat(2000), prompt: '貼'.repeat(5000), cwd: `/${'夾'.repeat(400)}` };
+  const out = runHook(CARD({ cwd: r.dir }, long));
+  eq('超長的卡還是記了一行', out.lines.length, 1);
+  const bytes = Buffer.byteLength(out.lines[0]);
+  check(`超長的中文卡:實測 ${bytes} bytes < 4096`, bytes < 4096);
+  // 這一行還有沒截的舊欄位(對話的 cwd):四段同時截滿之後剩下的空間,要放得下一條很長的路徑(這裡要求還剩 400 bytes 以上)
+  check(`四段同時截滿,離 4096 還有 ${4096 - bytes} bytes(留給沒截的 cwd)`, 4096 - bytes >= 400);
+  const rec = JSON.parse(out.lines[0]);
+  check('三段留下來的都是原文的開頭(沒有切在一個字中間)',
+    long.title.startsWith(rec.in_title) && long.tldr.startsWith(rec.in_tldr) && long.prompt.startsWith(rec.in_prompt));
+  eq('被截的四段都標了(畫面才標得出「已截短」)', JSON.stringify(rec.in_cut), JSON.stringify(['title', 'tldr', 'prompt', 'cwd']));
+  eq('讀取端:cut 帶著哪幾段被截', JSON.stringify(suggestionsOf([rec])[0].cut), JSON.stringify(['title', 'tldr', 'prompt', 'cwd']));
+  // 照 bytes 截、不是照字數:中文(3 bytes)跟英文(1 byte)留下來的 bytes 要一樣多,差不到一個字。
+  // 照字數截的話英文只留得下三分之一;二分法沒收斂的話兩邊會差很多
+  const ascii = JSON.parse(runHook(CARD({ cwd: r.dir }, { prompt: 'x'.repeat(9000) })).lines[0]);
+  check(`中文留 ${jbytes(rec.in_prompt)} bytes、英文留 ${jbytes(ascii.in_prompt)} bytes:差不到一個中文字`,
+    Math.abs(jbytes(rec.in_prompt) - jbytes(ascii.in_prompt)) < 3);
+  check('英文留下來的字數是中文的快三倍(同樣的空間,不浪費)', ascii.in_prompt.length > rec.in_prompt.length * 2.9);
+  // 最會撐破一行的內容:emoji 一個 4 bytes、控制字元寫出來一個 6 bytes、引號與換行一個 2 bytes
+  const nasty = { 'emoji': '\u{1F600}'.repeat(5000), '控制字元': ''.repeat(5000), '引號與換行': '"\n\\'.repeat(3000), '混著來': '中\u{1F600}a"\n'.repeat(1500) };
+  for (const [label, text] of Object.entries(nasty)) {
+    const o = runHook(CARD({ cwd: r.dir }, { title: text, tldr: text, prompt: text }));
+    const b = o.lines.length === 1 ? Buffer.byteLength(o.lines[0]) : Infinity;
+    let parsed = null; try { parsed = JSON.parse(o.lines[0]); } catch { parsed = null; }
+    check(`${label}:${b} bytes < 4096,讀得回來,而且是原文的開頭`, b < 4096 && !!parsed && text.startsWith(parsed.in_prompt) && parsed.in_prompt.length > 0);
+  }
+  r.cleanup();
+}
+
+section('app 建議卡(輸入畸形):prompt 不是字串、是空的、整個 tool_input 不見 → 記 null,還是一張卡(「沒有內容」不等於「沒有這張卡」)');
+{
+  const r = makeRepo({ files: { 'a.js': '1\n' } });
+  const odd = { 'prompt 是數字': { prompt: 42 }, 'prompt 是物件': { prompt: { a: 1 } }, 'prompt 是空字串': { prompt: '' }, '三段都是 null': { title: null, tldr: null, prompt: null } };
+  for (const [label, input] of Object.entries(odd)) {
+    const o = runHook(CARD({ cwd: r.dir }, input));
+    const rec = o.lines.length === 1 ? JSON.parse(o.lines[0]) : null;
+    const cards = rec ? suggestionsOf([rec]) : [];
+    check(`${label}:照樣記一行、in_prompt 不猜(沒有這個欄位)、讀取端還是一張卡而且 prompt 是空的`,
+      !!rec && !('in_prompt' in rec) && cards.length === 1 && cards[0].prompt === '', JSON.stringify(rec));
+  }
+  const bare = runHook({ ...CARD({ cwd: r.dir }), tool_input: undefined });
+  eq('整個 tool_input 不見:還是一張卡', suggestionsOf(bare.lines.map((l) => JSON.parse(l))).length, 1);
+  eq('沒有標題的卡,標題照實說沒有', suggestionsOf(bare.lines.map((l) => JSON.parse(l)))[0].title, '（沒有標題）');
+  r.cleanup();
+}
+
+section('app 建議卡:讀取端認的工具名,感測器真的有接(hooks.json 對得上 SUGGEST_TOOL);hook.sh 自己不認工具名', 'P2');
+{
+  // 這個工具名住兩個地方(hooks.json 的 matcher、lib/events.mjs 的 SUGGEST_TOOL)。對不上的話卡一張都進不來,而且沒有任何東西會紅
+  const pre = JSON.parse(readFileSync(join(ROOT, 'hooks', 'hooks.json'), 'utf8')).hooks.PreToolUse;
+  const hits = (tool) => pre.filter((e) => new RegExp(`^(?:${e.matcher})$`).test(tool));
+  eq('PreToolUse 剛好一筆接得到它(兩筆就會記兩次)', hits(SUGGEST_TOOL).length, 1);
+  check('那一筆跑的是感測器 hook.sh', hits(SUGGEST_TOOL)[0]?.hooks?.[0]?.command?.endsWith('/hook.sh"') === true);
+  // 舊接法靠「事件＋matcher 字串」認掛過了沒:併進既有的 matcher = 改了那個字串 = 舊的那筆留著、瀏覽器動作記兩次
+  eq('獨立的一筆,不是併進別的 matcher', hits(SUGGEST_TOOL)[0]?.matcher, SUGGEST_TOOL);
+  check('瀏覽器那一筆的 matcher 沒被動到', pre.some((e) => e.matcher === 'mcp__Claude_Browser__.*|mcp__claude-in-chrome__.*'));
+  check('hook.sh 裡沒有寫死這個工具名(哪個工具算建議卡,只有讀取端說了算)', !readFileSync(join(ROOT, 'hook.sh'), 'utf8').includes(SUGGEST_TOOL));
+  // dismiss_task 是 **Claude 自己收回卡**的工具(不是 app 的叉叉——叉叉是人按的,沒有工具呼叫)。它帶的代號只出現在提卡那次的回傳裡,
+  // 感測器不讀回傳,對不回是哪一張,所以現在不接;哪天要接,讀取端跟畫面要一起改(畫面現在明講「Claude 收回的這裡看不到」)
+  eq('Claude 收回卡的工具(dismiss_task)現在不接', hits('mcp__ccd_session__dismiss_task').length, 0);
+}
+
+section('app 建議卡(AC-2、AC-3、AC-5):只有儀表板的「不做了」收得掉它;對話真的照說明開了才算已開始,對不上、分不出來都不收');
+{
+  const T = (h, m = 0) => new Date(Date.UTC(2026, 8, 17, h, m)).toISOString();
+  const card = (o = {}) => ({ ts: T(2), hook: 'PreToolUse', tool: SUGGEST_TOOL, session: 'src', cwd: '/x', use_id: 'toolu_1', in_title: '修徽章', in_tldr: '一句說明', in_prompt: CARD_PROMPT, ...o });
+  const says = (h, session, prompt) => ({ ts: T(h), hook: 'UserPromptSubmit', session, cwd: '/x', prompt });
+  const one = (ev, opt) => suggestionsOf(ev, opt).find((s) => s.id === 'toolu_1');
+
+  // AC-2:你在 app 按叉叉不會留下任何事件,卡當然還在。Claude 自己收回卡(dismiss_task)就算哪天被記到,也不准拿來收卡——
+  // 它帶的是另一種代號(task_…),跟 use_id 對不起來,硬配會收錯張
+  const withdrawn = [card(), { ts: T(3), hook: 'PreToolUse', tool: 'mcp__ccd_session__dismiss_task', session: 'src', cwd: '/x', use_id: 'toolu_2' }];
+  eq('同一個對話裡 Claude 收回過卡 → 這張還在(不亂配對)', one(withdrawn).dismissedAt, null);
+  eq('儀表板的「不做了」→ 收起來,記的是那一筆的時間', one([card(), { ts: T(4), event: 'suggestion_dismissed', id: 'toolu_1', source: 'human' }]).dismissedAt, T(4));
+
+  // AC-3:新對話的第一句話開頭對得上 → 已開始;對不上 → 還沒開始,不猜
+  eq('新對話第一句話就是那段要貼的話 → 已開始', one([card(), says(3, 'new1', CARD_PROMPT)]).startedBy, 'new1');
+  eq('開頭一樣、後面被感測器截掉 → 還是已開始', one([card(), says(3, 'new1', CARD_PROMPT.slice(0, 70))]).startedBy, 'new1');
+  eq('第一句話前面多了別的字 → 還沒開始(不猜)', one([card(), says(3, 'new1', `請幫我做這件事:${CARD_PROMPT}`)]).startedBy, null);
+  eq('只有第二句話對得上 → 還沒開始(只認第一句)', one([card(), says(3, 'new1', '先聊別的'), says(4, 'new1', CARD_PROMPT)]).startedBy, null);
+  // Oscar 習慣先打一行「這個對話命名為…」再貼說明(2026-09-17 實測:這個功能自己那張卡就因此一直掛著)→ 從某一行的開頭開始也認
+  eq('先打一行別的、下一行才是說明 → 已開始', one([card(), says(3, 'new1', `這個對話命名為:修徽章\n${CARD_PROMPT}`)]).startedBy, 'new1');
+  eq('說明夾在一句話中間(不是一行的開頭)→ 還沒開始', one([card(), says(3, 'new1', `你之前建議「${CARD_PROMPT}」是什麼意思`)]).startedBy, null);
+  // 同一個對話提的兩張卡,開頭同一段前言(超過 60 字)、後面才分岔:照其中一張開對話,只准收那一張——另一張安靜消失就是弄丟
+  const PRE = '這個專案的背景:它是一個給不寫程式的人用的工具,所有給人看的字都要白話,改任何東西之前先讀 CLAUDE.md 的三條紅線,改完一定要跑 npm test。';
+  const two = [card({ use_id: 'toolu_1', in_prompt: `${PRE}這一張要做的事:換掉 README 的徽章。` }), card({ use_id: 'toolu_2', in_prompt: `${PRE}另一張要做的事:刪掉舊的部署腳本。` })];
+  check('前言真的超過 60 字(不然這條測不到東西)', PRE.length > 60, String(PRE.length));
+  const afterOne = Object.fromEntries(suggestionsOf([...two, says(3, 'new1', `${PRE}這一張要做的事:換掉 README 的徽章。`)]).map((s) => [s.id, s.startedBy]));
+  eq('開頭一樣的兩張卡,照第一張開 → 只收第一張', `${afterOne.toolu_1}/${afterOne.toolu_2}`, 'new1/null');
+  // 同一件事放了兩次(app 一張、--suggest 一張,說明一字不差——真的發生過)→ 兩張是同一個建議,一起收
+  const twin = [card(), { ts: T(2), event: 'suggestion', id: 'sg-twin', title: '修徽章', prompt: CARD_PROMPT, cwd: '/x', source: 'claude' }, says(3, 'new1', CARD_PROMPT)];
+  eq('說明一字不差的兩張 → 都算已開始', suggestionsOf(twin).map((s) => s.startedBy).join('/'), 'new1/new1');
+  // 兩張卡的說明前 200 字一樣、後面不同:感測器只記得到第一句話的前 200 字,分不出是照哪一張開的 → 都不收(寧可多掛一張)
+  const SAME200 = '同'.repeat(220);
+  const tie = [card({ use_id: 'toolu_1', in_prompt: `${SAME200}甲` }), card({ use_id: 'toolu_2', in_prompt: `${SAME200}乙` }), says(3, 'new1', SAME200.slice(0, 200))];
+  eq('分不出是照哪一張開的 → 兩張都留著', suggestionsOf(tie).map((s) => String(s.startedBy)).join('/'), 'null/null');
+  // 比這張卡早的對話不可能是照這張卡開的:認了的話卡一出生就被當成已開始收掉,等於弄丟
+  eq('同樣開頭、但比卡早的對話 → 不算', one([says(1, 'old', CARD_PROMPT), card()]).startedBy, null);
+  eq('早的不算,晚的才算', one([says(1, 'old', CARD_PROMPT), card(), says(3, 'new1', CARD_PROMPT)]).startedBy, 'new1');
+  // 整條走一次:app 開的 worktree 對話,第一句話前面有系統塞的 <system-reminder>——感測器剝掉之後要對得上（真的跑 hook.sh）
+  const r = makeRepo({ files: { 'a.js': '1\n' } });
+  const cardLine = JSON.parse(runHook(CARD({ cwd: r.dir, tool_use_id: 'toolu_1' })).lines[0]);
+  const pre = '<system-reminder>\nYou are operating in a git worktree.\n</system-reminder>\n';
+  const firstLine = JSON.parse(runHook({ hook_event_name: 'UserPromptSubmit', session_id: 'new-wt', prompt_id: 'p1', cwd: r.dir, prompt: `${pre}${CARD_PROMPT}` }).lines[0]);
+  eq('兩行都是 hook.sh 寫的:worktree 對話照樣認得出已開始', one([cardLine, firstLine]).startedBy, 'new-wt');
+  r.cleanup();
+  // 要開在別的專案的卡:那個新對話記在別的專案的紀錄檔裡。collect 會把所有專案的第一句話湊成一份給進來
+  const elsewhere = new Map([...firstPromptsOf([card(), says(1, 'src', '原本的對話')]), ['other-s', { prompt: CARD_PROMPT, ts: T(5), project: 'other-repo' }]]);
+  const far = one([card(), says(1, 'src', '原本的對話')], { firstPrompts: elsewhere });
+  eq('別的專案裡有對話這樣開頭 → 已開始,而且說得出在哪個專案', `${far.startedBy}/${far.startedIn}`, 'other-s/other-repo');
+
+  // AC-5:兩種來源長得一樣、分得出來;--suggest 截過的也標得出來
+  const both = suggestionsOf([card(), { ts: T(1), event: 'suggestion', id: 'sg-1', title: 't', prompt: 'p', cwd: '/x', source: 'claude', cut: true }]);
+  eq('來源:app 與 claude', both.map((s) => s.source).sort().join(','), 'app,claude');
+  eq('兩種卡的欄位一樣(畫面用同一種畫法)', JSON.stringify(Object.keys(both[0]).sort()), JSON.stringify(Object.keys(both[1]).sort()));
+  eq('--suggest 截過的說明也帶著記號', JSON.stringify(both.find((s) => s.source === 'claude').cut), '["prompt"]');
+
+  // 輸入畸形:沒有 use_id 也要是一張卡,而且代號每次讀都一樣(「不做了」才指得回來);同一個 use_id 記了兩次是同一張
+  const noId = [card({ use_id: undefined, in_title: '甲' }), card({ use_id: undefined, in_title: '乙' })];
+  const ids = suggestionsOf(noId).map((s) => s.id);
+  eq('沒有 use_id 的兩張卡 → 兩張,代號不一樣', new Set(ids).size, 2);
+  eq('再讀一次,代號一樣', JSON.stringify(suggestionsOf(noId).map((s) => s.id)), JSON.stringify(ids));
+  const gone = suggestionsOf([...noId, { ts: T(4), event: 'suggestion_dismissed', id: ids[0], source: 'human' }]);
+  eq('用那個代號按「不做了」,收掉的就是那一張', gone.filter((s) => s.dismissedAt).map((s) => s.id).join(','), ids[0]);
+  eq('同一個 use_id 記了兩次(plugin 跟舊接法同時掛著)→ 一張', suggestionsOf([card(), card()]).length, 1);
+}
+
 section('D2：故障記號是警告,不是把整區蓋掉的理由');
 {
   const d = mkdtempSync(join(tmpdir(), 'pm-ev4-'));
@@ -325,7 +506,7 @@ section('D2：故障記號是警告,不是把整區蓋掉的理由');
   rmSync(d, { recursive: true, force: true });
 }
 
-section('你自己打的斜線指令不經過 Skill 工具:訊息開頭是 /spec 或 /pipeline-monitor:spec 也算被叫(L19)');
+section('你自己打的斜線指令不經過 Skill 工具:訊息開頭是 /spec 或 /pipeline-monitor:spec 也算被叫(L19)', 'P6');
 {
   // 2026-09-15 Forma Pro 第一次真的叫 /pipeline-monitor:spec:規格寫出來了,Skill 事件零筆,儀表板 A 卻「這一輪還沒跑」。
   // 打了不等於跑起來(Unknown command 那次感測器一樣只看到你打了),所以 via 要分開,文案才講得出「你叫了」。

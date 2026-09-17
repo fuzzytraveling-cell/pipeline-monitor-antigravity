@@ -839,6 +839,8 @@ function doSuggest(ctx, title, prompt) {
     appendFileSync(logFileOf(LOG_DIR, ctx.project), JSON.stringify({
       ts: new Date().toISOString(), event: 'suggestion', id, title: title.trim().slice(0, 80), prompt: kept,
       cwd: ctx.mainRoot ?? ctx.root, source: 'claude',
+      // 截過要記在紀錄裡:儀表板才標得出「已截短」,不然半段說明會被當成全文(感測器記的 app 建議卡也有同一種記號)
+      ...(cut ? { cut: true } : {}),
     }) + '\n');
   } catch (e) {
     console.log(`❌ 沒記成功：${e.message}`);

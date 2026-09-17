@@ -423,6 +423,12 @@ a.ext { color: var(--color-lake-blue); }
 .mini span[data-s="seen"] { background: var(--color-ash); }
 .acard .mini-btn { margin-top: 8px; }
 .srow .sact { grid-column: 2; grid-row: 1 / span 2; display: flex; gap: 8px; align-items: center; }
+/* 建議卡:說明那幾行裡的連結(來自哪個對話、要開在哪個專案、已開始的對話、別的專案那一頁),跟麵包屑同一個顏色 */
+.srow .smeta a, .section-note a { color: var(--color-lake-blue); text-decoration: none; }
+.srow .smeta a:hover, .section-note a:hover { text-decoration: underline; }
+/* 收起來的建議卡(已開始、你說不做了):預設收著,點開看得到——收起來不是刪掉 */
+.sg-fold { margin-top: var(--spacing-16); }
+.sg-fold > .slist { margin-top: 8px; }
 
 /* 案件卡:說出小格子畫的是哪個對話。名字太長就截,不要把「走到哪」那一行擠掉 */
 .pcard { min-width: 0; }

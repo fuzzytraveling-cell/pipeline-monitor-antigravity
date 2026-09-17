@@ -14,7 +14,7 @@ import process from 'node:process';
 import { collectAll, ladderSteps } from '../lib/collect.mjs';
 import { monitorHome } from '../lib/paths.mjs';
 import { readAppTitles, deletedAt, transcriptDirName } from '../lib/appSessions.mjs';
-import { safeName } from '../lib/events.mjs';
+import { safeName, SUGGEST_TOOL } from '../lib/events.mjs';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -355,6 +355,50 @@ section('commit 的時間帶本地時差,跟 UTC 的分界不能用字串比大�
   const after = gitCodeChanges(root, [], isCode, { since: '2026-09-16T00:30:00Z' });
   check('分界之後的算,時間換成 UTC', after.length === 1 && after[0].mtime === '2026-09-16T01:00:00.000Z', JSON.stringify(after));
   r.cleanup();
+}
+
+section('app 建議卡:要開在別的專案的卡,那邊的對話開始了也認得出來(不然永遠說「還沒開始」);要開在哪、誰提的、從什麼時候開始有紀錄都講得出來');
+{
+  // 真的卡有一半是「在甲專案的對話裡提、要開在乙專案」:新對話記在乙的紀錄檔裡,只看甲那一份永遠對不到
+  const a = makeRepo({ files: { 'a.js': '1\n' } }), b = makeRepo({ files: { 'b.js': '1\n' } });
+  const rootA = out(a.dir, 'rev-parse', '--show-toplevel'), rootB = out(b.dir, 'rev-parse', '--show-toplevel');
+  const monitorDir = mkdtempSync(join(tmpdir(), 'pm-monitor-'));
+  mkdirSync(join(monitorDir, 'logs'));
+  copyFileSync(join(ROOT, 'stages.json'), join(monitorDir, 'stages.json'));
+  // 時間用「現在往回算」,而且「現在」只取一次(L18):collectAll 會把超過保留期限的事件丟掉,日期寫死的話這一段過幾個月會無故變紅
+  const base = Date.now();
+  const T = (h) => new Date(base - (10 - h) * 3600_000).toISOString();
+  const PROMPT = '到那個專案把三支指令改成薄殼:先讀它的 CLAUDE.md,只改 .claude/commands/ 底下的檔案,改完跑它自己的測試,其他一律不動。';
+  const card = (o) => JSON.stringify({ ts: T(2), hook: 'PreToolUse', tool: SUGGEST_TOOL, session: 'src', cwd: rootA, in_title: '標題', in_tldr: '說明', ...o });
+  writeFileSync(join(monitorDir, 'logs', `${basename(rootA)}.jsonl`), [
+    JSON.stringify({ ts: T(1), hook: 'UserPromptSubmit', session: 'src', cwd: rootA, prompt: '原本在聊別的', title: '提建議的那個對話' }),
+    card({ use_id: 'toolu_far', in_prompt: PROMPT, in_cwd: rootB }),
+    card({ use_id: 'toolu_far2', in_prompt: '另一張也要開在那個專案、但還沒有人照著開的卡。說明要夠長才比得出開頭,所以多寫幾個字湊滿六十個字以上。', in_cwd: rootB }),
+    card({ use_id: 'toolu_here', in_prompt: '這一張就開在這個專案,沒有指定資料夾,而且還沒有人照著開。說明要夠長才比得出開頭。' }),
+    card({ use_id: 'toolu_lost', in_prompt: '這一張要開在儀表板不認得的資料夾。說明要夠長才比得出開頭,所以多寫幾個字。', in_cwd: '/somewhere/unknown-repo' }),
+    card({ use_id: 'toolu_cutpath', in_prompt: '這一張的路徑太長被截過。說明要夠長才比得出開頭,所以多寫幾個字湊滿。', in_cwd: '/somewhere/half-a-na', in_cut: ['cwd'] }),
+  ].join('\n') + '\n');
+  writeFileSync(join(monitorDir, 'logs', `${basename(rootB)}.jsonl`),
+    JSON.stringify({ ts: T(3), hook: 'UserPromptSubmit', session: 'started', cwd: rootB, prompt: PROMPT.slice(0, 200), title: '照著卡開的新對話' }) + '\n');
+  const ps = collectAll({ monitorDir, appTitles: new Map() }).projects;
+  const pA = ps.find((p) => p.name === safeName(basename(rootA))), pB = ps.find((p) => p.name === safeName(basename(rootB)));
+  const sg = Object.fromEntries((pA?.suggestions ?? []).map((s) => [s.id, s]));
+  eq('五張卡都在提建議的那個專案底下', Object.keys(sg).length, 5);
+  eq('別的專案裡有對話照著開了 → 已開始', sg.toolu_far?.startedBy, 'started');
+  eq('說得出是哪個對話、在哪個專案(連結才連得過去)', `${sg.toolu_far?.startedTitle}/${sg.toolu_far?.startedProject?.project}`, `照著卡開的新對話/${pB?.name}`);
+  eq('要開在哪:儀表板認得的專案', `${sg.toolu_far?.openIn?.project}/${sg.toolu_far?.openIn?.name}`, `${pB?.name}/${pB?.displayName}`);
+  eq('知道是哪個對話提的(說明被截短時,完整的只有那裡有)', sg.toolu_far?.fromTitle, '提建議的那個對話');
+  eq('沒指定資料夾的卡:不講要開在哪', sg.toolu_here?.openIn, null);
+  eq('沒有人照著開 → 還沒開始', sg.toolu_here?.startedBy, null);
+  eq('儀表板不認得的資料夾:只給資料夾名,不給連結', `${sg.toolu_lost?.openIn?.project}/${sg.toolu_lost?.openIn?.name}`, 'null/unknown-repo');
+  eq('路徑被截過:不拿半截路徑的最後一段當名字', `${sg.toolu_cutpath?.openIn?.project}/${sg.toolu_cutpath?.openIn?.name}`, 'null/null');
+  eq('乙專案那一頁不重複出現這張卡', (pB?.suggestions ?? []).length, 0);
+  // …但乙那一頁不能只說「一張都沒有」:要開在乙、還沒處理的卡掛在甲那一頁,要指路過去(已開始的那張不算,它處理完了)
+  eq('乙那一頁知道別頁有幾張要開在這裡、還沒處理的卡(1 張:另一張已開始,不算)', JSON.stringify(pB?.incomingSuggestions), JSON.stringify([{ project: pA?.name, name: pA?.displayName, count: 1 }]));
+  eq('甲那一頁沒有別人要開在這裡的卡', JSON.stringify(pA?.incomingSuggestions), JSON.stringify([]));
+  eq('app 的建議卡從什麼時候開始有紀錄(L3)', pA?.appCardsSince, T(2));
+  eq('一張都沒記到過的專案 → null(畫面要說「不代表沒跳過」)', pB?.appCardsSince, null);
+  rmSync(monitorDir, { recursive: true, force: true }); a.cleanup(); b.cleanup();
 }
 
 process.exit(summary());
