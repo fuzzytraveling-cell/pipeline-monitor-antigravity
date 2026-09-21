@@ -97,7 +97,7 @@
 | 改 `hook.sh`／`lib/events.mjs`（感測器） | [`docs/升級摘要/pipeline-sensor.md`](docs/升級摘要/pipeline-sensor.md) 的 AC；改 `gate.mjs`（收工 hook）或五關的結案邏輯 → 上面那份五關自動結案的 AC |
 | 「為什麼要寫成這樣？」 | [`docs/LESSONS.md`](docs/LESSONS.md) —— 先搜關鍵字再問 |
 | 要動使用者看得到的文案 | 上面三條紅線，逐條套過一次 |
-| **③ 畫面要做什麼、不做什麼** | [`docs/進行中/pipeline-ui.md`](docs/進行中/pipeline-ui.md)——**施作中** |
+| ③ 畫面要做什麼、不做什麼 | [`docs/升級摘要/pipeline-ui.md`](docs/升級摘要/pipeline-ui.md)——2026-09-21 搬出進行中；三條 AC 待你決定改字還是改畫面 |
 | 通用三關：plugin 帶的 A 寫規格／C 打掃／D 魔鬼教官 skill——通用版跟 TutorPod 版差在哪、專案專屬的東西從哪裡來 | [`docs/升級摘要/通用三關.md`](docs/升級摘要/通用三關.md) |
 | 五關自動結案：分級決定會跑哪幾關（收工 hook）、每一關自動辨識與結案、AC 清單來自規格檔、只有 E 有按鈕 | [`docs/升級摘要/五關自動結案.md`](docs/升級摘要/五關自動結案.md) |
 | 感測器收 app 跳出的「建議新開對話」卡，讓它進儀表板、按取消不會消失 | [`docs/進行中/app建議卡.md`](docs/進行中/app建議卡.md)——**施作中** |
