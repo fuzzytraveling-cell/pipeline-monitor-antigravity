@@ -609,4 +609,20 @@ section('魔鬼教官 2026-09-21 第一輪:只在主資料夾的規格,--spec �
   check('畫面發現版本變了會重新載入', /appVersion !== bootVersion/.test(app) && /location\.reload\(\)/.test(app));
 }
 
+section('2026-09-21 實測:B 還沒改到程式檔時終端機不准當掉;只有連結的施工對話存檔之後,B 照樣認得改過程式(git 的存檔)');
+{
+  // A 寫完規格、還沒改程式(main 上的舊程式在這裡當掉:拿 B 的進度摘要去畫條目)
+  const s = scene({ touch: null });
+  s.write([{ ts: T(-5 * MIN), hook: 'UserPromptSubmit', session: 's1', prompt: '開工', prompt_id: 'p1' }]);
+  s.cli(['--spec', 'docs/規劃中/app建議卡.md']);
+  const term = s.cli([], { session: 's1' });
+  check('B 還沒改到程式檔:終端機跑完、不印程式錯誤,A 的清單照畫', term.code === 0 && !/TypeError|at .*\.mjs/.test(term.out) && term.out.includes('○ AC-1 第 1 條') && /B 寫程式\s*●/.test(term.out), term.out.split('━━ 五關')[1]?.slice(0, 400));
+  // 施工:用 Bash 改了程式(感測器沒記到)、存了檔 → git 的存檔就是證據
+  writeFileSync(join(s.root, 'src/danger.js'), 'built\n');
+  execFileSync('git', ['commit', '-qam', '施工'], { cwd: s.root });
+  const v = s.by(s.sessionOf('s1')?.stages);
+  eq('存檔之後 B 照樣認得改過程式(git 說的),帶著清單進度', `${v.B?.state}|${v.B?.via}|${v.B?.checklist?.total}`, 'current|git|7');
+  s.cleanup();
+}
+
 process.exit(summary());

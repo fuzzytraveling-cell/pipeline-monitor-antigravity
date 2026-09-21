@@ -726,8 +726,10 @@ function renderStages(ctx, ev, facts, info = {}) {
         for (const line of String(st.report?.note ?? '').split('\n').slice(1)) if (line.trim()) console.log(`              ${line.trim().slice(0, 90)}`);
       }
     }
-    // A 的清單就是規格檔裡的 AC,照檔案畫(AC-5):✅ 對過、⏳ 待討論、○ 還沒對。解析不了就照原文,找不到就說找不到
-    if (st.checklist) printChecklist(st.checklist);
+    // A 的清單就是規格檔裡的 AC,照檔案畫(AC-5):✅ 對過、⏳ 待討論、○ 還沒對。解析不了就照原文,找不到就說找不到。
+    // ⚠️ 只畫帶條目的那份(A 的)。B 只帶進度摘要——以前 B 還沒改到程式檔時也走到這裡,拿摘要去畫條目,整支當掉印出程式錯誤
+    //    (2026-09-21 實測,main 上 9/16 起就有;網頁同一個洞 9/16 修過,L20)
+    if (st.checklist && Array.isArray(st.checklist.items)) printChecklist(st.checklist);
   }
 
   if (firstTs) {
