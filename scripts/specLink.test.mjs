@@ -619,7 +619,9 @@ section('2026-09-21 實測:B 還沒改到程式檔時終端機不准當掉;只�
   check('B 還沒改到程式檔:終端機跑完、不印程式錯誤,A 的清單照畫', term.code === 0 && !/TypeError|at .*\.mjs/.test(term.out) && term.out.includes('○ AC-1 第 1 條') && /B 寫程式\s*●/.test(term.out), term.out.split('━━ 五關')[1]?.slice(0, 400));
   // 施工:用 Bash 改了程式(感測器沒記到)、存了檔 → git 的存檔就是證據
   writeFileSync(join(s.root, 'src/danger.js'), 'built\n');
-  execFileSync('git', ['commit', '-qam', '施工'], { cwd: s.root });
+  // 存檔時間明確寫在連結之後兩秒:git 的時間只到秒,同一秒內分不出先後(不靠測試跑得快慢,L18)
+  const after = new Date(Date.parse(s.events().find((e) => e.event === 'spec_link').ts) + 2000).toISOString();
+  execFileSync('git', ['commit', '-qam', '施工', '--date', after], { cwd: s.root, env: { ...process.env, GIT_COMMITTER_DATE: after } });
   const v = s.by(s.sessionOf('s1')?.stages);
   eq('存檔之後 B 照樣認得改過程式(git 說的),帶著清單進度', `${v.B?.state}|${v.B?.via}|${v.B?.checklist?.total}`, 'current|git|7');
   s.cleanup();
