@@ -21,6 +21,7 @@ alias pipeline-status='node "/Users/oscarhsieh/Desktop/pipeline-monitor/status.m
 pipeline-status              # 看現況（還原點 + 改動體檢 + 五關）
 pipeline-status --checkpoint # 跑完整檢查,全綠就蓋一個還原點
 pipeline-status --clear E    # 記下「E 驗收過了」（A 到 D 由儀表板自動辨識,不用你按）
+pipeline-status --spec <規格檔>  # 照別的對話寫好的規格施工：Claude 在施工的對話裡記一筆照哪份（--spec 無＝沒有照哪份）
 pipeline-status --on         # 把感測器掛到**這個**專案（--off 拆掉）
 pipeline-status --tier-init  # 設定分級的骨架（程式區）；危險清單在對話裡說「幫我設定分級」
 pipeline-status --tier T2 "理由"   # 這次調高（只准往上）；收回是 --tier-retract

@@ -15,14 +15,15 @@
 
 import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdirSync, existsSync, realpathSync } from 'node:fs';
-import { join, dirname, basename, resolve } from 'node:path';
+import { join, dirname, basename, resolve, relative, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { appendFileSync } from 'node:fs';
-import { readEvents, loadStages, lastRunPerStage, runsPerStage, roundView, roundStartOf, editsOf, reportsIn, perStageOfRound, gateHeartbeat, safeName, logFileOf } from './lib/events.mjs';
+import { readEvents, loadStages, lastRunPerStage, runsPerStage, roundView, editsOf, reportsIn, perStageOfRound, gateHeartbeat, safeName, logFileOf, specContext } from './lib/events.mjs';
+import { readChecklist, locateSpec } from './lib/checklist.mjs';
 import { buildTier, readTierConfig, writeTierConfig, proposeCodeArea, codeFileFn, gitCodeChanges } from './lib/tier.mjs';
 import { monitorHome } from './lib/paths.mjs';
-import { skillAvailable } from './lib/skills.mjs';
+import { skillAvailable, commandFor, pluginName } from './lib/skills.mjs';
 import { installService, uninstallService, restartService, describeService, openDashboard } from './lib/service.mjs';
 import {
   mount, unmount, mountState, pluginState, installPlugin, uninstallPlugin, optIn, optOut, hookPathsIn,
@@ -598,9 +599,15 @@ function stageFacts(ctx, ev, info = {}) {
   // 這一輪跑到哪:五關、分級的「需要」、收工 hook 都吃這一份(老毛病 P2)。B 的證據除了感測器,還有 git 說改了的檔案的修改時間(L8)
   const runs = runsPerStage(ev.events, stages, (e) => e.cwd === ctx.root);
   const cpAt = info.cpUsable ? info.cp?.at ?? null : null;
+  // 規格連結(施工對話認規格):Claude 跑的(拿得到對話代號,而且這個對話在這裡動過)→ 用這個對話的連結,跟 --spec、收工 hook 同一個代號來源;
+  // 人自己在終端機跑拿不到 → 工作區層級,這個工作區只有一個對話在動時等於它(lib/events.mjs 的 specContext)。
+  // ⚠️ 以前一律用工作區層級:worktree 只要來過別的對話,剛記了連結的 Claude 自己一看就是「A 沒有紀錄」(魔鬼教官 2026-09-21,老毛病 P2)
+  const sid = sessionFromEnv();
+  const mine = sid && ev.events.some((e) => e.cwd === ctx.root && e.session === sid) ? sid : null;
   const view = roundView({
     runs, stages, cleared, reports, edits, isCode, cpAt,
-    gitChanges: gitCodeChanges(ctx.root, info.h?.list ?? null, isCode, { since: roundStartOf(runs, stages, cpAt) }),
+    gitChanges: (since) => gitCodeChanges(ctx.root, info.h?.list ?? null, isCode, { since }),
+    spec: specContext(ev.events, { cwd: ctx.root, cpAt, session: mine }), root: ctx.root, mainRoot: ctx.mainRoot,
   });
   return { stages, perStage: perStageOfRound(view), cleared, reports, view, sawAnyEventHere };
 }
@@ -652,10 +659,11 @@ function renderStages(ctx, ev, facts, info = {}) {
     // B(對話本身):改到程式檔就算在動;最後一次改檔的時間要印出來。不數檔案——數量在改動體檢那段(git)
     if (st.type === 'main-conversation' && st.state !== 'main') {
       const cl = st.checklist;
-      const prog = cl?.parsed ? `清單 ${cl.checked}/${cl.total} 對過${cl.pending ? `,${cl.pending} 條待討論` : ''}${cl.unmarked ? `,${cl.unmarked} 條還沒對` : ''}` : null;
+      const prog = cl?.parsed ? `清單${cl.batch ? '這一批' : ''} ${cl.checked}/${cl.total} 對過${cl.pending ? `,${cl.pending} 條待討論` : ''}${cl.unmarked ? `,${cl.unmarked} 條還沒對` : ''}` : null;
       const viaNote = st.via === 'git' ? '（感測器沒看到改檔,是 git 說的——可能是用 Bash 寫的）' : '';
-      console.log(st.state === 'current' ? `   ${label} ⏸ 最後一次改程式檔 ${ago(st.ranAt)}${viaNote}——現在在這一關${prog ? `（${prog}）` : ''}`
-        : st.state === 'stale' ? `   ${label} 🔁 改過程式檔（最後一次 ${ago(st.ranAt)}）,${prog}——清單沒對完,不算寫完`
+      const extra = cl?.batchMissing?.length || cl?.preMarked ? `；${checklistWhy(cl)}` : '';
+      console.log(st.state === 'current' ? `   ${label} ⏸ 最後一次改程式檔 ${ago(st.ranAt)}${viaNote}——現在在這一關${prog ? `（${prog}${extra}）` : ''}`
+        : st.state === 'stale' ? `   ${label} 🔁 改過程式檔（最後一次 ${ago(st.ranAt)}）,${prog}——${checklistWhy(cl)},不算寫完`
         : st.state === 'done' ? `   ${label} ✅ 改過程式檔（最後一次 ${ago(st.ranAt)}）,${ago(st.doneAt)}Claude 對完清單`
         : `   ${label} ✓  改過程式檔（最後一次 ${ago(st.ranAt)}）${st.closedBy === 'checklist' ? ',Claude 對完清單' : ''}——已走過`);
       continue;
@@ -672,10 +680,18 @@ function renderStages(ctx, ev, facts, info = {}) {
         console.log(av.found === false
           ? `   ${label} ⚪ 找不到 /${st.skill} 這個指令（這個專案的 .claude/ 和 ~/.claude 都沒有）`
           : `   ${label} ⚪ 這一輪還沒跑${st.prevRanAt ? `（上一輪 ${ago(st.prevRanAt)}跑過）` : ''}`);
+        // 寫規格那一關的三種旁白(施工對話認規格):都不算 A、不畫清單、不擋人
+        for (const line of specNotes(st)) console.log(`              ${line}`);
         break;
       }
       // A 的結案是你點頭開工(之後第一次改到程式檔):講出來,不然像是憑空劃掉的
       case 'passed': {
+        // 照別的對話寫的規格施工(施工對話認規格 AC-1):連結不是 A 的一次呼叫,沒有「叫了」的時間可講,講照哪份、誰說的
+        if (st.closedBy === 'link' && st.link) {
+          console.log(`   ${label} ✓  已走過：${linkLine(st.link)}`);
+          for (const line of specNotes(st)) console.log(`              ${line}`);
+          break;
+        }
         const head = String(st.report?.note ?? '').split('\n')[0].trim();
         const who = st.closedBy === 'nod' ? `,${ago(st.nodAt)}開始改程式檔,算你點頭開工了` : st.closedBy === 'claude' && head ? `,Claude 說：${head}` : st.closedBy === 'human' ? ',你說處理完了' : '';
         console.log(`   ${label} ✓  ${ago(st.ranAt)}${verb}${who}——已走過`);
@@ -728,13 +744,43 @@ function renderStages(ctx, ev, facts, info = {}) {
 /** 規格檔裡的 AC 清單(五關自動結案 AC-5)。給人看的是標題與白話那一句,不印技術那層。 */
 function printChecklist(cl) {
   const rel = (f) => (typeof f === 'string' ? f.split('/').slice(-3).join('/') : '');
-  if (cl.missing) { console.log(`              清單：找不到這一輪的規格檔（${rel(cl.file)}）`); return; }
+  if (cl.missing) { console.log(`              清單：找不到這一輪的規格檔${cl.file ? `（${rel(cl.file)}）` : ''}`); return; }
   if (!cl.parsed) { console.log(`              清單：規格檔裡沒有照格式寫的 AC（${rel(cl.file)}）${cl.head ? `,開頭是：${cl.head.slice(0, 60)}` : ''}`); return; }
+  // 分批做的規格(施工對話認規格 AC-8):整份照畫,不在這一批的標出來——收工前只要求這一批
+  if (cl.batch) console.log(`              這一批只對 ${cl.batch.join('、')}（全部 ${cl.allTotal} 條）`);
+  if (cl.batchMissing?.length || cl.preMarked) console.log(`              ⚠️ ${checklistWhy(cl)}`);
   for (const it of cl.items) {
     const mark = it.state === 'checked' ? '✅' : it.state === 'pending' ? '⏳' : '○';
-    console.log(`              ${mark} ${it.id} ${it.title}${it.state === 'pending' && it.note ? `（待討論：${it.note}）` : ''}`);
+    console.log(`              ${mark} ${it.id} ${it.title}${it.state === 'pending' && it.note ? `（待討論：${it.note}）` : ''}${it.inBatch === false ? '（不在這一批）' : ''}`);
     if (it.plain) console.log(`                 ${it.plain.slice(0, 70)}${it.plain.length > 70 ? '…' : ''}`);
   }
+}
+
+/** 「照別的對話寫的規格 X（Claude 說的）」——終端機與網頁同一句(ui/app.js 的 linkLine 是翻譯,改一邊要改另一邊)。 */
+function linkLine(link) {
+  const how = link.how === 'only' ? '；沒記到對話代號，這個工作區只有這個對話' : '';
+  return `照別的對話寫的規格 ${link.name}（Claude 說的${how}）`;
+}
+
+/** 寫規格那一關的旁白:規格在哪、另寫了一份、第一句話的提示、分不出是誰記的。都只是講,不算 A、不擋人(施工對話認規格)。 */
+function specNotes(st) {
+  const L = [];
+  const lk = st.link;
+  if (lk?.found === 'main') L.push('規格在主資料夾，不在這個工作區（可能還沒併進來）——不會叫 Claude 去那裡打勾');
+  else if (lk?.found === 'missing') L.push(`找不到規格檔 ${lk.name}.md`);
+  else if (lk?.found === 'ambiguous') L.push(`工作區裡叫 ${lk.name}.md 的規格不只一份（${(lk.where ?? []).join('、')}），分不出是哪一份`);
+  if (st.side) L.push(st.side.name ? `另寫了一份規格 ${st.side.name}（等你點頭）` : `${ago(st.side.ts)}又叫了寫規格那一關（寫了哪份看不到）；施工清單還是 ${lk?.name ?? '原本那份'}`);
+  if (st.hint) L.push(`從你第一句話看，可能是照 ${st.hint.name} 施工（Claude 還沒確認${st.hint.cut ? '；感測器只記第一句話的開頭，後面有沒有提到別份看不到' : ''}）`);
+  if (st.unsure) L.push(`有一筆規格連結（${st.unsure.name}）分不出是哪個對話記的——不算數`);
+  if (st.shared) L.push('這個工作區這一輪有好幾個對話；規格連結只算記它的那個對話，看儀表板各對話的頁面');
+  return L;
+}
+
+/** B 為什麼還不算寫完:清單還有沒對的、這一批記的代號對不上檔案、或勾都是連上之前就打好的(施工對話認規格)。終端機與網頁同一句 */
+function checklistWhy(cl) {
+  if (cl?.batchMissing?.length) return `這一批記的 ${cl.batchMissing.join('、')} 在規格裡找不到了（可能改過號），要重記 --spec`;
+  if (cl?.preMarked) return '清單的勾都是連上這份之前就打好的，這個對話還沒回頭對過';
+  return '清單沒對完';
 }
 
 /** 人蓋的結案章(AC-9)。⚠️ 寫進同一份 append-only 紀錄,但標明 source:'human'。 */
@@ -763,6 +809,158 @@ function doClear(ctx, stageId) {
   console.log(`✅ 記下了：你說 ${st.id} ${st.name} ${st.type === 'browser' ? '驗收過了' : '處理完了'}（${ctx.head?.slice(0, 7)}）`);
   console.log('   ⚠️ 這是「你說的」,不是系統驗證的——畫面上會照實這樣寫。');
   return 0;
+}
+
+/**
+ * --spec <規格檔> [AC-1 AC-2 …]:Claude 記一筆「這個對話照哪份規格施工」(施工對話認規格 AC-1、AC-4、AC-8)。
+ * 規格在別的對話寫、點頭後另開對話施工——施工的對話記這一筆,儀表板的寫規格那一關才畫得出那份清單、收工 hook 才不叫它重寫規格。
+ * --spec 無:這個對話沒有照別的對話寫的規格(第一句話來的提示會消失;分級要寫規格那一關的話,還是要跑)。
+ * ⚠️ 這是「Claude 說的」:事件標 source:'claude',畫面照實標(R2)。連結不是寫規格那一關的一次呼叫,不算「跑過」。
+ * ⚠️ 只收還沒做完的規格(AC-4):這個工作區 docs/規劃中/ 或 docs/進行中/ 的 .md、讀得出 AC、不是這個對話自己寫的。
+ *    工作區沒有、只在主資料夾有(可能還沒併進來)→ 收,但講明:儀表板只寫一句「在主資料夾」,不叫 Claude 去那裡打勾(AC-6)。
+ * 對話代號:Claude Code 給指令的環境變數 CLAUDE_CODE_SESSION_ID(2026-09-21 實測有給,跟感測器記的 session 一樣)。
+ *   拿不到就不記,讀取端只在「這個工作區只有一個對話」時才歸給它(lib/events.mjs 的 linkOwner)——不猜一個填進去。
+ */
+function doSpec(ctx, ev, args) {
+  const [target, ...rest] = args;
+  if (!target?.trim()) {
+    console.log('要一份規格檔：  pipeline-status --spec docs/進行中/<名字>.md');
+    console.log('   只做其中幾條就在後面加代號（例：--spec docs/進行中/<名字>.md AC-1 AC-2）；沒有照哪份規格就 --spec 無');
+    return 1;
+  }
+  const sid = sessionFromEnv();
+  const { stages } = loadStages(HERE, ctx.root, ctx.mainRoot);
+  const first = stages.find((x) => x.skill);
+  const stageName = first ? `${first.id} ${first.name}` : '寫規格那一關';
+  const record = (extra) => {
+    try {
+      appendFileSync(logFileOf(LOG_DIR, ctx.project), JSON.stringify({
+        ts: new Date().toISOString(), event: 'spec_link', ...extra, ...(sid ? { by_session: sid } : {}),
+        cwd: ctx.root, main: ctx.mainRoot ?? null, head: ctx.head?.slice(0, 7), source: 'claude',
+      }) + '\n');
+      return true;
+    } catch (e) { console.log(`❌ 沒記成功：${e.message}`); return false; }
+  };
+  const tail = () => { if (!sid) console.log('   （拿不到這個對話的代號：這個工作區只有一個對話時，儀表板才算得出是它記的；有別的對話來過就不歸給任何對話、也不擋。）'); };
+
+  if (['無', 'none'].includes(target.trim())) {
+    if (!record({ spec: null, none: true })) return 1;
+    console.log('✅ 記下了：這個對話沒有照別的對話寫的規格施工（Claude 說的）。');
+    console.log(`   從第一句話來的提示會消失；這次改動的分級要 ${stageName} 的話，收工前還是會要求跑。`);
+    tail();
+    return 0;
+  }
+
+  const notDone = `只收還沒做完的規格：這個工作區 docs/規劃中/ 或 docs/進行中/ 底下的 .md。`;
+  // 工作區的根是 git 給的真實路徑;給的路徑也解析成真實路徑再比(macOS 的暫存資料夾、捷徑都會讓兩種拼法對不上)。
+  // 檔案不在工作區(只在主資料夾)就解析它所在的資料夾。
+  // 相對路徑先照指令列所在的位置解;解出來不在這個工作區的 docs/ 底下,再照工作區的根解——從子資料夾跑也認得(魔鬼教官 2026-09-21)
+  const relOf = (p) => { const abs = real(p) !== p ? real(p) : join(real(dirname(p)), basename(p)); return relative(ctx.root, abs).split('\\').join('/'); };
+  let rel = relOf(isAbsolute(target) ? target : resolve(process.cwd(), target));
+  if (!isAbsolute(target) && !/^docs\//i.test(rel)) rel = relOf(resolve(ctx.root, target));
+  if (/^docs\/升級摘要\/[^/]+\.md$/i.test(rel)) {
+    console.log(`這份在 docs/升級摘要/，是已經做完的規格，不能拿來施工。${notDone}`);
+    console.log(`   要照它再改一輪的話，另寫一份新規格（跑 ${stageName}）。`);
+    return 1;
+  }
+  if (!/^docs\/(規劃中|進行中)\/[^/]+\.md$/i.test(rel)) { console.log(`認不得「${target}」。${notDone}`); return 1; }
+  const loc = locateSpec(rel, { root: ctx.root, mainRoot: ctx.mainRoot });
+  if (loc.found === 'missing') { console.log(`找不到 ${rel}（這個工作區和主資料夾的規劃中／進行中／升級摘要都沒有 ${basename(rel)}）。`); return 1; }
+  if (loc.found === 'ambiguous') { console.log(`這個工作區裡叫 ${basename(rel)} 的規格不只一份：${loc.where.join('、')}。給完整路徑。`); return 1; }
+  if (loc.found === 'main' && !loc.mainFile) { console.log(`主資料夾裡叫 ${basename(rel)} 的規格不只一份，分不出是哪一份。`); return 1; }
+  // 名字對上了,但它已經搬到升級摘要(做完了)
+  if (!/^docs\/(規劃中|進行中)\//i.test(loc.rel ?? '')) {
+    console.log(`${basename(rel)} 已經搬到 docs/升級摘要/（做完了），不能拿來施工。${notDone}`);
+    return 1;
+  }
+  const cl = readChecklist(loc.found === 'here' ? loc.file : loc.mainFile);
+  if (!cl.parsed) {
+    console.log(`${loc.rel} 裡讀不出任何一條 AC（要有「**AC-1　標題**」那種格式的行），不算規格。`);
+    console.log(`   還沒有規格的話，跑 ${stageName}。`);
+    return 1;
+  }
+  // 只做其中幾條(AC-8):代號要真的在這份裡——打錯一個字,收工 hook 就會要求一條不存在的 AC
+  const acs = [];
+  for (const a of rest) {
+    const m = String(a).trim().match(/^AC-?(\d+)$/i);
+    const id = m ? `AC-${Number(m[1])}` : null;
+    if (!id || !cl.items.some((it) => it.id === id)) {
+      console.log(`${loc.rel} 裡沒有「${a}」。這份的 AC 是：${cl.items.map((it) => it.id).join('、')}`);
+      return 1;
+    }
+    if (!acs.includes(id)) acs.push(id);
+  }
+  // 這個對話自己寫的規格不收(AC-4):那是寫規格那一關的工作,跑那一關它會自己連上寫的檔
+  const self = writtenHere(ctx, ev, loc, sid, stages);
+  if (self) {
+    const cmd = first ? commandFor(first.skill, ctx.root, ctx.mainRoot, pluginName(HERE)) : null;
+    console.log(`${loc.rel} 看起來是這個對話自己寫的（${self}）——那是 ${stageName} 的工作，${cmd ? `跑 ${cmd}` : `跑 ${stageName}`}（它會自己連上寫的那份）。`);
+    return 1;
+  }
+  if (!record({ spec: loc.rel, ...(acs.length ? { acs } : {}) })) return 1;
+  const name = basename(loc.rel).replace(/\.md$/i, '');
+  if (loc.found === 'main') {
+    // 只在主資料夾:儀表板只寫一句、不畫清單、收工不要求打勾(AC-6)——第一行就照實講,不先說「會畫出 N 條」
+    console.log(`✅ 記下了：這個對話照 ${name} 施工（Claude 說的）。`);
+    console.log(`   ⚠️ 規格在主資料夾，不在這個工作區（可能還沒併進來）——儀表板只寫這一句、不畫那 ${cl.total} 條，收工時也不會叫你去主資料夾打勾。`);
+  } else {
+    console.log(`✅ 記下了：這個對話照 ${name} 施工（Claude 說的）。儀表板的 ${stageName} 會畫出那份的 ${cl.total} 條 AC。`);
+    console.log(`   收工前在 ${loc.rel} 每條 AC 的標題行末尾標「✅ 對過 日期」或「⏳ 待討論：原因」。`);
+  }
+  if (acs.length) console.log(`   這一批只對 ${acs.join('、')}；其他條標「不在這一批」，收工前不要求。`);
+  tail();
+  return 0;
+}
+
+/**
+ * 這份規格是不是這個對話自己寫的(施工對話認規格 AC-4)。是 → 回一句白話的證據;不是、或分不出來 → null。三種證據,任一種就算:
+ *   ① 感測器記到這個對話在**這個工作區**Write 過同名的規格,而且在它第一次連上這份**之前**
+ *      (連上之後的 Write 是打勾、搬家;別的資料夾的同名檔——例如審查員在暫存資料夾造的——都不算)
+ *   ② 這個對話的寫規格那一關收尾記了這份(--report A ok <路徑>):用 Bash 寫的規格,這是紀錄裡看得到的線索
+ *   ③ 這個工作區只有這個對話在用,而 main 上沒有這個名字的規格——那就是在這裡新寫出來的(還沒存,或只存在這條分支上)
+ * ⚠️ 以前只看 Write:用 Bash 寫的自家規格會被收下,畫面還寫「別的對話寫的」;同名的暫存檔又會誤擋(魔鬼教官 2026-09-21,老毛病 P6、P4、L8)。
+ * 分不出是哪個對話(沒有代號、工作區有好幾個對話)就不擋:寧可收下一份來歷不明的,也不擋掉別的對話寫好的那份——畫面標「Claude 說的」。
+ */
+function writtenHere(ctx, ev, loc, sid, stages) {
+  if (loc.found !== 'here') return null;   // 只在主資料夾的:這個工作區裡沒有人寫它
+  const name = basename(loc.rel);
+  const here = ev.events.filter((e) => e.cwd === ctx.root);
+  const sessions = new Set(here.filter((e) => e.hook && e.session).map((e) => e.session));
+  const me = sid ?? (sessions.size === 1 ? [...sessions][0] : null);
+  if (me) {
+    const firstLink = here.filter((e) => e.event === 'spec_link' && e.by_session === me && basename(String(e.spec ?? '')) === name)
+      .map((e) => Date.parse(e.ts)).sort((a, b) => a - b)[0] ?? Infinity;
+    const inWs = (f) => typeof f === 'string' && f.startsWith(`${ctx.root}/docs/`) && basename(f) === name;
+    if (ev.events.some((e) => e.session === me && e.hook === 'PostToolUse' && e.tool === 'Write' && inWs(e.file) && Date.parse(e.ts) < firstLink)) {
+      return '感測器記到這個對話寫過它';
+    }
+    const first = stages.find((x) => x.skill);
+    if (first) {
+      // 一筆結論屬於它之前最後一次被叫的那一關(跟 roundView 認 A 寫了哪份同一種認法)
+      const aRuns = runsPerStage(ev.events, stages, (e) => e.cwd === ctx.root).get(first.id) ?? [];
+      for (const r of here.filter((e) => e.event === 'stage_report' && e.stage === first.id && typeof e.note === 'string')) {
+        if (basename(r.note.trim().split('\n')[0].trim()) !== name) continue;
+        const run = aRuns.filter((x) => Date.parse(x.ts) <= Date.parse(r.ts)).at(-1);
+        if (run?.session === me) return `這個對話的 ${first.id} ${first.name} 收尾記了它`;
+      }
+    }
+  }
+  if (sessions.size && [...sessions].every((x) => x === me)) {
+    const mainRef = ['main', 'master'].find((m) => git(['rev-parse', '--verify', '-q', m], ctx.root));
+    const tree = mainRef ? git(['ls-tree', '-r', '--name-only', mainRef, '--', 'docs'], ctx.root) : null;
+    // 問不到 main 的內容就不下結論(R1:沒問到不當沒有)
+    if (tree !== null && mainRef) {
+      const onMain = tree.split('\n').some((f) => /^docs\/(規劃中|進行中|升級摘要)\//.test(f) && basename(f) === name);
+      if (!onMain) return 'main 上沒有這份，是在這個工作區新寫出來的，而這個工作區只有這個對話在用';
+    }
+  }
+  return null;
+}
+
+/** Claude Code 給指令的環境變數裡的對話代號。沒有(舊版、或人自己在終端機跑)就是 null——不猜。 */
+function sessionFromEnv() {
+  const v = String(process.env.CLAUDE_CODE_SESSION_ID ?? '').trim();
+  return v && v.length <= 100 ? v : null;
 }
 
 /**
@@ -858,7 +1056,7 @@ function tierOf(ctx, ev, info, facts) {
     root: ctx.root, mainRoot: ctx.mainRoot, monitorDir: HERE, health: info.h,
     stages: facts.stages, perStage: facts.perStage, cleared: facts.cleared,
     events: ev.events, cwd: ctx.root, cpUsable: info.cpUsable, cpAt: info.cp?.at ?? null,
-    head: ctx.head?.slice(0, 7) ?? null, reports: facts.reports, lastEdit: facts.view.lastEdit,
+    head: ctx.head?.slice(0, 7) ?? null, reports: facts.reports, lastEdit: facts.view.lastEdit, spec: facts.view.spec,
   });
 }
 
@@ -908,8 +1106,8 @@ function describeTier(t) {
   if (t.requirements.length) {
     L.push('   需要：');
     for (const r of t.requirements) {
-      // ✅ 只代表「有紀錄而且你說處理完了」;⏸ 有紀錄沒結案;⚠️ 沒有紀錄;❔ 問不到／不適用
-      const mark = r.state === 'ok' ? '✅' : r.state === 'ran' ? '⏸' : r.state === 'missing' ? '⚠️' : '❔';
+      // ✅ 有紀錄而且結案了(Claude 說／你說);⏸ 有紀錄沒結案;⚠️ 沒有紀錄;❔ 問不到／不適用;🔗 規格是別的對話寫的(Claude 說照哪份施工)
+      const mark = r.state === 'ok' ? '✅' : r.state === 'ran' ? '⏸' : r.state === 'missing' ? '⚠️' : r.state === 'linked' ? '🔗' : '❔';
       const when = r.ts ? `${ago(r.ts)}` : '';
       L.push(`        ${r.label.padEnd(8, '　')} ${mark} ${when}${r.detail}`);
     }
@@ -1097,6 +1295,7 @@ async function main() {
   }
 
   if (at('--clear') !== -1) return doClear(ctx, argv[at('--clear') + 1]);
+  if (at('--spec') !== -1) return doSpec(ctx, ev, after('--spec'));
   if (at('--report') !== -1) { const [id, verdict, ...note] = after('--report'); return doReport(ctx, id, verdict, note.join(' ')); }
   if (at('--suggest') !== -1) {
     let stdin = '';

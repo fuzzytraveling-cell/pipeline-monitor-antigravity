@@ -767,7 +767,8 @@ section('用 Bash 寫的規格檔:A 收尾 --report A ok "<路徑>" 指路,儀�
   check('A 的清單來自 report 指的那份檔案:2 條、1 對過', v.A.checklist?.parsed && v.A.checklist.total === 2 && v.A.checklist.checked === 1, JSON.stringify(v.A.checklist));
   // report 比 A 早(上一輪的)不算
   const stale = by(stagesOfSession([{ ...ev[1], ts: T(0) }, ev[0]], stages, 's1', null, dir));
-  eq('比這次 A 還早的 report 不算', stale.A.checklist, null);
+  // 舊的那份不拿來用;這一輪跑過 A、連不到它寫的檔 → 照實說找不到(施工對話認規格 AC-5 ①),不是什麼都不說
+  check('比這次 A 還早的 report 不算:不拿那份,說「找不到這一輪的規格檔」', stale.A.checklist?.missing === true && stale.A.checklist?.parsed === false && !stale.A.checklist?.file, JSON.stringify(stale.A.checklist));
   rmSync(dir, { recursive: true, force: true });
 
   // --report 的說明:多行清單原封不動記下來

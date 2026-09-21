@@ -24,7 +24,7 @@ import { cardFor } from './lib/collect.mjs';
 import { stagesOfSession, logFileOf, GATE_FILE } from './lib/events.mjs';
 import { writeFileSync } from 'node:fs';
 import { readTierConfig, codeFileFn } from './lib/tier.mjs';
-import { skillAvailable } from './lib/skills.mjs';
+import { commandFor as findCommand, pluginName } from './lib/skills.mjs';
 import { optOutState } from './lib/mount.mjs';
 import { monitorHome } from './lib/paths.mjs';
 
@@ -32,9 +32,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 // 資料住在主資料夾(lib/paths.mjs,PIPELINE_MONITOR_HOME 可以換掉);紀錄位置跟 hook.sh 看同一個變數
 const MONITOR_DIR = monitorHome(HERE);
 const LOG_DIR = process.env.PIPELINE_MONITOR_LOG_DIR ?? join(MONITOR_DIR, 'logs');
-const PLUGIN = (() => {
-  try { return JSON.parse(readFileSync(join(HERE, '.claude-plugin', 'plugin.json'), 'utf8')).name; } catch { return 'pipeline-monitor'; }
-})();
+const PLUGIN = pluginName(HERE);
 // 時間戳來自兩台鐘(感測器寫的 ISO 時間、檔案系統的 mtime),留兩秒的誤差
 const SKEW_MS = 2000;
 
@@ -45,13 +43,9 @@ function noteBroken(why, logDir = LOG_DIR) {
   } catch { /* 連記都記不了,就真的算了 */ }
 }
 
-/** 這一關要叫哪個指令:專案自己有同名指令就叫它的,沒有才叫 plugin 的;兩邊都沒有回 null(要求不了)。 */
+/** 這一關要叫哪個指令:專案自己有同名指令就叫它的,沒有才叫 plugin 的;兩邊都沒有回 null(要求不了)。住在 lib/skills.mjs,--spec 也用。 */
 function commandFor(skill, root, mainRoot, home) {
-  for (const d of new Set([root, mainRoot].filter(Boolean))) {
-    if (existsSync(join(d, '.claude', 'commands', `${skill}.md`)) || existsSync(join(d, '.claude', 'skills', skill, 'SKILL.md'))) return `/${skill}`;
-  }
-  const av = home === undefined ? skillAvailable(skill, root, mainRoot) : skillAvailable(skill, root, mainRoot, home);
-  return av.found ? `/${PLUGIN}:${skill}` : null;
+  return home === undefined ? findCommand(skill, root, mainRoot, PLUGIN) : findCommand(skill, root, mainRoot, PLUGIN, home);
 }
 
 /**
@@ -95,14 +89,26 @@ export function decide({ payload, monitorDir = MONITOR_DIR, skillHome = undefine
   const lastChange = Math.max(...mtimes, ...editTs);
 
   const cpAt = card.checkpointRelation?.state === 'ok' ? card.checkpoint?.at ?? null : null;
-  const view = stagesOfSession(events, stages, sid, cpAt, path);
+  // 規格連結只認這個對話記的(施工對話認規格 AC-2):五關、分級卡、這裡都從同一份 specContext 算
+  const view = stagesOfSession(events, stages, sid, cpAt, path, { mainRoot: ctx.mainRoot });
+  const specStage = stages.find((s) => s.skill);   // 寫規格的那一關 = 第一個指令關(跟一輪的分界同一個認法,不寫死代號)
   const missing = [];
-  // 有規格的輪次:改了程式就要回頭對清單(AC-6)。沒標的 AC 列出來;⏳ 待討論的不算沒標——那是要跟人談,不是要 Claude 補
+  // 有規格的輪次:改了程式就要回頭對清單(AC-6)。沒標的 AC 列出來;⏳ 待討論的不算沒標——那是要跟人談,不是要 Claude 補。
+  // 規格分批做的話(--spec 帶了 AC 代號),只要求這一批(施工對話認規格 AC-8);不在這一批的沒標不算
   const a = view.find((v) => v.checklist?.parsed);
-  if (a && a.checklist.unmarked > 0) {
-    const ids = a.checklist.items.filter((x) => x.state === 'none').map((x) => x.id);
-    const file = String(a.checklist.file ?? '').startsWith(ctx.root) ? String(a.checklist.file).slice(ctx.root.length + 1) : a.checklist.file;
-    missing.push({ key: 'checklist', line: `- 對規格的清單：${ids.slice(0, 6).join('、')}${ids.length > 6 ? ` 等 ${ids.length} 條` : ''} 還沒標——在 ${file} 每條 AC 的標題行末尾加「✅ 對過 日期」或「⏳ 待討論：原因」` });
+  if (a) {
+    const cl = a.checklist;
+    const file = String(cl.file ?? '').startsWith(ctx.root) ? String(cl.file).slice(ctx.root.length + 1) : cl.file;
+    if (cl.batchMissing?.length) {
+      // 這一批記的代號在檔案裡找不到了(改過號、刪了條):不是「這一批做完了」,是對不上——叫它重記(老毛病 P5,魔鬼教官 2026-09-21)
+      missing.push({ key: 'checklist', line: `- 對規格的清單：這一批記的 ${cl.batchMissing.join('、')} 在 ${file} 裡找不到了（可能改過號）——重記一次 pipeline-status --spec ${file} <這一批的 AC 代號>` });
+    } else if (cl.unmarked > 0) {
+      const ids = cl.items.filter((x) => x.state === 'none' && x.inBatch !== false).map((x) => x.id);
+      missing.push({ key: 'checklist', line: `- 對規格的清單：${ids.slice(0, 6).join('、')}${ids.length > 6 ? ` 等 ${ids.length} 條` : ''} 還沒標——在 ${file} 每條 AC 的標題行末尾加「✅ 對過 日期」或「⏳ 待討論：原因」` });
+    } else if (cl.preMarked) {
+      // 連上的規格勾都是連上之前打的(別的對話對過那一版):這個對話改了程式,要回頭對一次(R2,魔鬼教官 2026-09-21)
+      missing.push({ key: 'checklist', line: `- 對規格的清單：${file} 的勾都是連上之前就打好的——這個對話改了程式，要回頭對一次（對過的條目把日期改成今天，要討論的標「⏳ 待討論：原因」）` });
+    }
   }
   for (const key of requires) {
     if (key === 'tests') {
@@ -113,6 +119,8 @@ export function decide({ payload, monitorDir = MONITOR_DIR, skillHome = undefine
     }
     const st = view.find((s) => s.id === key);
     if (!st || !st.skill) continue;                                // B、E、未建的關:不是 hook 能要求的
+    // 規格是別的對話寫的、Claude 記了照哪份施工 → 不叫重跑 A(AC-7);連結分不出是哪個對話記的、而這個對話可能就是 → 不擋(AC-2)
+    if (st.id === specStage?.id && (st.link || st.unsure)) continue;
     const ran = st.ranAt ? Date.parse(st.ranAt) : null;
     // 這一輪跑過就算(A、C);結論會過期的關(stages.json 標 rerunAfterChange,例如 D)要在最後一次改檔**之後**跑過才算(AC-9)
     const ok = ran !== null && (!st.rerunAfterChange || ran >= lastChange - SKEW_MS);
@@ -120,6 +128,14 @@ export function decide({ payload, monitorDir = MONITOR_DIR, skillHome = undefine
     const cmd = commandFor(st.skill, ctx.root, ctx.mainRoot, skillHome);
     if (!cmd) continue;                                            // 指令不存在,要求了也做不到
     const why = ran === null ? '這一輪還沒跑' : '最後一次改檔之後還沒再跑一次';
+    if (st.id === specStage?.id && ran === null) {
+      // 沒連到規格:兩條路都講(AC-7)。規格在別的對話寫好了 → 記一筆照哪份施工;真的還沒有規格 → 才跑 A。
+      // 第一句話提到一份規格的話(AC-3)附上,只是提示,不算數
+      // 第一句話被感測器截過(cut)的話,「只提到一份」證明不了——不把路徑交給 Claude(魔鬼教官 2026-09-21);Claude 自己看得到完整的第一句話
+      const hint = st.hint && !st.hint.cut ? `（從第一句話看，可能是 ${st.hint.path}）` : '';
+      missing.push({ key, line: `- ${st.id} ${st.name}：${why}。照別的對話寫好的規格施工的話跑 pipeline-status --spec <規格檔>${hint}；還沒有規格才跑 ${cmd}` });
+      continue;
+    }
     missing.push({ key, line: `- ${st.id} ${st.name}：${why} → 跑 ${cmd}` });
   }
   if (!missing.length) return null;

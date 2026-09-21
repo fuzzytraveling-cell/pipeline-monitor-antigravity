@@ -11,6 +11,8 @@ import { describeFreshness } from '/freshness.mjs';
 
 const POLL_MS = 5000;
 let latest = null, connected = false;
+// 這一頁載入時的畫面程式版本(伺服器給的 appVersion)。之後變了 = 服務換了新程式,這一頁還是舊畫面 → 自己重新載入
+let bootVersion = null;
 
 const $app = document.getElementById('app');
 const $fresh = document.getElementById('freshness');
@@ -54,6 +56,11 @@ async function poll() {
     const r = await fetch('/api/status', { cache: 'no-store' });
     if (!r.ok) throw new Error(String(r.status));
     latest = await r.json(); connected = true;
+    // 合併之後重啟服務,開著的分頁跑的還是舊畫面:每幾秒拿新資料用舊的畫法畫,會把新欄位畫錯(魔鬼教官 2026-09-21,L20 的形狀)
+    if (latest?.appVersion) {
+      if (bootVersion === null) bootVersion = latest.appVersion;
+      else if (latest.appVersion !== bootVersion) { location.reload(); return; }
+    }
     // 使用者正在分級表單裡打理由時,這一輪不重畫——重畫會把打到一半的字洗掉(2026-09-13 實測)。資料照抓,下一輪再畫。
     if (!document.activeElement?.closest?.('[data-tier-form]')) safeRender();
   } catch { connected = false; }   // AC-2:不准靜靜停止更新
@@ -89,8 +96,29 @@ document.addEventListener('toggle', (e) => {
 }, true);
 /** 結論說明的第一行(清單放在後面幾行) */
 const noteHead = (st) => String(st.report?.note ?? '').split('\n')[0].trim();
-/** B 的清單進度一句話:「3/5 對過,1 條待討論,1 條還沒對」。沒有清單就空字串 */
-const clProg = (cl) => cl?.parsed ? `清單 ${cl.checked}/${cl.total} 對過${cl.pending ? `,${cl.pending} 條待討論` : ''}${cl.unmarked ? `,${cl.unmarked} 條還沒對` : ''}` : '';
+/** B 的清單進度一句話:「3/5 對過,1 條待討論,1 條還沒對」。沒有清單就空字串。分批做的規格只數這一批(施工對話認規格 AC-8) */
+const clProg = (cl) => cl?.parsed ? `清單${cl.batch ? '這一批' : ''} ${cl.checked}/${cl.total} 對過${cl.pending ? `,${cl.pending} 條待討論` : ''}${cl.unmarked ? `,${cl.unmarked} 條還沒對` : ''}` : '';
+/** 「照別的對話寫的規格 X（Claude 說的）」——跟終端機(status.mjs 的 linkLine)同一句,改一邊要改另一邊 */
+const linkLine = (lk) => `照別的對話寫的規格 ${lk.name}（Claude 說的${lk.how === 'only' ? '；沒記到對話代號，這個工作區只有這個對話' : ''}）`;
+/** B 為什麼還不算寫完——跟終端機(status.mjs 的 checklistWhy)同一句 */
+function checklistWhy(cl) {
+  if (cl?.batchMissing?.length) return `這一批記的 ${cl.batchMissing.join('、')} 在規格裡找不到了（可能改過號），要重記 --spec`;
+  if (cl?.preMarked) return '清單的勾都是連上這份之前就打好的，這個對話還沒回頭對過';
+  return '清單沒對完';
+}
+/** 寫規格那一關的旁白(施工對話認規格):規格在哪、另寫了一份、第一句話的提示、分不出是誰記的。都只是講,不算 A、不擋人。跟終端機的 specNotes 同一份文案 */
+function specNotes(st) {
+  const L = [];
+  const lk = st.link;
+  if (lk?.found === 'main') L.push('規格在主資料夾，不在這個工作區（可能還沒併進來）——不會叫 Claude 去那裡打勾');
+  else if (lk?.found === 'missing') L.push(`找不到規格檔 ${lk.name}.md`);
+  else if (lk?.found === 'ambiguous') L.push(`工作區裡叫 ${lk.name}.md 的規格不只一份（${(lk.where ?? []).join('、')}），分不出是哪一份`);
+  if (st.side) L.push(st.side.name ? `另寫了一份規格 ${st.side.name}（等你點頭）` : `${ago(st.side.ts)}又叫了寫規格那一關（寫了哪份看不到）；施工清單還是 ${lk?.name ?? '原本那份'}`);
+  if (st.hint) L.push(`從你第一句話看，可能是照 ${st.hint.name} 施工（Claude 還沒確認${st.hint.cut ? '；感測器只記第一句話的開頭，後面有沒有提到別份看不到' : ''}）`);
+  if (st.unsure) L.push(`有一筆規格連結（${st.unsure.name}）分不出是哪個對話記的——不算數`);
+  if (st.shared) L.push('這個工作區這一輪有好幾個對話；規格連結只算記它的那個對話，看各對話的頁面');
+  return L;
+}
 /** 感測器看得到的關(有 skill 或 tools 的)。B 是你在講話的那個對話、未建的關,都不算分母。 */
 const sensed = (st) => st.type !== 'main-conversation' && st.type !== 'not-built';
 
@@ -279,10 +307,10 @@ function statTier(c, p) {
   const sub = manual
     ? `機器算 ${esc(machine.id)}（${why}），<b>你說 ${esc(manual.id)}</b>（理由：${esc(manual.why)}）· ${ago(manual.ts)}`
     : why;
-  // ✅ 只代表「有紀錄而且你說處理完了」;⏸ 有紀錄沒結案;⚠️ 沒有紀錄;❔ 問不到／不適用。沒有「通過」這種狀態(R2)。
+  // ✅ 有紀錄而且結案了(Claude 說／你說);⏸ 有紀錄沒結案;⚠️ 沒有紀錄;❔ 問不到／不適用;🔗 規格是別的對話寫的(Claude 說照哪份施工)。沒有「通過」這種狀態(R2)。
   const reqs = t.requirements.length
     ? `<ul class="reqs">${t.requirements.map((r) => {
-        const mark = r.state === 'ok' ? '✅' : r.state === 'ran' ? '⏸' : r.state === 'missing' ? '⚠️' : '❔';
+        const mark = r.state === 'ok' ? '✅' : r.state === 'ran' ? '⏸' : r.state === 'missing' ? '⚠️' : r.state === 'linked' ? '🔗' : '❔';
         return `<li data-state="${r.state}">${mark} ${esc(r.label)}：${r.ts ? ago(r.ts) : ''}${esc(r.detail)}</li>`;
       }).join('')}</ul>`
     : '';
@@ -346,15 +374,17 @@ function workflow(c) {
     const status =
       // B(對話本身):改到程式檔就算在動,印最後一次改檔的時間;不數檔案——那要看 git(未檢查清單那張卡)
       st.type === 'main-conversation'
-        ? (s === 'ran' ? `最後一次改程式檔 ${ago(st.ranAt)}${st.via === 'git' ? '（感測器沒看到改檔,是 git 說的——可能是用 Bash 寫的）' : ''}——現在在這一關${clProg(st.checklist) ? `（${clProg(st.checklist)}）` : ''}`
+        ? (s === 'ran' ? `最後一次改程式檔 ${ago(st.ranAt)}${st.via === 'git' ? '（感測器沒看到改檔,是 git 說的——可能是用 Bash 寫的）' : ''}——現在在這一關${clProg(st.checklist) ? `（${clProg(st.checklist)}${st.checklist?.batchMissing?.length || st.checklist?.preMarked ? `；${checklistWhy(st.checklist)}` : ''}）` : ''}`
           // 清單沒對完:不劃掉,用「要處理」的樣子(AC-6)
-          : s === 'stale' ? `改過程式檔（最後一次 ${ago(st.ranAt)}）,${clProg(st.checklist)}——清單沒對完,不算寫完`
+          : s === 'stale' ? `改過程式檔（最後一次 ${ago(st.ranAt)}）,${clProg(st.checklist)}——${checklistWhy(st.checklist)},不算寫完`
           : s === 'done' ? `改過程式檔（最後一次 ${ago(st.ranAt)}）,${ago(st.doneAt)}Claude 對完清單`
           : s === 'passed' ? `改過程式檔（最後一次 ${ago(st.ranAt)}）${st.closedBy === 'checklist' ? ',Claude 對完清單' : ''}——已走過`
           : '就是你在講話的那個對話（這一輪還沒改到程式檔）')
       : s === 'notbuilt' ? '這一關還沒建'
       // A 的結案是你點頭開工(之後第一次改到程式檔):講出來,不然像是憑空劃掉的
       // 已走過的關,結論還是要講一句(誰說的、說了什麼),不然像是憑空劃掉的
+      // 照別的對話寫的規格施工(施工對話認規格 AC-1):連結不是 A 的一次呼叫,沒有「叫了」的時間,講照哪份、誰說的
+      : s === 'passed' && st.closedBy === 'link' && st.link ? `已走過：${linkLine(st.link)}`
       : s === 'passed' ? `${ago(st.ranAt)}${verb}${st.closedBy === 'nod' ? `,${ago(st.nodAt)}開始改程式檔,算你點頭開工了` : st.closedBy === 'claude' && noteHead(st) ? `,Claude 說：${noteHead(st)}` : st.closedBy === 'human' ? `,你說${said}` : ''}——已走過`
       // 結論會過期的關(D):之後又改了程式檔,要再跑一次(AC-9)。不劃掉、不打勾
       : s === 'stale' ? `${ago(st.ranAt)}${verb},之後又改了程式檔——要再跑一次`
@@ -371,17 +401,20 @@ function workflow(c) {
       : (c.sensor?.state === 'ok' ? '這一輪還沒跑' : '感測器沒有資料');
     const saidArgs = st.args
       ? `<div class="said">「${esc(st.args.slice(0, 90))}${st.args.length > 90 ? '…' : ''}」</div>` : '';
+    const notes = specNotes(st).map((n) => `<div class="said">${esc(n)}</div>`).join('');
     // A 的清單就是規格檔裡的 AC,照檔案畫(AC-5)。解析不了就照原文、找不到就說找不到——不假裝
     // 只有 A 帶完整的清單(有 items);B 只帶進度摘要,進度已經寫在狀態列,這裡不畫——畫下去就是 undefined 的 .map(2026-09-16 實際炸過一次)
     const cl = st.checklist && Array.isArray(st.checklist.items) ? st.checklist : null;
     const clHtml = !cl ? ''
-      : cl.missing ? `<div class="acl muted">清單：找不到這一輪的規格檔（${esc(String(cl.file ?? '').split('/').slice(-3).join('/'))}）</div>`
+      : cl.missing ? `<div class="acl muted">清單：找不到這一輪的規格檔${cl.file ? `（${esc(String(cl.file).split('/').slice(-3).join('/'))}）` : ''}</div>`
       : !cl.parsed ? `<div class="acl muted">清單：規格檔裡沒有照格式寫的 AC${cl.head ? `，開頭是：${esc(cl.head.slice(0, 80))}` : ''}</div>`
       // 可收折、預設收起(Oscar 2026-09-16):摘要一行講進度,展開才看每一條;對過的劃掉
       // 預設展開;你收起來就記住,資料每幾秒重畫一次也不會蓋掉你的選擇(Oscar 2026-09-16:一重畫就縮回去,很干擾)
-      : `<details class="acl-box" data-fold="${esc(`${c.path ?? ''}|${st.id}`)}"${foldOpen(`${c.path ?? ''}|${st.id}`) ? ' open' : ''}><summary>驗收清單：${clProg(cl).replace(/^清單 /, '')}（全部 ${cl.total} 條）</summary>
-        <ul class="acl">${cl.items.map((it) => `<li data-state="${esc(it.state)}"><span class="mark">${it.state === 'checked' ? '✅' : it.state === 'pending' ? '⏳' : '○'}</span>
-          <span><b>${esc(it.id)}</b> ${esc(it.title)}${it.state === 'pending' && it.note ? `<span class="muted">（待討論：${esc(it.note)}）</span>` : ''}${
+      // 分批做的規格(施工對話認規格 AC-8):整份照畫,不在這一批的標出來、淡一點——收工前只要求這一批
+      : `<details class="acl-box" data-fold="${esc(`${c.path ?? ''}|${st.id}`)}"${foldOpen(`${c.path ?? ''}|${st.id}`) ? ' open' : ''}><summary>驗收清單：${clProg(cl).replace(/^清單(這一批)? /, cl.batch ? '這一批 ' : '')}（全部 ${cl.allTotal ?? cl.total} 條${cl.batch ? `，這一批只對 ${esc(cl.batch.join('、'))}` : ''}）</summary>
+        ${cl.batchMissing?.length || cl.preMarked ? `<div class="said">⚠️ ${esc(checklistWhy(cl))}</div>` : ''}
+        <ul class="acl">${cl.items.map((it) => `<li data-state="${esc(it.state)}"${it.inBatch === false ? ' data-batch="out"' : ''}><span class="mark">${it.state === 'checked' ? '✅' : it.state === 'pending' ? '⏳' : '○'}</span>
+          <span><b>${esc(it.id)}</b> ${esc(it.title)}${it.state === 'pending' && it.note ? `<span class="muted">（待討論：${esc(it.note)}）</span>` : ''}${it.inBatch === false ? '<span class="muted">（不在這一批）</span>' : ''}${
           it.plain ? `<div class="plain">${esc(it.plain)}</div>` : ''}</span></li>`).join('')}</ul></details>`;
     // 結論的說明有清單(多行)時,一行一條列在卡上——C 的建議、D 的發現就住在這裡
     const noteLines = String(st.report?.note ?? '').split('\n').map((l) => l.trim()).filter(Boolean);
@@ -401,7 +434,7 @@ function workflow(c) {
             <span class="ahouse">${esc(r.house)}</span></div>
           <div class="adoes">${esc(r.does)}</div>
           <div class="astatus">${esc(status)}</div>
-          ${saidArgs}${clHtml}${noteHtml}${stamp}
+          ${saidArgs}${notes}${clHtml}${noteHtml}${stamp}
         </div>
         <span class="lamp" title="${s === 'passed' ? '已走過' : s === 'done' || s === 'ran' ? '現在這一關' : s === 'stale' ? '結論過期,要再跑一次' : s === 'seen' ? '開過瀏覽器' : '這一輪還沒跑'}"></span>
       </div>`;
@@ -648,7 +681,7 @@ function sessionPage(name, sid) {
       <p class="section-note">${esc(c.branch ?? '沒有分支')} · ${s.prompts} 則訊息 ·
         最後動作 ${ago(s.lastTs)}${s.closedAt ? ` · 已於 ${ago(s.closedAt)}結案` : ''}</p>
       ${warn}
-      <div class="stats">${statRestore(c)}${statLadder(c)}${statChanges(c)}${statTier(c, p)}</div>
+      <div class="stats">${statRestore(c)}${statLadder(c)}${statChanges(c)}${statTier({ ...c, tier: s.tier ?? c.tier }, p)}</div>
     </div>
     <div class="block">
       <h2 class="section serif">My Agent work flow</h2>

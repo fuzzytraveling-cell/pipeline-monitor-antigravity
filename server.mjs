@@ -8,7 +8,7 @@
  *    CCAM 出過一次「預設對整個區網開放」的漏洞——我們連那個選項都不做。
  */
 import { createServer } from 'node:http';
-import { readFileSync, existsSync, realpathSync } from 'node:fs';
+import { readFileSync, existsSync, realpathSync, statSync } from 'node:fs';
 import { join, dirname, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
@@ -52,6 +52,11 @@ function readBody(req, cb) {
 }
 
 /** monitorDir 可以注入,測試才能在自己的暫存資料夾裡跑;預設就是這個資料夾。 */
+/** 畫面程式的版本:兩個檔的修改時間。讀不到就是 null——畫面不會因為問不到版本就一直重新載入。 */
+function appVersion() {
+  try { return [SERVE['/app.js'], SERVE['/ui.css']].map((f) => statSync(f).mtimeMs).join('-'); } catch { return null; }
+}
+
 export function createApp({ monitorDir = HERE } = {}) {
   // 跟 hook.sh／status.mjs／collect.mjs 看同一個地方(同一個環境變數),寫的跟讀的才是同一份(老毛病 P2)。
   // 跟著 monitorDir 走,測試才能在自己的暫存資料夾裡寫,不會碰到真的紀錄。
@@ -63,7 +68,9 @@ export function createApp({ monitorDir = HERE } = {}) {
     if (url.pathname === '/api/status') {
       let body;
       try {
-        body = JSON.stringify(collectAll({ monitorDir }));
+        // appVersion:畫面程式(ui/app.js、ui.css)的版本。開著的分頁發現它變了就自己重新載入——
+        // 不然合併之後重啟服務,分頁跑的還是舊畫面,每幾秒拿新資料用舊的畫法畫,會把新欄位畫錯(魔鬼教官 2026-09-21,L20 的形狀)
+        body = JSON.stringify({ ...collectAll({ monitorDir }), appVersion: appVersion() });
       } catch (e) {
         // ⚠️ 一個專案讀不到,不該害整頁掛掉。照實回報,讓畫面說「讀不到」。
         return json(500, { error: String(e?.message ?? e), generatedAt: Date.now() });
