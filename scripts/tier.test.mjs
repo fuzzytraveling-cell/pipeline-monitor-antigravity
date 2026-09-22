@@ -85,6 +85,36 @@ section('人調高的:只准往上,基準換了就歸零');
   r.cleanup();
 }
 
+section('沒章時你調高的等級跟著這一輪走:存檔不是新的一輪,這一輪開始之前說的才歸零;同一個 0 的兩種意思不准同一張臉(規格:這一輪的起點 AC-1、AC-4)', 'P5');
+{
+  const T2 = LEVELS.danger.id;
+  const set = { cwd: '/x', ts: '2026-09-22T01:10:00Z', event: 'tier_set', level: T2, why: '這次會動到匯出', head: 'abc1234' };
+  check('這一輪開始之後說的、之後 Claude 存了檔(HEAD 換了) → 還算數',
+    manualTier([set], '/x', { cpUsable: false, head: 'def5678', originAt: '2026-09-22T01:00:00Z' })?.id === T2);
+  eq('這一輪開始之前說的(上一件事的) → 歸零', manualTier([set], '/x', { cpUsable: false, head: 'abc1234', originAt: '2026-09-22T01:20:00Z' }), null);
+  eq('起點問不到 → 退回舊規則:存檔了就歸零(那時畫面也只看還沒存檔的,兩邊同一個基準)',
+    manualTier([set], '/x', { cpUsable: false, head: 'def5678', originAt: null }), null);
+  check('有章 → 照舊看蓋章時間,不看起點', manualTier([set], '/x', { cpUsable: true, cpAt: '2026-09-22T01:05:00Z', originAt: '2026-09-22T01:20:00Z' })?.id === T2);
+
+  const r = makeRepo({ files: { 'src/a.js': '1\n' } });
+  cfgFile(r.dir, { tiers: { code: ['src/'] } });
+  const tierWith = (basis, list = []) => buildTier({ root: r.dir, mainRoot: null, monitorDir: ROOT, health: { files: list.length, list, touchedTests: 0 },
+    stages: [], perStage: new Map(), cleared: new Map(), events: [], cwd: r.dir, cpUsable: false, cpAt: null, head: 'abc1234', basis });
+  const fromPrompt = { kind: 'origin', why: null, origin: { at: '2026-09-22T01:00:00Z', from: 'prompt', sessions: 1 } };
+  const blind = { kind: 'head', why: 'not-found', origin: null };
+  eq('從起點算、真的沒有改動 → no-change', tierWith(fromPrompt).state, 'no-change');
+  eq('只看得到還沒存檔的、而且沒有 → unseen(存檔過的看不到,不是 no-change)', tierWith(blind).state, 'unseen');
+  eq('沒給基準(舊的呼叫端) → 照舊 no-change', tierWith(null).state, 'no-change');
+  eq('從起點算、沒有改動,但這一輪中間 HEAD 動過(切過分支) → unseen(魔鬼教官 2026-09-22)', tierWith({ ...fromPrompt, moved: true }).state, 'unseen');
+  const L = describeTier(tierWith(blind)).join('\n');
+  check('終端機:unseen 不說「沒有改動」,講存檔過的看不到、分不了級', !/沒有改動/.test(L) && /存檔過的看不到/.test(L) && /分不了級/.test(L), L);
+  const partial = tierWith(blind, ['src/a.js']);
+  const L2 = describeTier(partial).join('\n');
+  check('只算得到還沒存檔的:等級旁邊講「實際可能更高」', partial.state === 'ok' && /只算還沒存檔的/.test(L2) && /實際可能更高/.test(L2), L2);
+  check('從起點算的:不多那一句', !/實際可能更高/.test(describeTier(tierWith(fromPrompt, ['src/a.js'])).join('\n')));
+  r.cleanup();
+}
+
 section('「需要」那幾項:只講有沒有紀錄,不講通過');
 {
   const stages = [{ id: 'A', name: '寫規格', skill: 'spec' }, { id: 'B', name: '寫程式', type: 'main-conversation' },

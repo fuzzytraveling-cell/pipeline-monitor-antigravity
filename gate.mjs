@@ -14,16 +14,18 @@
  *      與 git 說有改動的檔案的修改時間(用 Bash 寫檔會繞過感測器,L8)。
  *      感測器沒記到這個對話的任何一句話 → 不知道回合從哪開始 → 放行(R1:沒問到不當沒有)。
  *
- * 擋不擋、缺什麼,都從儀表板同一份事實算(lib/collect.mjs 的 cardFor → buildTier／roundView),不另外算一份(老毛病 P2)。
+ * 擋不擋、缺什麼,都從儀表板同一份事實算(lib/collect.mjs 的 cardFor → sessionTier,跟對話頁同一個函式),不另外算一份(老毛病 P2)。
+ * 「這次改了什麼」從這一輪的起點算(規格:這一輪的起點):Claude 收工前先存檔,該擋的照樣擋——以前沒章時比的是上一次存檔,一存就全部放行。
  */
-import { readFileSync, appendFileSync, existsSync, statSync, mkdirSync, realpathSync } from 'node:fs';
+import { readFileSync, appendFileSync, existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
-import { cardFor } from './lib/collect.mjs';
-import { stagesOfSession, logFileOf, GATE_FILE } from './lib/events.mjs';
+import { cardFor, sessionTier } from './lib/collect.mjs';
+import { sessionsOf, logFileOf, GATE_FILE } from './lib/events.mjs';
 import { writeFileSync } from 'node:fs';
-import { readTierConfig, codeFileFn } from './lib/tier.mjs';
+import { readTierConfig, codeFileFn, changeTimeOf } from './lib/tier.mjs';
+import { changeScope } from './lib/scope.mjs';
 import { commandFor as findCommand, pluginName } from './lib/skills.mjs';
 import { optOutState } from './lib/mount.mjs';
 import { monitorHome } from './lib/paths.mjs';
@@ -65,8 +67,11 @@ export function decide({ payload, monitorDir = MONITOR_DIR, skillHome = undefine
   const { card, events, stages, ctx } = got;
   if (card.gone || card.notGit) return null;
   if (optOutState(ctx.root, ctx.mainRoot)) return null;          // 退出記錄的專案,連感測器都不記,也不擋
-  const tier = card.tier;
-  if (!tier || tier.state !== 'ok') return null;                  // 沒設定分級就沒有「該跑的關」
+  // 這個對話的分級:跟對話頁同一個函式。共用工作區時從這個對話自己的起點算,別的對話更早存的檔不算到它頭上
+  const shared = sessionsOf(events).find((s) => s.id === sid)?.sharesCwd === true;
+  const mineNow = sessionTier({ card, events, stages, session: sid, cwd: path, shared, monitorDir });
+  const tier = mineNow.tier;
+  if (!tier || tier.state !== 'ok') return null;                  // 沒設定分級就沒有「該跑的關」;只看得到還沒存檔的而且沒有(unseen)也要不了
   const requires = tier.final?.requires ?? [];
   if (!requires.length) return null;
   const cfg = readTierConfig(ctx.root, ctx.mainRoot, monitorDir);
@@ -78,9 +83,10 @@ export function decide({ payload, monitorDir = MONITOR_DIR, skillHome = undefine
     .filter(Number.isFinite).sort((a, b) => a - b).at(-1) ?? null;
   if (turnStart === null) return null;
 
-  // 這一輪改到程式區／危險清單的檔案(git 說的,跟儀表板同一份),與它們的修改時間
+  // 這一輪改到程式區／危險清單的檔案(git 說的,跟儀表板同一份;存檔過的也在),與它們最後一次變動的時間——存檔不是改檔,時間看檔案本身;
+  // 刪掉的檔看它所在資料夾的時間(lib/tier.mjs 的 changeTimeOf,五關的 B 與 D 過期也用它)。以前刪掉的就沒有時間,只刪檔的回合安靜放行
   const hits = [...(tier.machine?.hits?.danger ?? []), ...(tier.machine?.hits?.code ?? [])];
-  const mtimes = hits.map((f) => { try { return statSync(join(ctx.root, f)).mtimeMs; } catch { return null; } }).filter((t) => t !== null);
+  const mtimes = hits.map((f) => changeTimeOf(ctx.root, f)).filter((t) => t !== null);
   // 感測器記到的、落在程式區的改檔事件(這個對話)——「算不算程式檔」跟五關、分級用同一個判斷(lib/tier.mjs)
   const inArea = codeFileFn(ctx.root, cfg.config);
   const editTs = mine.filter((e) => e.hook === 'PostToolUse' && inArea(e.file)).map((e) => Date.parse(e.ts)).filter(Number.isFinite);
@@ -88,9 +94,8 @@ export function decide({ payload, monitorDir = MONITOR_DIR, skillHome = undefine
   if (!changedThisTurn) return null;
   const lastChange = Math.max(...mtimes, ...editTs);
 
-  const cpAt = card.checkpointRelation?.state === 'ok' ? card.checkpoint?.at ?? null : null;
-  // 規格連結只認這個對話記的(施工對話認規格 AC-2):五關、分級卡、這裡都從同一份 specContext 算
-  const view = stagesOfSession(events, stages, sid, cpAt, path, { mainRoot: ctx.mainRoot });
+  // 規格連結只認這個對話記的(施工對話認規格 AC-2):五關、分級卡、這裡都從同一份 specContext 算(sessionTier 裡的 sessionView)
+  const view = mineNow.view.stages;
   const specStage = stages.find((s) => s.skill);   // 寫規格的那一關 = 第一個指令關(跟一輪的分界同一個認法,不寫死代號)
   const missing = [];
   // 有規格的輪次:改了程式就要回頭對清單(AC-6)。沒標的 AC 列出來;⏳ 待討論的不算沒標——那是要跟人談,不是要 Claude 補。
@@ -113,7 +118,7 @@ export function decide({ payload, monitorDir = MONITOR_DIR, skillHome = undefine
   }
   for (const key of requires) {
     if (key === 'tests') {
-      const n = card.health?.touchedTests ?? null;
+      const n = mineNow.health?.touchedTests ?? null;
       if (n === null || n > 0) continue;                           // 問不到就不要求(R1)
       missing.push({ key, line: '- 補測試：這一輪還沒新增或修改任何測試檔' });
       continue;
@@ -142,10 +147,16 @@ export function decide({ payload, monitorDir = MONITOR_DIR, skillHome = undefine
   if (!missing.length) return null;
 
   const level = tier.final.id;
-  const area = tier.machine?.hits?.danger?.length ? '危險清單' : '程式區';
-  const files = hits.slice(0, 3).join('、') + (hits.length > 3 ? ` 等 ${hits.length} 個檔` : '');
+  // 危險清單的檔跟程式區的檔分開列:以前全部掛在「碰到危險清單：」底下,只在程式區的檔也被講成危險(2026-09-22 收工 hook 自己印出來的)
+  const list = (xs) => xs.slice(0, 3).join('、') + (xs.length > 3 ? ` 等 ${xs.length} 個檔` : '');
+  const dangerHits = tier.machine?.hits?.danger ?? [], codeHits = tier.machine?.hits?.code ?? [];
+  const touched = dangerHits.length
+    ? `碰到危險清單：${list(dangerHits)}${codeHits.length ? `；另外碰到程式區 ${codeHits.length} 個檔` : ''}`
+    : `碰到程式區：${list(codeHits)}`;
+  // 從哪裡算起跟儀表板同一句話(lib/scope.mjs):「這一輪，含已存檔的」——Claude 才不會以為存了檔就不算
+  const scope = changeScope(mineNow.base, () => '').short;
   const reason = [
-    `[產線監視器] 這次改動至少 ${level}（碰到${area}：${files}）。收工前還缺：`,
+    `[產線監視器] 這次改動至少 ${level}（${touched}；${scope}）。收工前還缺：`,
     ...missing.map((m) => m.line),
     '先把缺的跑完再收工；跑完照那支指令的收尾把結果記給儀表板。這是分級的要求，不是建議。',
   ].join('\n');

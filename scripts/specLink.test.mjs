@@ -41,7 +41,8 @@ const specText = (title, n, marks = {}) => `# 功能：${title}\n\n## 驗收條�
  * 危險清單的檔已經改過(修改時間 4 分鐘前),收工 hook 才有「這一回合改了程式」可以判斷。
  */
 function scene({ touch = 'src/danger.js' } = {}) {
-  const r = makeRepo({ files: {
+  // 專案比劇本裡的每一句話都早存在(劇本從幾分鐘前開始):「這次改動」從這一輪的起點算,起點之前要有版本可比(規格:這一輪的起點)
+  const r = makeRepo({ at: T(-60 * MIN), files: {
     'src/a.js': '1\n', 'src/danger.js': 'd\n', 'README.md': 'r\n', 'docs/LESSONS.md': '# 教訓\n沒有 AC\n',
     'docs/規劃中/app建議卡.md': specText('app建議卡', 7),
     'docs/進行中/pipeline-ui.md': specText('pipeline-ui', 4),

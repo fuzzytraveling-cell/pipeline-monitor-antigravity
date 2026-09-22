@@ -268,16 +268,29 @@ function statLadder(c) {
   </div>`;
 }
 
+/** 舊的服務(還沒 --serve-restart)沒給 scope:那時它的「改動」有章比章、沒章比上一次存檔,照當時的字畫,不假裝知道這一輪 */
+function scopeOfOldServer(c) {
+  return cpOk(c)
+    ? { label: '蓋章之後改過、還沒重新檢查的檔案', note: null, empty: '現在的檔案跟蓋章時一模一樣。', short: '蓋章之後', blind: false, emptyBlind: false, commitsNote: null }
+    : { label: '還沒存檔（commit）的改動', note: null, empty: '現在的檔案跟上一個存檔一模一樣。', short: '', blind: false, emptyBlind: false, commitsNote: null };
+}
+
 function statChanges(c) {
   const f = c.files;
   // 有章:講的是「蓋章之後改過、還沒重新檢查」——它們多半已經 commit 了,不是「還沒 commit」。
-  // 以前寫「commit後還沒被檢查的檔案」,Oscar 讀成「還沒 commit 的檔案」(2026-09-15)。沒有章:講的是還沒存的改動。
-  const label = cpOk(c) ? '蓋章之後改過、還沒重新檢查的檔案' : '還沒存檔（commit）的改動';
+  // 以前寫「commit後還沒被檢查的檔案」,Oscar 讀成「還沒 commit 的檔案」(2026-09-15)。
+  // 沒有章:講的是這一輪改過的(含已存檔的);找不到這一輪的起點才只講還沒存的。
+  // 字是伺服器用 lib/scope.mjs 算好的(c.scope),終端機與收工 hook 同一句——這裡不 import 那支:常駐服務只送它啟動那一刻白名單裡的檔案,
+  // 多一個新檔,更新後還沒重啟的那段時間整個畫面會載不進來。舊的服務沒給 scope,那時它算的就是「還沒存檔的」,照舊的字畫
+  const sc = c.scope ?? scopeOfOldServer(c);
+  const label = sc.label;
+  const note = sc.note ? `<div class="hint">${esc(sc.note)}。</div>` : '';
   if (!f) return `<div class="stat" data-tone="change"><h3 class="ctitle">未檢查清單</h3><div class="label">${label}</div>
     <div class="big">問不到</div></div>`;
+  // 只看得到還沒存的、或這一輪中間 HEAD 動過的時候,0 不是「沒有改動」(老毛病 P5):存檔過的看不到
   if (!f.total) return `<div class="stat" data-tone="change"><h3 class="ctitle">未檢查清單</h3><div class="label">${label}</div>
-    <div class="big">沒有改動</div>
-    <div class="sub">${cpOk(c) ? '蓋章之後' : '相對於上一個存檔'}沒有任何檔案被動過。</div></div>`;
+    <div class="big">${sc.emptyBlind ? '看不全' : '沒有改動'}</div>
+    <div class="sub">${esc(sc.empty)}</div>${sc.emptyBlind ? '' : note}</div>`;
 
   const groups = f.groups.map((g) => `<div class="fgroup">
       <div class="dir">${esc(g.dir)}/</div>
@@ -288,12 +301,13 @@ function statChanges(c) {
   return `<div class="stat" data-tone="change">
     <h3 class="ctitle">未檢查清單</h3><div class="label">${label}</div>
     <div class="big"><span class="num">${f.total}</span><span class="unit">個檔案</span></div>
+    ${note}
     ${f.uncommittedCount === null ? '<div class="sub">問不到哪些還沒存。</div>'
       : f.uncommittedCount > 0 ? `<div class="sub">其中 <b>${f.uncommittedCount} 個還沒存進保險箱（commit）</b>${f.newCount ? `,${f.newCount} 個是新建的` : ''}。</div>`
       : `<div class="sub">都已經存了（commit）${cpOk(c) ? ',只是蓋章之後改的,還沒重新檢查。要檢查：<code>pipeline-status --checkpoint</code>' : ''}。</div>`}
     <div class="files">${groups}</div>
-    ${c.scale ? `<div class="hint">參考:這個專案一次改動通常 ${c.scale.median} 個檔案,
-      最多到過 ${c.scale.max} 個。</div>` : ''}
+    ${c.scale ? `<div class="hint">參考:這個專案一次存檔（commit）通常 ${c.scale.median} 個檔案,
+      最多到過 ${c.scale.max} 個${sc.commitsNote ? `；${esc(sc.commitsNote)}` : ''}。</div>` : ''}
   </div>`;
 }
 
@@ -315,11 +329,16 @@ function statTier(c, p) {
   const emptyWarn = t.dangerEmpty
     ? `<div class="hint">⚠️ 危險清單是空的，所以永遠不會出現 ${esc(t.levels?.danger?.id ?? '第三級')}。在對話裡說「幫我設定分級」可以補。</div>` : '';
   if (t.state === 'no-change') return card('safe', '沒有改動', '這次沒有改動，沒有東西要分級。', emptyWarn);
+  // 同一個 0 的另一種意思(老毛病 P5):只看得到還沒存的,而還沒存的沒有——不是那張安全的綠臉(規格:這一輪的起點 AC-4)
+  const sc = c.scope ?? scopeOfOldServer(c);
+  if (t.state === 'unseen') return card('change', '看不全', `${esc(sc.empty)}所以這次分不了級。`);
 
   const { machine, manual, final } = t;
   const dh = machine.hits.danger;
   const why = machine.rank === 2 ? `碰到危險清單：${dh.slice(0, 3).map(esc).join('、')}${dh.length > 3 ? `…共 ${dh.length} 個` : ''}`
     : machine.rank === 1 ? `碰到程式區 ${machine.hits.code.length} 個檔` : '沒碰到程式區';
+  // 只算得到還沒存的:存檔過的看不到,實際可能更高(跟終端機同一句,lib/scope.mjs)
+  const blind = sc.blind ? `<div class="hint">⚠️ ${esc(sc.short)}。存檔過的看不到，實際可能更高。</div>` : '';
   const sub = manual
     ? `機器算 ${esc(machine.id)}（${why}），<b>你說 ${esc(manual.id)}</b>（理由：${esc(manual.why)}）· ${ago(manual.ts)}`
     : why;
@@ -346,7 +365,7 @@ function statTier(c, p) {
       : '';
   const tone = t.requirements.some((r) => r.state === 'missing') ? 'alert' : 'safe';
   return card(tone, esc(manual ? manual.id : final.id), sub,
-    `${reqs}${ignored}${emptyWarn}${cand}
+    `${blind}${reqs}${ignored}${emptyWarn}${cand}
     <div class="hint muted">為了程式碼安全，分級只能往上調。</div>${control}`);
 }
 
@@ -481,7 +500,8 @@ function overview(p) {
     card.ladder?.uncommitted === null ? '問不到有沒有沒存的檔案'
       : card.ladder?.uncommitted ? `${card.ladder.uncommitted} 個檔案沒存` : '都存好了',
     !card.checkpoint ? '還沒有還原點' : cpOk(card) ? `還原點 ${ago(card.checkpoint.at)}` : '還原點失效',
-    card.files?.total ? `${card.files.total} 個檔案還沒檢查` : '沒有待檢查的檔案',
+    // 0 有兩種意思(老毛病 P5):存檔過的看不到的時候,不准寫「沒有待檢查的檔案」——對話頁那張卡寫的是「看不全」
+    card.files?.total ? `${card.files.total} 個檔案還沒檢查` : card.scope?.emptyBlind ? '看不全：這一輪存檔過的看不到' : '沒有待檢查的檔案',
   ] : ['還沒有資料'];
 
   return `<div class="ov">
@@ -687,9 +707,10 @@ function sessionPage(name, sid) {
     </div>`;
   }
 
+  // 共用工作區:改動與分級一個資料夾一份(lib/collect.mjs 的 sessionTier),別的對話改的也算在裡面——講清楚,不讓人以為那些都是這個對話做的
   const warn = s.sharesCwd
-    ? `<p class="section-note">⚠️ 這個工作區還有別的對話在用,所以下面的 git 狀態是**共用的**——
-       不是這個對話獨有。</p>` : '';
+    ? `<p class="section-note">⚠️ 這個工作區還有別的對話在用,所以下面的 git 狀態與分級是<b>共用的</b>——
+       不是這個對話獨有：別的對話改的也算在裡面。</p>` : '';
 
   return `
     <div class="block">

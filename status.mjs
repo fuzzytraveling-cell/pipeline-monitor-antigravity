@@ -21,7 +21,9 @@ import process from 'node:process';
 import { appendFileSync } from 'node:fs';
 import { readEvents, loadStages, lastRunPerStage, runsPerStage, roundView, editsOf, reportsIn, perStageOfRound, gateHeartbeat, safeName, logFileOf, specContext } from './lib/events.mjs';
 import { readChecklist, locateSpec } from './lib/checklist.mjs';
-import { buildTier, readTierConfig, writeTierConfig, proposeCodeArea, codeFileFn, gitCodeChanges } from './lib/tier.mjs';
+import { buildTier, readTierConfig, writeTierConfig, proposeCodeArea, codeFileFn } from './lib/tier.mjs';
+import { changeFacts } from './lib/origin.mjs';
+import { changeScope } from './lib/scope.mjs';
 import { monitorHome } from './lib/paths.mjs';
 import { skillAvailable, commandFor, pluginName } from './lib/skills.mjs';
 import { installService, uninstallService, restartService, describeService, openDashboard } from './lib/service.mjs';
@@ -165,20 +167,23 @@ function readDeps(text) {
 }
 
 function changeHealth(cwd, since) {
-  // ⚠️ 基準只在這裡決定一次:有章比章,沒章比上一次存檔(HEAD)。
+  // ⚠️ 基準(since)不在這裡決定,在 lib/origin.mjs 的 changeBase():有章比章,沒章比這一輪起點那一刻的版本,
+  //    起點問不到才是 null——只看還沒存檔的(HEAD)。以前沒章一律比 HEAD,Claude 一存檔「這次改動」就歸零(規格:這一輪的起點)。
   // 沒帶 HEAD 的 `git diff` 只看得到「還沒 git add」的改動——add 過的整個消失,
   // 畫面會同時寫「2 個檔案還沒存進保險箱」和「沒有改動」(2026-09-11 實測,老毛病 P1)。
   const base = since ?? 'HEAD';
-  const stat = git(['diff', '--shortstat', base], cwd);
-  const names = git(['diff', '--name-only', base], cwd);
+  // ⚠️ --no-renames:git 預設會把「刪一個、加一個」配成搬家,--name-only 只印新路徑——搬走危險清單上的檔,分級就看不到它,
+  //    T2 掉成 T1(老毛病 P1,魔鬼教官 2026-09-22)。三個問法都關掉配對,行數、檔名、測試檔才是同一種算法
+  const stat = git(['diff', '--shortstat', '--no-renames', base], cwd);
+  const names = git(['diff', '--name-only', '--no-renames', base], cwd);
   // ⚠️ AC-8：只認「被修改」的既有測試（M），不認新增（A）。
   // 寫新功能順便補新測試是好事,天天為它跳警告會讓人關掉這個工具。
-  const modifiedTests = git(['diff', '--diff-filter=M', '--name-only', base], cwd);
+  const modifiedTests = git(['diff', '--diff-filter=M', '--name-only', '--no-renames', base], cwd);
   // ⚠️ 不要用 diff 的 `+"lodash": "^4"` 去比對——那**假設 package.json 是一行一個相依**。
   // 壓成一行的 package.json 就完全認不到,而且是安靜地認不到。直接解析兩邊的鍵。
   // ⚠️ 這裡本來寫成 `since ? ... : depsNow`——沒有還原點的時候拿自己跟自己比,
   // 差集永遠是空的,**新增的相依一輩子不會被報出來**。測試抓到的。
-  // 沒有還原點時,「改動」的基準是 HEAD(＝還沒 commit 的東西),不是工作區自己。
+  // 基準一律是呼叫端給的那個版本(沒給才是 HEAD),不是工作區自己。
   const pkgPath = join(cwd, 'package.json');
   const depsNow = readDeps(existsSync(pkgPath) ? readFileSync(pkgPath, 'utf8') : null);
   const depsBefore = readDeps(git(['show', `${since ?? 'HEAD'}:package.json`], cwd));
@@ -345,7 +350,8 @@ function describeCheckpoint({ cp, rel, dirty, files, now = new Date() }) {
     if (rel.commitsAfter) L.push(`   其中包含蓋章之後的 ${rel.commitsAfter} 次存檔(commit)。`);
   }
   else if (rel.commitsAfter) L.push('', `   ⚠️ 蓋章之後存了 ${rel.commitsAfter} 次,但現在的檔案內容跟章一模一樣。`);
-  else L.push('', '   ✅ 蓋章之後沒有任何檔案被改過。');
+  // 只講證明得出來的:差 0 不代表沒動過(改了又改回去、git stash 都是 0;魔鬼教官 2026-09-22 第二輪)
+  else L.push('', '   ✅ 現在的檔案跟蓋章時一模一樣。');
 
   if (dirty === null) L.push('   ⚠️ 問不到有幾個還沒存進保險箱(git commit)。');
   else if (dirty) L.push(`   ⚠️ 其中 ${dirty} 個還沒存進保險箱(git commit)。`);
@@ -519,22 +525,22 @@ function renderSensor(ctx, ev) {
   console.log(`         ${describeGate()}`);
 }
 
-/** 還原點與改動的事實,一次算好。畫面(render)與分級(--tier)都吃這一份——兩邊才不會各算各的(老毛病 P2)。 */
+/**
+ * 還原點的事實。「這次改動」(h)與它的基準(base)在 stageFacts 裡跟五關一起算——起點是五關那一輪的起點(lib/origin.mjs),
+ * 算完由 main() 放回這裡。畫面(render)與分級(--tier)都吃這一份,兩邊才不會各算各的(老毛病 P2)。
+ */
 function gatherChange(ctx) {
   const cp = readCheckpoint(ctx);
   const dirty = uncommitted(ctx.root);
   // ⚠️ L14:章只有在它指的版本還在這條分支的歷史上時才算數,詳見 checkpointRelation()。
   const rel = cp ? checkpointRelation(ctx.root, cp.commit) : null;
   const cpUsable = rel?.state === 'ok';
-  // 改動的基準只在這裡決定一次,下面全部沿用:章能用就比章,不能用就比上一次存檔(HEAD)。
-  // 以前這裡算了兩次(一次給還原點那段、一次給改動體檢),兩個數字有機會不一樣(老毛病 P2)。
-  const since = cpUsable ? cp.commit : undefined;
-  return { cp, dirty, rel, cpUsable, since, h: changeHealth(ctx.root, since) };
+  return { cp, dirty, rel, cpUsable, h: null, base: null };
 }
 
 function render(ctx, ev, info) {
   renderSensor(ctx, ev);
-  const { cp, dirty, rel, cpUsable, since, h } = info;
+  const { cp, dirty, rel, cpUsable, h, base } = info;
 
   /* ── 還原點（AC-2 / AC-3 / AC-4 / AC-5 / L14） ── */
   if (!cp) {
@@ -552,19 +558,24 @@ function render(ctx, ev, info) {
 
   /* ── 改動體檢（AC-7 / AC-8）：只報數字,不下判斷 ── */
   const scale = changeScale(ctx.root);
-  console.log(`\n━━ ${since ? '蓋章之後的改動' : '尚未提交的改動'} ━━`);
-  if (cp && !cpUsable) console.log('   （章失效了,所以這裡比的是上一次存檔,不是章。）');
+  // 從哪裡算起(規格:這一輪的起點 AC-5):文案住在 lib/scope.mjs,網頁與收工 hook 講同一句
+  const scope = changeScope(base, ago);
+  console.log(`\n━━ ${scope.title} ━━`);
+  if (scope.note) console.log(`   （${scope.note}。）`);
+  if (cp && !cpUsable) console.log('   （章失效了,所以這裡不是從章算。）');
   if (h.files === null) {
     console.log('   問不到改動。');                // R1:沒問到 ≠ 沒有改動
   } else if (!h.files) {
-    console.log('   沒有改動。');
+    // 只看得到還沒存檔的、或這一輪中間 HEAD 動過的時候,0 不是「沒有改動」(老毛病 P5)
+    console.log(`   ${scope.emptyBlind ? scope.empty : '沒有改動。'}`);
   } else {
     console.log(`   ${h.files} 個檔案${h.newFiles ? `(其中 ${h.newFiles} 個是新檔案)` : ''}`);
     // 新檔案還沒被 git 追蹤,算不出增減行數。照實說涵蓋範圍,不要給一個看起來完整的假總數。
     if (h.added === null) console.log('   已存在的檔案:行數問不到');
     else console.log(`   已存在的檔案:+${h.added} −${h.removed} 行`);
     // ⚠️ AC-7：比例尺來自這個專案自己的歷史。沒有「太多」這種話。
-    if (scale) console.log(`   （這個專案平常 ${scale.median} 個檔案,最多到過 ${scale.max} 個）`);
+    //    比例尺是「一次存檔」的;這裡是好幾次存檔加起來的時候要講,不然 22 個配「最多到過 20 個」讀起來像有史以來最大的一次(L6,魔鬼教官 2026-09-22)
+    if (scale) console.log(`   （這個專案一次存檔平常 ${scale.median} 個檔案,最多到過 ${scale.max} 個${scope.commitsNote ? `;${scope.commitsNote}` : ''}）`);
     if (h.newDeps.length) {
       console.log(`   ⚠️ 新增相依 ${h.newDeps.length} 個：${h.newDeps.join(', ')}`);
       console.log('      （每一個都是以後都要跟著你的東西,裝的時候只花三秒。）');
@@ -604,12 +615,20 @@ function stageFacts(ctx, ev, info = {}) {
   // ⚠️ 以前一律用工作區層級:worktree 只要來過別的對話,剛記了連結的 Claude 自己一看就是「A 沒有紀錄」(魔鬼教官 2026-09-21,老毛病 P2)
   const sid = sessionFromEnv();
   const mine = sid && ev.events.some((e) => e.cwd === ctx.root && e.session === sid) ? sid : null;
+  // 「這次改動」的基準(lib/origin.mjs):roundView 算出這一輪的起點就照它問 git,改動體檢、分級、五關的 B 拿同一份(規格:這一輪的起點)
+  const change = changeFacts({ root: ctx.root, cpCommit: info.cpUsable ? info.cp?.commit ?? null : null, cpCommits: info.rel?.commitsAfter ?? null,
+                               hasCommits: ctx.hasCommits, isCode,
+                               relationOf: (c) => checkpointRelation(ctx.root, c), healthOf: (s) => changeHealth(ctx.root, s) });
+  // 起點跟儀表板那張卡同一個(工作區層級:共用資料夾時是最早開口的那個)——分級一個資料夾一份,「調高」也是按資料夾記的。
+  // ⚠️ 以前拿這個對話的第一句話配整個資料夾的 A:共用資料夾時終端機跟收工 hook 講不同的等級(魔鬼教官 2026-09-22,P2)。規格連結照舊按這個對話
+  const spec = specContext(ev.events, { cwd: ctx.root, cpAt, session: mine });
   const view = roundView({
     runs, stages, cleared, reports, edits, isCode, cpAt,
-    gitChanges: (since) => gitCodeChanges(ctx.root, info.h?.list ?? null, isCode, { since }),
-    spec: specContext(ev.events, { cwd: ctx.root, cpAt, session: mine }), root: ctx.root, mainRoot: ctx.mainRoot,
+    gitChanges: change.gitChanges,
+    spec: { ...spec, startHere: specContext(ev.events, { cwd: ctx.root, cpAt }).startHere }, root: ctx.root, mainRoot: ctx.mainRoot,
   });
-  return { stages, perStage: perStageOfRound(view), cleared, reports, view, sawAnyEventHere };
+  const { base, health } = change.facts();
+  return { stages, perStage: perStageOfRound(view), cleared, reports, view, sawAnyEventHere, base, health };
 }
 
 function renderStages(ctx, ev, facts, info = {}) {
@@ -1060,6 +1079,8 @@ function tierOf(ctx, ev, info, facts) {
     stages: facts.stages, perStage: facts.perStage, cleared: facts.cleared,
     events: ev.events, cwd: ctx.root, cpUsable: info.cpUsable, cpAt: info.cp?.at ?? null,
     head: ctx.head?.slice(0, 7) ?? null, reports: facts.reports, lastEdit: facts.view.lastEdit, spec: facts.view.spec,
+    basis: facts.base ? { kind: facts.base.kind, why: facts.base.why ?? null, origin: facts.base.origin ?? null,
+                          moved: facts.base.moved === true, commits: facts.base.commits ?? null } : null,
   });
 }
 
@@ -1094,6 +1115,12 @@ function describeTier(t) {
     if (t.dangerEmpty) L.push(emptyWarn());
     return L;
   }
+  // 同一個 0 的另一種意思(老毛病 P5):只看得到還沒存檔的,而還沒存檔的沒有——存檔過的看不到,不准講成「沒有改動」
+  if (t.state === 'unseen') {
+    L.push(`   ${changeScope(t.basis, ago).empty}`);
+    L.push('   所以這次分不了級。');
+    return L;
+  }
 
   const { machine, manual, final } = t;
   const dangerHits = machine.hits.danger;
@@ -1102,6 +1129,8 @@ function describeTier(t) {
     : machine.rank === 1 ? `碰到程式區 ${machine.hits.code.length} 個檔` : '沒碰到程式區';
   if (manual) L.push(`   機器算 ${machine.id}（${why}）,你說 ${manual.id}（理由：${manual.why}）· ${ago(manual.ts)}`);
   else L.push(`   ${final.id}（${why}）`);
+  // 只算得到還沒存檔的:存檔過的看不到,實際可能更高(規格:這一輪的起點 AC-4)
+  if (t.basis?.kind === 'head') L.push(`   ⚠️ ${changeScope(t.basis, ago).short}。存檔過的看不到,實際可能更高。`);
   if (t.manualIgnored) {
     L.push(`   （你 ${ago(t.manualIgnored.ts)}說的 ${t.manualIgnored.id} 沒有比機器算的高,不採用。）`);
   }
@@ -1200,7 +1229,9 @@ function doTierSet(ctx, ev, info, facts, id, why) {
     return 1;
   }
   console.log(`✅ 記下了：你說這次算 ${id}（${why.slice(0, 200)}）。機器算的是 ${t.machine.id}。`);
-  console.log('   ⚠️ 這是「你說的」,畫面上會照實這樣寫。基準換了（蓋章,或沒章時存檔）就歸零。');
+  // 歸零規則跟 lib/tier.mjs 的 manualTier 同一條(存檔不算新的一輪——規格:這一輪的起點);這句以前還寫「沒章時存檔就歸零」(魔鬼教官 2026-09-22,P2)
+  console.log('   ⚠️ 這是「你說的」,畫面上會照實這樣寫。它跟著這一輪走:有章時蓋章之後、沒章時下一次 A 開始新的一輪才歸零,存檔不算');
+  console.log('      (找不到這一輪起點的時候,存檔就歸零)。');
   return 0;
 }
 
@@ -1307,9 +1338,10 @@ async function main() {
   }
   if (at('--checkpoint') !== -1) return doCheckpoint(ctx);
 
-  // 事實各算一次,三段畫面共用
+  // 事實各算一次,三段畫面共用。「這次改動」從五關那一輪的起點算,所以跟五關一起算完才放回 info
   const info = gatherChange(ctx);
   const facts = stageFacts(ctx, ev, info);
+  info.h = facts.health; info.base = facts.base;
   if (at('--tier-retract') !== -1) return doTierRetract(ctx, ev, info, facts);
   if (at('--tier') !== -1) {
     const [id, ...why] = after('--tier');

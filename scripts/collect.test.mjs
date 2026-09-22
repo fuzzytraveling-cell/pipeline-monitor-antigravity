@@ -5,7 +5,7 @@
  *    章失效時不准當成能用(L14)——網頁的「複製回去的指令」是整個產品最危險的按鈕;
  *    add 過的改動不准消失(老毛病 P1)。
  */
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, copyFileSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, copyFileSync, readFileSync, utimesSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, basename, dirname } from 'node:path';
@@ -231,11 +231,9 @@ section('對話標題從 app 的索引來;在 app 裡刪掉的對話不准畫成
 
 section('這一輪跑到哪:最近一次第一關或蓋章是分界;現在這一關亮、走過的劃掉、上一輪只講一句;找不到指令要分開講');
 {
-  const r = makeRepo({ files: { 'a.js': '1\n' } });
-  // 這個劇本的時間寫死在 2026-09-15,但 init 那個 commit 的時間是「現在」——會被當成這一輪之後的存檔(B 的 git 證據),
-  // 讓 B 搶走「現在這一關」。把 init 往前撥到劇本之前,劇本才成立
-  execFileSync('git', ['commit', '--amend', '--no-edit', '--date', '2026-09-14T00:00:00Z'],
-    { cwd: r.dir, stdio: 'ignore', env: { ...process.env, GIT_COMMITTER_DATE: '2026-09-14T00:00:00Z' } });
+  // 這個劇本的時間寫死在 2026-09-15:專案要比劇本早存在(init 那個 commit 與它的 reflog 都在劇本之前),劇本才成立——
+  // 以前 init 是「現在」,會被當成這一輪之後的存檔;後來用 amend 往前撥,reflog 卻還留著「現在」那一筆,起點的版本找不到、走退路(規格:這一輪的起點)
+  const r = makeRepo({ files: { 'a.js': '1\n' }, at: '2026-09-14T00:00:00Z' });
   const root = out(r.dir, 'rev-parse', '--show-toplevel');
   mkdirSync(join(root, '.claude', 'commands'), { recursive: true });
   writeFileSync(join(root, '.claude', 'commands', 'spec.md'), '# /spec\n');   // 這個專案有 /spec,沒有 /cleanup、/chaos-check
@@ -292,7 +290,7 @@ section('這一輪跑到哪:最近一次第一關或蓋章是分界;現在這一
 
 section('對話頁的 B 也要認 git 說的改動(Bash 寫檔感測器看不到,L8);工作區有兩個對話時不猜是誰改的');
 {
-  const r = makeRepo({ files: { 'src/a.js': '1\n' } });
+  const r = makeRepo({ files: { 'src/a.js': '1\n' }, at: '2026-09-15T00:00:00Z' });   // 比劇本(09-16)早存在
   const root = out(r.dir, 'rev-parse', '--show-toplevel');
   mkdirSync(join(root, '.claude'), { recursive: true });
   writeFileSync(join(root, '.claude', 'pipeline-stages.json'), JSON.stringify({ tiers: { code: ['src/'], danger: [] } }));
@@ -318,7 +316,8 @@ section('對話頁的 B 也要認 git 說的改動(Bash 寫檔感測器看不到
 
 section('存檔(commit)之後 B 的證據不能消失:這一輪開始之後的 commit 動到的程式檔也算(git 說的)');
 {
-  const r = makeRepo({ files: { 'src/a.js': '1\n' } });
+  // 專案在這一輪開始(一分鐘前)之前就存在——以前這裡的 repo 比 A 還晚建,現實中不會有(規格:這一輪的起點)
+  const r = makeRepo({ files: { 'src/a.js': '1\n' }, at: new Date(Date.now() - 10 * 60 * 1000).toISOString() });
   const root = out(r.dir, 'rev-parse', '--show-toplevel');
   mkdirSync(join(root, '.claude'), { recursive: true });
   writeFileSync(join(root, '.claude', 'pipeline-stages.json'), JSON.stringify({ tiers: { code: ['src/'], danger: [] } }));
@@ -336,25 +335,6 @@ section('存檔(commit)之後 B 的證據不能消失:這一輪開始之後的 c
   eq('工作區乾淨,但這一輪之後有 commit 動到程式檔 → B 亮,是 git 說的', `${cs.B.state}/${cs.B.via}`, 'current/git');
   eq('未檢查清單是 0(沒有沒存的檔),兩件事不衝突', p.cards[0].dirty, 0);
   rmSync(monitorDir, { recursive: true, force: true }); r.cleanup();
-}
-
-section('commit 的時間帶本地時差,跟 UTC 的分界不能用字串比大小(魔鬼教官第四次抓到)');
-{
-  const r = makeRepo({ files: { 'src/a.js': '1\n' } });
-  // init 那個 commit 的時間是「現在」,會混進來;往前撥到劇本之前,劇本才乾淨
-  execFileSync('git', ['commit', '--amend', '--no-edit', '--date', '2026-09-10T00:00:00Z'], { cwd: r.dir, stdio: 'ignore', env: { ...process.env, GIT_COMMITTER_DATE: '2026-09-10T00:00:00Z' } });
-  const root = out(r.dir, 'rev-parse', '--show-toplevel');
-  const isCode = (f) => /^src\//.test(f);
-  // 一個 commit 在「+08:00 早上 09:00」= UTC 01:00。分界訂在 UTC 05:00:字串比 "09:00+08:00" > "05:00Z" 會誤判成分界之後
-  writeFileSync(join(root, 'src', 'a.js'), '2\n');
-  execFileSync('git', ['add', '-A'], { cwd: root });
-  execFileSync('git', ['commit', '-qm', 'morning'], { cwd: root, env: { ...process.env, GIT_AUTHOR_DATE: '2026-09-16T09:00:00+08:00', GIT_COMMITTER_DATE: '2026-09-16T09:00:00+08:00' } });
-  const { gitCodeChanges } = await import('../lib/tier.mjs');
-  const before = gitCodeChanges(root, [], isCode, { since: '2026-09-16T05:00:00Z' });
-  eq('分界之前的 commit 不算(換算成同一個鐘之後 01:00Z < 05:00Z)', before.length, 0);
-  const after = gitCodeChanges(root, [], isCode, { since: '2026-09-16T00:30:00Z' });
-  check('分界之後的算,時間換成 UTC', after.length === 1 && after[0].mtime === '2026-09-16T01:00:00.000Z', JSON.stringify(after));
-  r.cleanup();
 }
 
 section('app 建議卡:要開在別的專案的卡,那邊的對話開始了也認得出來(不然永遠說「還沒開始」);要開在哪、誰提的、從什麼時候開始有紀錄都講得出來');
@@ -399,6 +379,128 @@ section('app 建議卡:要開在別的專案的卡,那邊的對話開始了也�
   eq('app 的建議卡從什麼時候開始有紀錄(L3)', pA?.appCardsSince, T(2));
   eq('一張都沒記到過的專案 → null(畫面要說「不代表沒跳過」)', pB?.appCardsSince, null);
   rmSync(monitorDir, { recursive: true, force: true }); a.cleanup(); b.cleanup();
+}
+
+/** 沒章的專案,比劇本早存在;分級設定跟著第一個 commit 進去(才不會變成一個「還沒存的新檔案」混進清單) */
+function originScene(base) {
+  const T = (sec) => new Date(base + sec * 1000).toISOString();
+  const cfg = JSON.stringify({ tiers: { code: ['src/'], danger: ['src/danger.js'] } });
+  const r = makeRepo({ files: { 'src/a.js': '1\n', 'src/danger.js': 'd\n', '.claude/pipeline-stages.json': cfg }, at: T(-3600) });
+  const root = out(r.dir, 'rev-parse', '--show-toplevel');
+  const monitorDir = mkdtempSync(join(tmpdir(), 'pm-monitor-'));
+  mkdirSync(join(monitorDir, 'checkpoints')); mkdirSync(join(monitorDir, 'logs'));
+  copyFileSync(join(ROOT, 'stages.json'), join(monitorDir, 'stages.json'));
+  const log = join(monitorDir, 'logs', `${basename(root)}.jsonl`);
+  const L = (o) => JSON.stringify({ session: 's1', cwd: root, ...o });
+  const write = (lines) => writeFileSync(log, lines.map(L).join('\n') + '\n');
+  const bashWrite = (f, body, agoSec) => { writeFileSync(join(root, f), body); const t = new Date(base - agoSec * 1000); utimesSync(join(root, f), t, t); };
+  const commit = (msg, at = null) => { execFileSync('git', ['add', '-A'], { cwd: root });
+    execFileSync('git', ['commit', '-qm', msg], { cwd: root, env: at ? { ...process.env, GIT_AUTHOR_DATE: at, GIT_COMMITTER_DATE: at } : process.env }); };
+  const cleanup = () => { rmSync(monitorDir, { recursive: true, force: true }); r.cleanup(); };
+  return { T, root, monitorDir, write, bashWrite, commit, cleanup };
+}
+
+section('沒章:收工前先存檔,未檢查清單、分級、五關的 B 與 D 存檔前後一模一樣——存檔不是改檔(規格:這一輪的起點 AC-2、AC-6)', 'P2');
+{
+  const s = originScene(Date.now());
+  // A 6 分鐘前(這一輪的分界——以前就是有分界,才會去翻存檔紀錄、拿存檔時間當改檔時間);
+  // 用 Bash 改了危險檔(感測器沒記到),4 分鐘前;D 3 分鐘前跑過、說沒問題
+  s.bashWrite('src/danger.js', 'changed\n', 240);
+  s.write([
+    { ts: s.T(-420), hook: 'UserPromptSubmit', prompt: '改匯出' },
+    { ts: s.T(-360), hook: 'PreToolUse', tool: 'Skill', skill: 'spec' },
+    { ts: s.T(-180), hook: 'PreToolUse', tool: 'Skill', skill: 'chaos-check' },
+    { ts: s.T(-170), event: 'stage_report', stage: 'D', verdict: 'ok', note: '沒對到已知死法', source: 'claude' },
+  ]);
+  const look = () => {
+    const p = collectAll({ monitorDir: s.monitorDir }).projects[0];
+    const c = p.cards[0], ses = p.sessions[0];
+    const st = Object.fromEntries(c.stages.map((x) => [x.id, x]));
+    const sv = Object.fromEntries(ses.stages.map((x) => [x.id, x]));
+    return { files: c.files?.total, hits: [...(c.tier?.machine?.hits?.danger ?? []), ...(c.tier?.machine?.hits?.code ?? [])].join(','),
+             level: c.tier?.final?.id ?? c.tier?.state, B: `${st.B.state}|${st.B.via}|${st.B.ranAt}`, D: st.D.state,
+             pageLevel: ses.tier?.final?.id ?? ses.tier?.state, pageD: sv.D.state, scope: c.scope?.title };
+  };
+  const before = look();
+  eq('存檔之前:清單 1 個檔,分級碰到的就是它,D 結案', `${before.files}|${before.hits}|${before.D}`, '1|src/danger.js|done');
+  s.commit('收工前存檔');
+  const after = look();
+  eq('存檔之後:清單、分級、B、D、對話頁,全部跟存檔之前一樣', JSON.stringify(after), JSON.stringify(before));
+  check('D 沒有變成「之後又改了程式檔,要再跑一次」(存檔的時間不算改檔)', after.D === 'done' && after.pageD === 'done', JSON.stringify(after));
+  eq('標題講這一輪的改動(含已存檔的)', after.scope, '這一輪的改動');
+  s.cleanup();
+}
+
+section('找不到這一輪開始時的版本:只看得到還沒存的,而且沒有 → 講「看不全」,不講「沒有改動」(規格:這一輪的起點 AC-4)', 'P5');
+{
+  const s = originScene(Date.now());
+  // 劇本的第一句話寫在專案建立之前(兩小時前)——reflog 裡沒有那一刻的版本
+  s.write([{ ts: s.T(-7200), hook: 'UserPromptSubmit', prompt: '很久以前的一句話' }]);
+  const c = collectAll({ monitorDir: s.monitorDir }).projects[0].cards[0];
+  eq('分級是 unseen(存檔過的看不到),不是 no-change', c.tier?.state, 'unseen');
+  check('卡片的字:看不全、存檔過的看不到', c.scope?.blind === true && /存檔過的看不到/.test(c.scope?.empty ?? '') && !/沒有改動/.test(c.scope?.empty ?? ''), JSON.stringify(c.scope));
+  eq('未檢查清單照實是 0(只看得到還沒存的)', c.files?.total, 0);
+  s.cleanup();
+}
+
+section('共用工作區:分級一個資料夾一份——專案卡、每個對話頁、調高按鈕看同一份,從最早開口的那個算起、明講含幾個對話(規格:這一輪的起點 AC-3,Oscar 2026-09-22)', 'P2');
+{
+  const s = originScene(Date.now());
+  // s0 50 分鐘前開口,改了危險檔、40 分鐘前存了檔;s1 5 分鐘前開口,用 Bash 改了程式區的 a.js(還沒存)
+  s.bashWrite('src/danger.js', 's0\n', 2700);
+  s.commit('s0 存檔', s.T(-2400));
+  s.bashWrite('src/a.js', 's1\n', 240);
+  s.write([
+    { ts: s.T(-3000), hook: 'UserPromptSubmit', session: 's0', prompt: '改匯出' },
+    { ts: s.T(-2700), hook: 'PostToolUse', tool: 'Edit', session: 's0', file: join(s.root, 'src/danger.js') },
+    { ts: s.T(-300), hook: 'UserPromptSubmit', prompt: '調一個標籤' },
+  ]);
+  const p = collectAll({ monitorDir: s.monitorDir }).projects[0];
+  const c = p.cards[0];
+  const s1 = p.sessions.find((x) => x.id === 's1'), s0 = p.sessions.find((x) => x.id === 's0');
+  const T2 = JSON.parse(readFileSync(join(ROOT, 'stages.json'), 'utf8')).tierLevels.danger.id;
+  eq('專案卡:從最早開口的那個算,碰到危險清單', c.tier?.final?.id, T2);
+  check('專案卡明講含 2 個對話、從最早開口的那個算起', /含 2 個對話/.test(c.scope?.note ?? '') && /最早開口/.test(c.scope?.note ?? ''), c.scope?.note);
+  eq('s1、s0 的對話頁:跟專案卡同一級', `${s1?.tier?.final?.id}|${s0?.tier?.final?.id}`, `${T2}|${T2}`);
+  // 調高按鈕照對話頁的分級畫、伺服器拿卡片驗——兩份一樣,按下去才不會安靜地沒反應(魔鬼教官 2026-09-22)
+  eq('對話頁能調的等級 = 伺服器驗的那一份(卡片)', JSON.stringify(s1?.tier?.upgradable), JSON.stringify(c.tier?.upgradable));
+  s.cleanup();
+}
+
+section('切到別的分支存檔、再切回來:現在跟開始時一樣,但不准畫成「沒有改動」的綠臉(魔鬼教官 2026-09-22)', 'P5');
+{
+  const s = originScene(Date.now());
+  const main = out(s.root, 'rev-parse', '--abbrev-ref', 'HEAD');
+  s.write([{ ts: s.T(-600), hook: 'UserPromptSubmit', prompt: '開個分支改匯出' }]);
+  execFileSync('git', ['checkout', '-q', '-b', 'feat'], { cwd: s.root });
+  s.bashWrite('src/danger.js', 'feat\n', 300);
+  s.commit('存在 feat 上');
+  execFileSync('git', ['checkout', '-q', main], { cwd: s.root });
+  const c = collectAll({ monitorDir: s.monitorDir }).projects[0].cards[0];
+  eq('分級是 unseen(看不全),不是 no-change', c.tier?.state, 'unseen');
+  check('卡片的字:現在跟開始時一樣、但中間存過檔或切過分支', c.scope?.emptyBlind === true && /切過分支/.test(c.scope?.empty ?? ''), JSON.stringify(c.scope));
+  s.cleanup();
+}
+
+section('只刪檔的回合:D 說沒問題之後刪了程式檔,D 要回到「要再跑一次」(刪掉的檔看所在資料夾的時間;魔鬼教官 2026-09-22)', 'P5');
+{
+  const s = originScene(Date.now());
+  s.bashWrite('src/a.js', 'changed\n', 240);
+  s.write([
+    { ts: s.T(-420), hook: 'UserPromptSubmit', prompt: '改一下' },
+    { ts: s.T(-360), hook: 'PreToolUse', tool: 'Skill', skill: 'spec' },
+    { ts: s.T(-180), hook: 'PreToolUse', tool: 'Skill', skill: 'chaos-check' },
+    { ts: s.T(-170), event: 'stage_report', stage: 'D', verdict: 'ok', note: '沒對到已知死法', source: 'claude' },
+  ]);
+  const before = Object.fromEntries(collectAll({ monitorDir: s.monitorDir }).projects[0].cards[0].stages.map((x) => [x.id, x]));
+  eq('刪之前:D 結案', before.D.state, 'done');
+  execFileSync('git', ['rm', '-q', 'src/danger.js'], { cwd: s.root });
+  s.commit('刪檔');
+  const c = collectAll({ monitorDir: s.monitorDir }).projects[0].cards[0];
+  const after = Object.fromEntries(c.stages.map((x) => [x.id, x]));
+  eq('刪之後:D 要再跑一次', after.D.state, 'stale');
+  check('分級卡的 D 那一行也說要再跑', /再跑/.test(c.tier?.requirements?.find((r) => r.key === 'D')?.detail ?? ''), JSON.stringify(c.tier?.requirements));
+  s.cleanup();
 }
 
 process.exit(summary());

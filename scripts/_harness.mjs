@@ -49,7 +49,12 @@ export function summary() {
 }
 
 /** 造一個真的 git repo 當測試場。回傳路徑,呼叫端負責 cleanup()。 */
-export function makeRepo({ pkg = null, files = {}, commit = true } = {}) {
+/**
+ * at:第一個 commit 的時間(ISO),預設一小時前。劇本裡「這一輪開始」通常寫在幾分鐘前,專案要在那之前就存在——
+ * 不然起點比 reflog 最早那一筆還早,「這次改動」照實退回只看還沒存檔的(規格:這一輪的起點 AC-4):測試照樣綠,
+ * 測到的卻是退路,不是真的會走的那條路。reflog 那一筆的時間跟著 GIT_COMMITTER_DATE 走。
+ */
+export function makeRepo({ pkg = null, files = {}, commit = true, at = new Date(Date.now() - 3600_000).toISOString() } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'pm-test-'));
   const g = (...a) => execFileSync('git', a, { cwd: dir, stdio: 'ignore' });
   g('init', '-q');
@@ -60,6 +65,10 @@ export function makeRepo({ pkg = null, files = {}, commit = true } = {}) {
     mkdirSync(join(full, '..'), { recursive: true });
     writeFileSync(full, body);
   }
-  if (commit) { g('add', '-A'); g('commit', '-qm', 'init'); }
+  if (commit) {
+    g('add', '-A');
+    execFileSync('git', ['commit', '-qm', 'init'], { cwd: dir, stdio: 'ignore',
+      env: at ? { ...process.env, GIT_AUTHOR_DATE: at, GIT_COMMITTER_DATE: at } : process.env });
+  }
   return { dir, git: g, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
 }

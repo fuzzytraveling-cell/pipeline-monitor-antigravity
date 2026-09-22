@@ -23,9 +23,14 @@ const out = (dir, ...a) => execFileSync('git', a, { cwd: dir, encoding: 'utf8' }
 const T = (offsetSec) => new Date(Date.now() + offsetSec * 1000).toISOString();
 const MIN = 60;
 
-/** 一個有分級設定、改了程式區檔案的專案,加一個假的監視器資料夾(stages.json、logs/、checkpoints/)。 */
-function scene({ danger = false, tests = false } = {}) {
-  const r = makeRepo({ files: { 'src/a.js': '1\n', 'src/danger.js': 'd\n', 'docs/x.md': 'x\n', 'README.md': 'r\n' } });
+/**
+ * 一個有分級設定、改了程式區檔案的專案,加一個假的監視器資料夾(stages.json、logs/、checkpoints/)。
+ * at:專案的第一個 commit 的時間,不給就用 makeRepo 的預設(一小時前)——劇本從幾分鐘前開始,專案要比它早存在,
+ * 「這次改動」才有起點的版本可比(規格:這一輪的起點)。⚠️ 以前這裡預設 null,把 makeRepo 的預設蓋回「現在」,
+ * 有 7 段測試照樣綠、測的卻是「找不到起點」的退路(魔鬼教官 2026-09-22)。
+ */
+function scene({ danger = false, tests = false, at } = {}) {
+  const r = makeRepo({ files: { 'src/a.js': '1\n', 'src/danger.js': 'd\n', 'docs/x.md': 'x\n', 'README.md': 'r\n' }, at });
   const root = out(r.dir, 'rev-parse', '--show-toplevel');
   mkdirSync(join(root, '.claude'), { recursive: true });
   writeFileSync(join(root, '.claude', 'pipeline-stages.json'), JSON.stringify({ tiers: { code: ['src/'], danger: ['src/danger.js'] } }));
@@ -145,6 +150,11 @@ section('T2:碰到危險清單 → 還要 A 與測試檔;專案自己有同名�
   const d = decide({ payload: s.payload, monitorDir: s.monitorDir, skillHome: s.home });
   eq('缺 A、C、D、測試檔', (d?.missing ?? []).join(','), 'A,C,D,tests');
   check('理由說 T2、碰到危險清單、要補測試', /T2/.test(d?.reason ?? '') && /危險清單/.test(d?.reason ?? '') && /測試檔/.test(d?.reason ?? ''), d?.reason);
+  // 危險清單的檔跟只在程式區的檔分開列:以前全部掛在「碰到危險清單：」底下,程式區的檔也被講成危險(2026-09-22 收工 hook 自己印出來的)
+  writeFileSync(join(s.root, 'src/a.js'), '也改了\n');
+  const mixed = decide({ payload: s.payload, monitorDir: s.monitorDir, skillHome: s.home })?.reason ?? '';
+  check('危險檔列在危險清單底下,程式區的只講幾個檔', /碰到危險清單：src\/danger\.js；另外碰到程式區 1 個檔/.test(mixed) && !/危險清單：[^；）]*src\/a\.js/.test(mixed), mixed);
+  execFileSync('git', ['checkout', '-q', '--', 'src/a.js'], { cwd: s.root });
   mkdirSync(join(s.root, '.claude', 'commands'), { recursive: true });
   writeFileSync(join(s.root, '.claude', 'commands', 'chaos-check.md'), '# 自己的\n');
   const d2 = decide({ payload: s.payload, monitorDir: s.monitorDir, skillHome: s.home });
@@ -202,6 +212,96 @@ section('有規格的輪次:改了程式、清單還有沒標的 → 先對清�
   check('C、D 都跑過,只剩清單 → 擋,理由點名 AC-1 跟檔案', d?.missing?.join(',') === 'checklist' && /AC-1/.test(d?.reason ?? '') && /x\.md/.test(d?.reason ?? '') && !/AC-2/.test(d?.reason ?? ''), d?.reason);
   writeFileSync(spec, '# 功能：x\n**AC-1　一** ⏳ 待討論：要問人\n**AC-2　二** ✅ 對過 2026-09-16\n');
   eq('都標了(⏳ 也算標了,那是要跟人談)→ 放行', decide({ payload: s.payload, monitorDir: s.monitorDir, skillHome: s.home }), null);
+  s.cleanup();
+}
+
+section('沒章、收工前先存檔:該擋的照樣擋、缺的一樣——存檔只是放進保險箱,不是這件事做完了(規格:這一輪的起點 AC-1)', 'P5');
+{
+  const s = scene({ danger: true, at: T(-60 * MIN) });
+  s.write([
+    { ts: T(-5 * MIN), hook: 'UserPromptSubmit', prompt: '改一下匯出' },
+    { ts: T(-4 * MIN), hook: 'PostToolUse', tool: 'Edit', file: join(s.root, 'src/danger.js') },
+    { ts: T(-3 * MIN), hook: 'PreToolUse', tool: 'Skill', skill: 'chaos-check' },
+    { ts: T(-3 * MIN + 10), event: 'stage_report', stage: 'D', verdict: 'ok', note: '沒對到已知死法', source: 'claude' },
+  ]);
+  const go = () => decide({ payload: s.payload, monitorDir: s.monitorDir, skillHome: s.home });
+  const before = go();
+  eq('存檔之前:擋(T2;D 在最後一次改檔之後跑過,缺 A、C、測試檔)', before?.missing?.join(','), 'A,C,tests');
+  execFileSync('git', ['add', '-A'], { cwd: s.root });
+  execFileSync('git', ['commit', '-qm', '收工前存檔'], { cwd: s.root });
+  const after = go();
+  check('存檔之後:照樣擋', after !== null, 'decide() 回 null——一存檔就放行,就是 2026-09-21 實測到的那件事');
+  eq('缺的一模一樣(D 不會因為存檔變成「要再跑一次」:存檔不是改檔)', after?.missing?.join(','), 'A,C,tests');
+  check('理由指名碰到的危險檔(存檔過的也算),並講「這一輪,含已存檔的」',
+    /src\/danger\.js/.test(after?.reason ?? '') && /這一輪，含已存檔的/.test(after?.reason ?? ''), after?.reason);
+  s.cleanup();
+}
+
+section('共用工作區:分級一個資料夾一份——收工 hook 跟對話頁、調高按鈕、終端機同一份,而且理由講含幾個對話(規格:這一輪的起點 AC-3)', 'P2');
+{
+  const s = scene();                                                        // 這個對話改的是程式區的 src/a.js(還沒存)
+  // 另一個對話 s0 比較早開口,改了危險檔、在 40 分鐘前存了檔
+  writeFileSync(join(s.root, 'src/danger.js'), 's0 的改動\n');
+  execFileSync('git', ['commit', '-qm', 's0 存檔', '--', 'src/danger.js'], { cwd: s.root, env: { ...process.env, GIT_AUTHOR_DATE: T(-40 * MIN), GIT_COMMITTER_DATE: T(-40 * MIN) } });
+  const past = new Date(Date.now() - 4 * MIN * 1000);
+  utimesSync(join(s.root, 'src/a.js'), past, past);
+  writeFileSync(s.log, [
+    s.ev({ ts: T(-50 * MIN), hook: 'UserPromptSubmit', session: 's0', prompt: '改匯出' }),
+    s.ev({ ts: T(-45 * MIN), hook: 'PostToolUse', tool: 'Edit', session: 's0', file: join(s.root, 'src/danger.js') }),
+    s.ev({ ts: T(-5 * MIN), hook: 'UserPromptSubmit', prompt: '調一個標籤' }),
+    s.ev({ ts: T(-4 * MIN), hook: 'PostToolUse', tool: 'Edit', file: join(s.root, 'src/a.js') }),
+  ].join('\n') + '\n');
+  const d = decide({ payload: s.payload, monitorDir: s.monitorDir, skillHome: s.home });
+  eq('跟資料夾那張卡同一級(碰到 s0 存的危險檔)', d?.level, 'T2');
+  check('理由講含 2 個對話的改動(多算的是別的對話的,照實講)', /含 2 個對話的改動/.test(d?.reason ?? '') && /src\/danger\.js/.test(d?.reason ?? ''), d?.reason);
+  s.cleanup();
+}
+
+section('只刪檔的回合:刪掉的檔看它所在資料夾的時間——D 說沒問題之後刪了檔,收工 hook 要再要 D,不准安靜放行(魔鬼教官 2026-09-22)', 'P5');
+{
+  const s = scene();
+  s.write([
+    { ts: T(-10 * MIN), hook: 'UserPromptSubmit', prompt: '改一下' },
+    { ts: T(-4 * MIN), hook: 'PostToolUse', tool: 'Edit', file: join(s.root, 'src/a.js') },
+    { ts: T(-3 * MIN), hook: 'PreToolUse', tool: 'Skill', skill: 'chaos-check' },
+    { ts: T(-3 * MIN + 10), event: 'stage_report', stage: 'D', verdict: 'ok', note: '沒對到已知死法', source: 'claude' },
+    { ts: T(-1 * MIN), hook: 'UserPromptSubmit', prompt: '把危險那支刪掉' },
+  ]);
+  execFileSync('git', ['rm', '-q', 'src/danger.js'], { cwd: s.root });   // 用 Bash 刪,感測器看不到
+  execFileSync('git', ['commit', '-qm', '刪檔'], { cwd: s.root });
+  const d = decide({ payload: s.payload, monitorDir: s.monitorDir, skillHome: s.home });
+  check('擋了(這一回合有改到:刪檔)', d !== null, '只刪檔的回合被當成沒改程式,安靜放行');
+  check('要 D 再跑一次(刪檔在 D 之後)', (d?.missing ?? []).includes('D') && /最後一次改檔之後還沒再跑/.test(d?.reason ?? ''), d?.reason);
+  eq('刪掉的是危險清單上的檔 → T2', d?.level, 'T2');
+  s.cleanup();
+}
+
+section('git mv 搬走危險清單上的檔:新舊兩個路徑都算,不准掉成 T1(老毛病 P1,魔鬼教官 2026-09-22)', 'P1');
+{
+  const s = scene();
+  execFileSync('git', ['checkout', '-q', '--', 'src/a.js'], { cwd: s.root });   // 這一段只看搬家
+  mkdirSync(join(s.root, 'src', 'moved'), { recursive: true });
+  execFileSync('git', ['mv', 'src/danger.js', 'src/moved/danger.js'], { cwd: s.root });
+  execFileSync('git', ['commit', '-qm', '搬家'], { cwd: s.root });
+  s.write([{ ts: T(-5 * MIN), hook: 'UserPromptSubmit', prompt: '整理資料夾' }]);
+  const d = decide({ payload: s.payload, monitorDir: s.monitorDir, skillHome: s.home });
+  eq('搬走危險檔 → T2(原本的路徑在危險清單上)', d?.level, 'T2');
+  check('理由列得出原本的路徑', /src\/danger\.js/.test(d?.reason ?? ''), d?.reason);
+  s.cleanup();
+}
+
+section('對話中途換進這個資料夾:起點是它在這裡的第一筆紀錄,不是之後才講的那一句(魔鬼教官 2026-09-22)', 'P6');
+{
+  const s = scene({ danger: true });
+  // s1 先在別的資料夾開口,之後換進這裡改了危險檔、存了檔,在這裡一句話都還沒講就收工
+  writeFileSync(s.log, [
+    s.ev({ ts: T(-20 * MIN), hook: 'UserPromptSubmit', cwd: '/別的資料夾', prompt: '先看一下再進 worktree' }),
+    s.ev({ ts: T(-4 * MIN), hook: 'PostToolUse', tool: 'Edit', file: join(s.root, 'src/danger.js') }),
+  ].join('\n') + '\n');
+  execFileSync('git', ['commit', '-qam', '存檔'], { cwd: s.root });
+  const d = decide({ payload: s.payload, monitorDir: s.monitorDir, skillHome: s.home });
+  check('擋了(存檔過的危險檔還在清單裡)', d !== null && d.level === 'T2', JSON.stringify(d?.missing));
+  check('理由講從這一輪算、含已存檔的(不是「找不到起點」)', /這一輪，含已存檔的/.test(d?.reason ?? ''), d?.reason);
   s.cleanup();
 }
 

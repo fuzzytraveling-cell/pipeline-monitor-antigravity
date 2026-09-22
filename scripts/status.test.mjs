@@ -33,6 +33,20 @@ section('L2 回歸：改動計數必須看得到「還沒被 git 追蹤的新檔
   r.cleanup();
 }
 
+section('搬家(git mv)的檔新舊兩個路徑都算:只列新路徑的話,搬走危險清單上的檔分級就看不到(魔鬼教官 2026-09-22)', 'P1');
+{
+  const r = makeRepo({ files: { 'lib/events.mjs': 'x\n'.repeat(20) } });
+  mkdirSync(join(r.dir, 'lib', 'events'), { recursive: true });
+  r.git('mv', 'lib/events.mjs', 'lib/events/index.mjs');
+  const staged = changeHealth(r.dir, null);
+  check('還沒存:新舊兩個路徑都在清單裡', staged.list.includes('lib/events.mjs') && staged.list.includes('lib/events/index.mjs'), JSON.stringify(staged.list));
+  const before = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: r.dir, encoding: 'utf8' }).trim();
+  r.git('commit', '-qm', '搬家');
+  const committed = changeHealth(r.dir, before);
+  check('存檔之後從起點算:新舊兩個路徑都還在', committed.list.includes('lib/events.mjs') && committed.list.includes('lib/events/index.mjs'), JSON.stringify(committed.list));
+  r.cleanup();
+}
+
 section('L2 第三次：git 的某一種問法看不到某一類改動', 'P1');
 {
   // B1:git add 過的改動,沒帶 HEAD 的 git diff 完全看不到 → 畫面說「沒有改動」

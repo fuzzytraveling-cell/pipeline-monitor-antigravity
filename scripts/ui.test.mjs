@@ -13,6 +13,7 @@ import process from 'node:process';
 import { describeFreshness, STALE_AFTER_SECONDS } from '../lib/freshness.mjs';
 import { createApp } from '../server.mjs';
 import { SUGGEST_TOOL } from '../lib/events.mjs';
+import { changeScope } from '../lib/scope.mjs';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -392,6 +393,49 @@ section('建議新增的對話:這一區看不到的那幾條路,畫面要明講
     check('你按過「不做了」的卡也一樣:卡上不叫你再去按一次', dismissedLine.includes('叫過 1 次收回') && !dismissedLine.includes('不做了'), dismissedLine || dismissedWd);
     check('空的卡講「這張卡沒有內容」,不是不畫(混沌推導:輸入畸形)', block({ name: 'x', appCardsSince: TS, suggestions: [sgCard({ tldr: null, prompt: '' })] }).includes('這張卡沒有內容'));
   }
+}
+
+section('分級卡與未檢查清單:只看得到還沒存的時候不畫「沒有改動」那張綠臉(真的跑 ui/app.js 的 statTier／statChanges;規格:這一輪的起點 AC-4、AC-5)', 'P5');
+{
+  // 跟 suggestionsBlock 同一種做法:原封不動拿出來跑,補上它們用到的外部名字。拿不出來要紅——不准安靜地跳過(L20)
+  const src = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8');
+  const pick = (name, sig) => src.match(new RegExp(`^function ${name}\\(${sig}\\) \\{\\n[\\s\\S]*?\\n\\}\\n`, 'm'))?.[0] ?? null;
+  const code = [pick('scopeOfOldServer', 'c'), pick('statChanges', 'c'), pick('statTier', 'c, p')];
+  check('從 ui/app.js 拿得出 scopeOfOldServer、statChanges、statTier(拿不出來這一段就什麼都沒測到)', code.every(Boolean));
+  const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const ago = (iso) => (iso ? '3 分鐘前' : '');
+  const cpOk = (c) => !!c?.checkpoint && c?.checkpointRelation?.state === 'ok';
+  const ui = code.every(Boolean) ? new Function('esc', 'ago', 'cpOk', `${code.join('\n')}; return { statChanges, statTier };`)(esc, ago, cpOk) : null;
+  const empty = { total: 0, newCount: 0, uncommittedCount: 0, groups: [] };
+  const blind = { path: '/x', files: empty, scope: changeScope({ kind: 'head', why: 'not-found', origin: null }, ago),
+                  tier: { state: 'unseen', basis: { kind: 'head', why: 'not-found', origin: null } } };
+  const tierHtml = ui?.statTier(blind, { name: 'p' }) ?? '';
+  const filesHtml = ui?.statChanges(blind) ?? '';
+  check('分級卡:看不全、不是安全的綠臉、不寫「沒有改動」', /看不全/.test(tierHtml) && !/data-tone="safe"/.test(tierHtml) && !/沒有改動/.test(tierHtml), tierHtml);
+  check('未檢查清單:看不全、講存檔過的看不到', /看不全/.test(filesHtml) && /存檔過的看不到/.test(filesHtml) && !/沒有改動/.test(filesHtml), filesHtml);
+  const own = changeScope({ kind: 'origin', why: null, origin: { at: '2026-09-22T01:00:00Z', from: 'prompt', sessions: 1 } }, ago);
+  const ownHtml = ui?.statChanges({ path: '/x', scope: own, files: { total: 2, newCount: 0, uncommittedCount: 1,
+    groups: [{ dir: 'src', items: [{ name: 'a.js', isNew: false, uncommitted: true }, { name: 'b.js', isNew: false, uncommitted: false }] }] } }) ?? '';
+  check('從起點算:標「這一輪改過的檔案(含已存檔的)」、講從哪一刻算起,每個檔照舊標還沒存',
+    /這一輪改過的檔案（含已存檔的）/.test(ownHtml) && /這個對話第一句話/.test(ownHtml) && /其中 <b>1 個還沒存/.test(ownHtml), ownHtml);
+  const moved = { path: '/x', files: empty, scope: changeScope({ kind: 'origin', why: null, moved: true, origin: { at: '2026-09-22T01:00:00Z', from: 'prompt', sessions: 1 } }, ago) };
+  const movedHtml = ui?.statChanges(moved) ?? '';
+  check('這一輪中間切過分支、現在跟開始時一樣:看不全,不寫「沒有改動」', /看不全/.test(movedHtml) && /切過分支/.test(movedHtml) && !/沒有改動/.test(movedHtml), movedHtml);
+  const eight = changeScope({ kind: 'origin', why: null, commits: 8, origin: { at: '2026-09-22T01:00:00Z', from: 'A' } }, ago);
+  const scaleHtml = ui?.statChanges({ path: '/x', scope: eight, scale: { median: 2, max: 20 }, files: { total: 22, newCount: 0, uncommittedCount: 0, groups: [] } }) ?? '';
+  check('比例尺講「一次存檔」,而且講這裡是 8 次存檔加起來的(L6)', /一次存檔（commit）通常 2 個/.test(scaleHtml) && /8 次存檔加起來/.test(scaleHtml), scaleHtml);
+  // 案件首頁(Oscar 第一個看到的畫面)也不准把「看不全」講成「沒有待檢查的檔案」
+  const ovSrc = [pick('focusOf', 'p'), pick('overview', 'p')];
+  check('從 ui/app.js 拿得出 focusOf、overview', ovSrc.every(Boolean));
+  const ov = ovSrc.every(Boolean) ? new Function('esc', 'ago', 'cpOk', `${ovSrc.join('\n')}; return overview;`)(esc, ago, cpOk) : null;
+  const ovCard = { path: '/x', ladder: { uncommitted: 0 }, checkpoint: null, files: empty, scope: blind.scope };
+  const ovHtml = ov?.({ name: 'p', mainRoot: '/x', cards: [ovCard], sessions: [{ id: 's1', title: '調標籤', lastTs: '2026-09-22T01:00:00Z', closedAt: null, card: ovCard }] }) ?? '';
+  check('案件首頁:看不全,不寫「沒有待檢查的檔案」', /看不全/.test(ovHtml) && !/沒有待檢查的檔案/.test(ovHtml), ovHtml.slice(0, 600));
+  // 常駐服務還沒重啟(舊的伺服器不給 scope):照當時的字畫,不當掉、不假裝知道這一輪
+  const old = ui?.statChanges({ path: '/x', files: empty }) ?? '';
+  check('舊的服務沒給 scope:照「還沒存檔的改動」畫,不當掉', /還沒存檔（commit）的改動/.test(old) && !/這一輪/.test(old), old);
+  check('畫面不 import 新檔(常駐服務只送啟動那一刻白名單裡的檔案,多一個新檔,重啟之前整個畫面載不進來)',
+    !/from '\/scope\.mjs'/.test(src) && [...src.matchAll(/^import .* from '([^']+)'/gm)].every((m) => m[1] === '/freshness.mjs'), [...src.matchAll(/^import .* from '([^']+)'/gm)].map((m) => m[1]).join(','));
 }
 
 process.exit(summary());
