@@ -106,8 +106,9 @@ export function decide({ payload, monitorDir = MONITOR_DIR, skillHome = undefine
       const ids = cl.items.filter((x) => x.state === 'none' && x.inBatch !== false).map((x) => x.id);
       missing.push({ key: 'checklist', line: `- 對規格的清單：${ids.slice(0, 6).join('、')}${ids.length > 6 ? ` 等 ${ids.length} 條` : ''} 還沒標——在 ${file} 每條 AC 的標題行末尾加「✅ 對過 日期」或「⏳ 待討論：原因」` });
     } else if (cl.preMarked) {
-      // 連上的規格勾都是連上之前打的(別的對話對過那一版):這個對話改了程式,要回頭對一次(R2,魔鬼教官 2026-09-21)
-      missing.push({ key: 'checklist', line: `- 對規格的清單：${file} 的勾都是連上之前就打好的——這個對話改了程式，要回頭對一次（對過的條目把日期改成今天，要討論的標「⏳ 待討論：原因」）` });
+      // 連上的規格勾都是連上之前打的:可能是別的對話對過那一版(R2,魔鬼教官 2026-09-21),也可能是這個對話先對了清單才記 --spec——
+      // 分不出來,所以只講分不出來(R1,第二輪 2026-09-22);改了程式就回頭對一次,重標日期就算數
+      missing.push({ key: 'checklist', line: `- 對規格的清單：${file} 的勾在連上之前就打好了，分不出是不是這個對話打的——改了程式就回頭對一次（對過的條目把日期改成今天，要討論的標「⏳ 待討論：原因」）` });
     }
   }
   for (const key of requires) {

@@ -103,7 +103,8 @@ const linkLine = (lk) => `照別的對話寫的規格 ${lk.name}（Claude 說的
 /** B 為什麼還不算寫完——跟終端機(status.mjs 的 checklistWhy)同一句 */
 function checklistWhy(cl) {
   if (cl?.batchMissing?.length) return `這一批記的 ${cl.batchMissing.join('、')} 在規格裡找不到了（可能改過號），要重記 --spec`;
-  if (cl?.preMarked) return '清單的勾都是連上這份之前就打好的，這個對話還沒回頭對過';
+  // 連上之前就有的勾,分不出是誰打的:施工的對話常常先對清單、收工時才記 --spec(魔鬼教官第二輪 2026-09-22,R1)——不准斷言「這個對話沒對過」
+  if (cl?.preMarked) return '清單的勾在連上這份之前就打好了，分不出是不是這個對話打的';
   return '清單沒對完';
 }
 /** 寫規格那一關的旁白(施工對話認規格):規格在哪、另寫了一份、第一句話的提示、分不出是誰記的。都只是講,不算 A、不擋人。跟終端機的 specNotes 同一份文案 */

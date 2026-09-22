@@ -523,9 +523,13 @@ section('魔鬼教官 2026-09-21 第一輪:連上一份別的對話已經全部�
   let v = s.by(s.sessionOf('s1')?.stages);
   eq('勾都是連上之前打的 → B 不劃掉,講得出為什麼', `${v.B?.closedBy}|${v.B?.checklist?.preMarked}`, 'null|true');
   const g = s.gate();
-  check('收工 hook 叫它回頭對一次', (g?.missing ?? []).includes('checklist') && /連上之前就打好的/.test(g?.reason ?? ''), g?.reason);
+  check('收工 hook 叫它回頭對一次,並講分不出是誰打的', (g?.missing ?? []).includes('checklist') && /連上之前就打好了，分不出是不是這個對話打的/.test(g?.reason ?? ''), g?.reason);
   const term = s.cli([], { session: 's1' }).out;
-  check('終端機講「清單的勾都是連上這份之前就打好的」', term.includes('清單的勾都是連上這份之前就打好的'), term.split('━━ 五關')[1]?.slice(0, 900));
+  check('終端機講「分不出是不是這個對話打的」', term.includes('清單的勾在連上這份之前就打好了，分不出是不是這個對話打的'), term.split('━━ 五關')[1]?.slice(0, 900));
+  // 施工的對話常常先對清單、收工時才記 --spec:勾是誰打的分不出來,不准斷言「這個對話沒對過」(魔鬼教官第二輪 2026-09-22,R1)
+  check('不講「這個對話還沒回頭對過」', !/還沒回頭對過/.test(term) && !/還沒回頭對過/.test(g?.reason ?? ''), term.split('━━ 五關')[1]?.slice(0, 900));
+  const app = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8');
+  check('網頁也不講「還沒回頭對過」,跟終端機同一句', !/還沒回頭對過/.test(app) && app.includes('分不出是不是這個對話打的'));
   // 這個對話回頭對了(改了檔案,重標日期)→ 才算對完
   writeFileSync(join(s.root, 'docs/進行中/pipeline-ui.md'), specText('pipeline-ui', 4, Object.fromEntries(Array.from({ length: 4 }, (_, i) => [i + 1, ' ✅ 對過 2026-09-21']))));
   const soon = new Date(Date.now() + 2000); utimesSync(join(s.root, 'docs/進行中/pipeline-ui.md'), soon, soon);
