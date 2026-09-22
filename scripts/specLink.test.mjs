@@ -11,6 +11,8 @@
  *   ⑥ 找不到規格檔講成「沒有清單」、叫 Claude 去主資料夾打勾(AC-6)
  *   ⑦ 分批做的規格要求整份打勾(AC-8)
  *   ⑧ 分級卡、五關、收工 hook 各算各的(老毛病 P2)
+ *   ⑨ 規格搬家(另一份規格,路徑看 CLAUDE.md 的表):這個對話自己用 A 寫的規格開工搬到進行中,清單不見、收工 hook 安靜地不要求對清單(老毛病 P6);
+ *      寫規格那一關的旁白終端機、網頁各抄一份,沒有對過(P2)
  */
 import { execFileSync } from 'node:child_process';
 import { writeFileSync, mkdtempSync, mkdirSync, rmSync, copyFileSync, utimesSync, readFileSync, symlinkSync, existsSync, renameSync, appendFileSync, readdirSync } from 'node:fs';
@@ -632,6 +634,304 @@ section('2026-09-21 實測:B 還沒改到程式檔時終端機不准當掉;只�
   const v = s.by(s.sessionOf('s1')?.stages);
   eq('存檔之後 B 照樣認得改過程式(git 說的),帶著清單進度', `${v.B?.state}|${v.B?.via}|${v.B?.checklist?.total}`, 'current|git|7');
   s.cleanup();
+}
+
+/* ────────────── 規格搬家(路徑看 CLAUDE.md 的表):這個對話自己用 A 寫的規格,開工照規矩搬到進行中 ────────────── */
+
+/**
+ * 同一個對話先跑 A 寫規格、你點頭、開工改到危險清單的檔。跟 2026-09-22 的真實紀錄同一個形狀:
+ * Skill 叫 spec、Write 到規劃中、A 收尾 --report 記相對路徑(那筆紀錄沒有對話代號)。
+ * bash=true:用 Bash 寫的規格——感測器沒有 Write,只剩 A 收尾記的那一行(L8)
+ */
+const aWrote = (root, { sid = 's1', spec = 'docs/規劃中/新功能.md', bash = false } = {}) => [
+  { ts: T(-20 * MIN), hook: 'UserPromptSubmit', session: sid, prompt: '幫我寫一份規格：新功能', prompt_id: `${sid}-a` },
+  { ts: T(-20 * MIN), hook: 'PreToolUse', tool: 'Skill', skill: 'pipeline-monitor:spec', session: sid, prompt_id: `${sid}-a` },
+  ...(bash ? [] : [{ ts: T(-19 * MIN), hook: 'PostToolUse', tool: 'Write', session: sid, file: join(root, spec), prompt_id: `${sid}-a` }]),
+  { ts: T(-18 * MIN), event: 'stage_report', stage: 'A', verdict: 'ok', note: spec, source: 'claude', session: undefined },
+  { ts: T(-5 * MIN), hook: 'UserPromptSubmit', session: sid, prompt: '點頭，開工', prompt_id: `${sid}-p2` },
+  { ts: T(-4 * MIN), hook: 'PostToolUse', tool: 'Edit', session: sid, file: join(root, 'src/danger.js'), prompt_id: `${sid}-p2` },
+];
+/** 把 status.mjs 與 ui/app.js 的 specNotes **原封不動**拿出來跑(L20:畫面的程式跑在瀏覽器裡,測試沒真的跑過就等於沒測)。ago 兩邊餵同一個 */
+const notesOf = (file) => {
+  const m = readFileSync(join(ROOT, file), 'utf8').match(/^function specNotes\(st\) \{\n[\s\S]*?\n\}\n/m);
+  return m ? new Function('ago', `${m[0]}; return specNotes;`)((ts) => `〈${ts}〉`) : null;
+};
+const cliNotes = notesOf('status.mjs'), webNotes = notesOf('ui/app.js');
+const fiveOf = (term) => term.split('━━ 五關')[1] ?? '';
+
+section('規格搬家 AC-1、AC-2:這個對話用 A 寫的規格,開工照規矩搬到進行中 → 清單照畫、B 照樣帶進度、收工 hook 照樣要求對清單,而且指的是新位置', 'P6');
+{
+  const s = scene();
+  writeFileSync(join(s.root, 'docs/規劃中/新功能.md'), specText('新功能', 3));
+  s.write(aWrote(s.root));
+  const before = s.by(s.sessionOf('s1')?.stages), gBefore = s.gate();
+  eq('搬家之前:A 畫 3 條、B 帶著進度、收工 hook 要求對清單', `${before.A?.checklist?.total}|${before.B?.checklist?.unmarked}|${(gBefore?.missing ?? []).includes('checklist')}`, '3|3|true');
+  eq('搬家之前:規格在這裡、沒搬(畫面不講「搬到了」)', `${before.A?.specPlace?.found}|${before.A?.specPlace?.moved}`, 'here|false');
+  // 你點頭 → 照 CLAUDE.md「工作項的狀態就是路徑」搬到進行中。用 Bash 搬(mv／git mv),感測器看不到——找檔靠檔案系統,不靠紀錄
+  renameSync(join(s.root, 'docs/規劃中/新功能.md'), join(s.root, 'docs/進行中/新功能.md'));
+  const a = s.by(s.sessionOf('s1')?.stages), g = s.gate();
+  eq('搬到進行中:A 照畫 3 條,不是「找不到這一輪的規格檔」', `${a.A?.checklist?.missing}|${a.A?.checklist?.total}|${String(a.A?.checklist?.file).endsWith('docs/進行中/新功能.md')}`, 'false|3|true');
+  eq('B 照樣帶著進度 0/3,對完才劃掉', `${a.B?.checklist?.parsed}|${a.B?.checklist?.checked}/${a.B?.checklist?.total}|${a.B?.state}`, 'true|0/3|current');
+  eq('規格在哪:在這個工作區、搬了、記的是規劃中那一份', `${a.A?.specPlace?.found}|${a.A?.specPlace?.moved}|${a.A?.specPlace?.rel}|${a.A?.specPlace?.given}`, 'here|true|docs/進行中/新功能.md|docs/規劃中/新功能.md');
+  check('A 自己寫的規格不被畫成「別的對話寫的」:沒有連結、不是照連結走過、分級卡那一行不寫「規格是別的對話寫的」',
+    a.A?.link === null && a.A?.closedBy !== 'link' && !/別的對話寫的/.test(JSON.stringify(s.sessionOf('s1')?.tier ?? {})), JSON.stringify({ link: a.A?.link, closedBy: a.A?.closedBy }));
+  eq('收工 hook 缺的跟搬家之前一模一樣(對清單沒有安靜地消失)', (g?.missing ?? []).join(','), (gBefore?.missing ?? []).join(','));
+  const line = (g?.reason ?? '').split('\n').find((l) => l.includes('對規格的清單')) ?? '';
+  check('對清單那一行指的是新位置,不叫 Claude 去舊位置打勾', line.includes('docs/進行中/新功能.md') && !line.includes('docs/規劃中/新功能.md'), g?.reason);
+  const five = fiveOf(s.cli([], { session: 's1' }).out);
+  check('終端機:A 畫出清單、講「規格搬到了」,不說找不到', !/找不到(這一輪的)?規格檔/.test(five) && five.includes('規格搬到了 docs/進行中/新功能.md（記的是 docs/規劃中/新功能.md）') && five.includes('○ AC-1 第 1 條'), five.slice(0, 700));
+  // 結案搬到升級摘要 → 還是讀得到(跟連結那條路一樣)
+  renameSync(join(s.root, 'docs/進行中/新功能.md'), join(s.root, 'docs/升級摘要/新功能.md'));
+  const done = s.by(s.sessionOf('s1')?.stages);
+  eq('搬到升級摘要 → 照樣讀得到', `${done.A?.specPlace?.rel}|${done.A?.checklist?.total}`, 'docs/升級摘要/新功能.md|3');
+  s.cleanup();
+}
+{
+  // 用 Bash 寫的規格(只有 A 收尾記的相對路徑);搬家之前用 Edit 打了一個勾(感測器記在舊路徑上);搬家之後再用 Bash 打完剩下的
+  const s = scene();
+  const old = join(s.root, 'docs/規劃中/新功能.md'), now = join(s.root, 'docs/進行中/新功能.md');
+  writeFileSync(old, specText('新功能', 3, { 1: ' ✅ 對過 2026-09-22' }));
+  s.write(aWrote(s.root, { bash: true }));
+  s.append([{ ts: T(-3 * MIN), hook: 'PostToolUse', tool: 'Edit', file: old, prompt_id: 's1-p2' }]);
+  renameSync(old, now);
+  let v = s.by(s.sessionOf('s1')?.stages);
+  eq('只有 A 收尾記的相對路徑,搬家之後也找得到;搬家之前打的勾還在', `${v.A?.specPlace?.moved}|${v.A?.checklist?.checked}/${v.A?.checklist?.total}`, 'true|1/3');
+  writeFileSync(now, specText('新功能', 3, { 1: ' ✅ 對過 2026-09-22', 2: ' ✅ 對過 2026-09-22', 3: ' ✅ 對過 2026-09-22' }));
+  v = s.by(s.sessionOf('s1')?.stages);
+  // 時間是感測器記到的最後一次改規格檔:搬家之前記在舊路徑上的那次也認。用 Bash 打的勾看不到(L8)——寧可早,不可晚(不看檔案的修改時間,見下一段)
+  eq('對完清單:B 結案,時間是感測器記到的最後一次改規格檔(搬家之前記在舊路徑上的那次也認)', `${v.B?.closedBy}|${v.B?.doneAt}`, `checklist|${T(-3 * MIN)}`);
+  check('收工 hook 不再要求對清單', !(s.gate()?.missing ?? []).includes('checklist'), s.gate()?.reason);
+  s.cleanup();
+}
+
+section('規格搬家 AC-3:找到的位置跟記的不一樣,畫面講一句「搬到了」——自己寫的、別的對話寫的同一句;終端機跟網頁的旁白真的跑兩邊、一字不差', 'P2');
+{
+  // 別的對話寫的規格(--spec 連的)搬家:以前是靜默換掉路徑,現在跟 A 自己寫的那條路講同一句
+  const s = scene();
+  s.write(opening(s.root));
+  s.cli(['--spec', 'docs/規劃中/app建議卡.md']);
+  let a = s.by(s.sessionOf('s1')?.stages).A;
+  eq('連結那條路、沒搬:不講「搬到了」', `${a?.specPlace?.found}|${a?.specPlace?.moved}|${(webNotes?.(a) ?? []).length}`, 'here|false|0');
+  renameSync(join(s.root, 'docs/規劃中/app建議卡.md'), join(s.root, 'docs/進行中/app建議卡.md'));
+  a = s.by(s.sessionOf('s1')?.stages).A;
+  eq('連結那條路、搬到進行中:跟 A 自己寫的那條路同一個形狀', `${a?.specPlace?.found}|${a?.specPlace?.moved}|${a?.specPlace?.rel}|${a?.specPlace?.given}`, 'here|true|docs/進行中/app建議卡.md|docs/規劃中/app建議卡.md');
+  const moved = '規格搬到了 docs/進行中/app建議卡.md（記的是 docs/規劃中/app建議卡.md）';
+  const five = fiveOf(s.cli([], { session: 's1' }).out);
+  check('終端機講「規格搬到了」', five.includes(moved), five.slice(0, 500));
+  check('網頁的旁白(真的跑 ui/app.js 的 specNotes,餵儀表板給它的同一份資料)講同一句', (webNotes?.(a) ?? []).includes(moved), JSON.stringify(webNotes?.(a)));
+  s.cleanup();
+}
+{
+  // 兩份旁白各抄一份(終端機、網頁),以前沒有任何測試對過:每一種情況都餵兩邊,輸出要一字不差
+  check('從 status.mjs、ui/app.js 都拿得出 specNotes(拿不出來這一段就什麼都沒測到)', typeof cliNotes === 'function' && typeof webNotes === 'function');
+  const cases = {
+    搬了: { specPlace: { found: 'here', name: 'x', rel: 'docs/進行中/x.md', given: 'docs/規劃中/x.md', moved: true } },
+    沒搬: { specPlace: { found: 'here', name: 'x', rel: 'docs/規劃中/x.md', given: 'docs/規劃中/x.md', moved: false } },
+    在主資料夾: { specPlace: { found: 'main', name: 'x', rel: 'docs/進行中/x.md', given: 'docs/規劃中/x.md', moved: false } },
+    找不到: { specPlace: { found: 'missing', name: 'x', rel: null, given: 'docs/規劃中/x.md', moved: false } },
+    找不到而且記的在工作區外: { specPlace: { found: 'missing', name: 'x', rel: null, given: null, moved: false } },
+    同名兩份: { specPlace: { found: 'ambiguous', name: 'x', rel: null, given: 'docs/規劃中/x.md', where: ['docs/進行中/x.md', 'docs/升級摘要/x.md'], moved: false } },
+    另寫一份: { link: { name: 'x' }, specPlace: { found: 'here', name: 'x', moved: false }, side: { name: 'y', ts: T(-60) } },
+    另寫一份看不到名字: { link: { name: 'x' }, specPlace: { found: 'here', name: 'x', moved: false }, side: { name: null, ts: T(-60) } },
+    第一句話的提示: { hint: { name: 'x', cut: false } },
+    第一句話被截過: { hint: { name: 'x', cut: true } },
+    分不出誰記的: { unsure: { name: 'x' } },
+    資料夾不在了規格在主資料夾: { specPlace: { found: 'main', name: 'x', rel: 'docs/規劃中/x.md', given: 'docs/規劃中/x.md', gone: true } },
+    資料夾不在了也找不到: { specPlace: { found: 'missing', name: 'x', rel: null, given: 'docs/規劃中/x.md', gone: true } },
+    寫在主資料夾: { specPlace: { found: 'main', name: 'x', rel: 'docs/規劃中/x.md', given: 'docs/規劃中/x.md', recordedIn: 'main' } },
+    寫在主資料夾但找不到: { specPlace: { found: 'missing', name: 'x', rel: null, given: 'docs/規劃中/x.md', recordedIn: 'main' } },
+    同名的比這一輪還舊: { specPlace: { found: 'older', name: 'x', rel: 'docs/升級摘要/x.md', given: 'docs/規劃中/x.md' } },
+    記的在工作區外: { specPlace: { found: 'outside', name: 'x', rel: null, given: null } },
+  };
+  for (const [k, st] of Object.entries(cases)) eq(`${k}:終端機跟網頁一字不差`, JSON.stringify(webNotes?.(st) ?? null), JSON.stringify(cliNotes?.(st) ?? null));
+  // 唯一刻意不一樣的一句:終端機要指去儀表板,網頁本身就是儀表板——講的事一樣
+  const sh = { shared: 2 };
+  check('好幾個對話共用工作區:兩邊講的是同一件事(終端機多指一句去儀表板)', [cliNotes?.(sh)?.[0], webNotes?.(sh)?.[0]].every((l) => typeof l === 'string' && l.includes('規格連結只算記它的那個對話')), JSON.stringify([cliNotes?.(sh), webNotes?.(sh)]));
+  // 對照組:不然上面的「一字不差」可能只是兩邊都印空的
+  check('對照組:搬了講一句、沒搬一句都不講', (cliNotes?.(cases.搬了) ?? []).length === 1 && (cliNotes?.(cases.沒搬) ?? []).length === 0, JSON.stringify([cliNotes?.(cases.搬了), cliNotes?.(cases.沒搬)]));
+}
+
+section('規格搬家 AC-4:A 自己寫的規格——同名不只一份不猜、都找不到照實說、只在主資料夾只講一句;三種都不畫清單、收工 hook 都不要求對清單');
+{
+  const s = scene();
+  writeFileSync(join(s.root, 'docs/規劃中/新功能.md'), specText('新功能', 3));
+  s.write(aWrote(s.root));
+  renameSync(join(s.root, 'docs/規劃中/新功能.md'), join(s.root, 'docs/進行中/新功能.md'));
+  writeFileSync(join(s.root, 'docs/升級摘要/新功能.md'), specText('新功能', 5));   // 同名的另一份
+  let a = s.by(s.sessionOf('s1')?.stages);
+  eq('同名兩份 → 分不出來:不畫清單、B 沒有要對的清單', `${a.A?.specPlace?.found}|${a.A?.checklist}|${a.B?.checklist}`, 'ambiguous|null|null');
+  check('收工 hook 不叫 Claude 去猜的那一份打勾', !(s.gate()?.missing ?? []).includes('checklist'), s.gate()?.reason);
+  let five = fiveOf(s.cli([], { session: 's1' }).out);
+  check('終端機:同名不只一份,列出在哪', five.includes('工作區裡叫 新功能.md 的規格不只一份（docs/進行中/新功能.md、docs/升級摘要/新功能.md），分不出是哪一份'), five.slice(0, 500));
+  // 都找不到
+  rmSync(join(s.root, 'docs/進行中/新功能.md')); rmSync(join(s.root, 'docs/升級摘要/新功能.md'));
+  a = s.by(s.sessionOf('s1')?.stages);
+  eq('都找不到 → 找不到,不畫清單(不是「沒有清單」)', `${a.A?.specPlace?.found}|${a.A?.checklist}`, 'missing|null');
+  const miss = '找不到規格檔 新功能.md（記的是 docs/規劃中/新功能.md；規劃中／進行中／升級摘要都沒有同名的）';
+  five = fiveOf(s.cli([], { session: 's1' }).out);
+  check('終端機:找不到規格檔,講記的位置跟找過哪裡', five.includes(miss), five.slice(0, 500));
+  check('網頁講同一句', (webNotes?.(a.A) ?? []).includes(miss), JSON.stringify(webNotes?.(a.A)));
+  check('找不到的時候不擋人:不要求對清單', !(s.gate()?.missing ?? []).includes('checklist'));
+  s.cleanup();
+}
+{
+  // 只在主資料夾(worktree 還沒併進來,或 Claude 寫錯了地方):只講在主資料夾,不給檔案,不叫 Claude 去那裡打勾
+  const main = mkdtempSync(join(tmpdir(), 'pm-main-')), wt = mkdtempSync(join(tmpdir(), 'pm-wt-'));
+  mkdirSync(join(main, 'docs', '進行中'), { recursive: true });
+  writeFileSync(join(main, 'docs/進行中/新功能.md'), specText('新功能', 2));
+  const v = sessionView([
+    { ts: T(-300), hook: 'UserPromptSubmit', session: 's1', cwd: wt, prompt: '寫規格', prompt_id: 'a' },
+    { ts: T(-300), hook: 'PreToolUse', tool: 'Skill', skill: 'pipeline-monitor:spec', session: 's1', cwd: wt, prompt_id: 'a' },
+    { ts: T(-290), hook: 'PostToolUse', tool: 'Write', session: 's1', cwd: wt, file: join(wt, 'docs/規劃中/新功能.md'), prompt_id: 'a' },
+  ], STAGES, 's1', null, wt, { mainRoot: main }).view;
+  const a = v.stages.find((x) => x.id === 'A'), b = v.stages.find((x) => x.type === 'main-conversation');
+  eq('A 寫的規格只在主資料夾 → found=main:不畫清單、B 沒有要對的清單', `${a.specPlace?.found}|${a.checklist}|${b.checklist}`, 'main|null|null');
+  check('講「規格在主資料夾」', (webNotes?.(a) ?? []).some((l) => l.startsWith('規格在主資料夾')), JSON.stringify(webNotes?.(a)));
+  // 記的位置在工作區外:只用檔名在工作區的三個資料夾找,不拿工作區外的那一份
+  const out = mkdtempSync(join(tmpdir(), 'pm-out-'));
+  mkdirSync(join(out, 'docs', '規劃中'), { recursive: true });
+  writeFileSync(join(out, 'docs/規劃中/外面的.md'), specText('外面的', 2));
+  const o = sessionView([
+    { ts: T(-300), hook: 'PreToolUse', tool: 'Skill', skill: 'pipeline-monitor:spec', session: 's1', cwd: wt, prompt_id: 'a' },
+    { ts: T(-290), hook: 'PostToolUse', tool: 'Write', session: 's1', cwd: wt, file: join(out, 'docs/規劃中/外面的.md'), prompt_id: 'a' },
+  ], STAGES, 's1', null, wt, {}).view.stages.find((x) => x.id === 'A');
+  eq('記的位置在工作區外 → 不讀那一份,照實講不在這個工作區', `${o.specPlace?.found}|${o.specPlace?.given}|${o.checklist}`, 'outside|null|null');
+  check('講「不在這個工作區，也不在主資料夾」', (webNotes?.(o) ?? []).includes('記的規格檔 外面的.md 不在這個工作區，也不在主資料夾——不會叫 Claude 去那裡打勾'), JSON.stringify(webNotes?.(o)));
+  for (const d of [main, wt, out]) rmSync(d, { recursive: true, force: true });
+}
+{
+  // 記的位置怎麼換成相對工作區的:以前絕對路徑直接拿去 join,拼出一個不存在的位置,只是碰巧靠同名搜尋救回來
+  const w = mkdtempSync(join(tmpdir(), 'pm-loc-'));
+  mkdirSync(join(w, 'docs', '進行中'), { recursive: true });
+  writeFileSync(join(w, 'docs/進行中/x.md'), specText('x', 1));
+  const abs = locateSpec(join(w, 'docs/進行中/x.md'), { root: w });
+  eq('絕對路徑、還在原位 → 就是它,沒搬', `${abs.found}|${abs.given}|${abs.moved}`, 'here|docs/進行中/x.md|false');
+  const dot = locateSpec('./docs/進行中/x.md', { root: w });
+  eq('「./」開頭的相對路徑 → 同一個位置,不誤報「搬到了」', `${dot.found}|${dot.given}|${dot.moved}`, 'here|docs/進行中/x.md|false');
+  const up = locateSpec('../別的/docs/進行中/x.md', { root: w });
+  eq('往上跳出工作區的相對路徑 → 工作區外,不拿工作區裡的同名檔頂替', `${up.found}|${up.given}|${up.rel}|${up.moved}`, 'outside|null|null|false');
+  rmSync(w, { recursive: true, force: true });
+}
+
+section('規格搬家:魔鬼教官 2026-09-22 第一輪——記的位置有好幾種(工作區、它的 git 根、主資料夾、工作區外、資料夾已經不在),每一種都照記的地方找,不拿同名的另一份頂替', 'P6');
+{
+  // 同名的舊規格:上一輪做完、放在升級摘要,全部打勾,修改時間比這一輪早(worktree 建立時 git 寫出來的就是這樣)
+  const s = scene();
+  const prev = join(s.root, 'docs/升級摘要/新功能.md');
+  writeFileSync(prev, specText('新功能', 4, { 1: ' ✅ 對過 2026-09-01', 2: ' ✅ 對過 2026-09-01', 3: ' ✅ 對過 2026-09-01', 4: ' ✅ 對過 2026-09-01' }));
+  const longAgo = new Date(NOW - 3 * 86400_000);
+  utimesSync(prev, longAgo, longAgo);
+  writeFileSync(join(s.root, 'docs/規劃中/新功能.md'), specText('新功能', 3));
+  s.write(aWrote(s.root));
+  renameSync(join(s.root, 'docs/規劃中/新功能.md'), join(s.root, 'docs/進行中/新功能.md'));
+  eq('搬到進行中、升級摘要有同名的舊規格 → 分不出來(AC-4,照舊)', s.by(s.sessionOf('s1')?.stages).A?.specPlace?.found, 'ambiguous');
+  // 為了消掉「分不出來」把新的改名 → 工作區只剩上一輪那份同名的
+  renameSync(join(s.root, 'docs/進行中/新功能.md'), join(s.root, 'docs/進行中/新功能-第二輪.md'));
+  const v = s.by(s.sessionOf('s1')?.stages);
+  eq('比記的那份還舊的同名檔分不出是不是同一份:不畫它的清單', `${v.A?.specPlace?.found}|${v.A?.specPlace?.rel}|${v.A?.checklist}`, 'older|docs/升級摘要/新功能.md|null');
+  check('B 不拿別份的舊勾結案', v.B?.closedBy !== 'checklist' && v.B?.checklist === null, JSON.stringify({ closedBy: v.B?.closedBy, checklist: v.B?.checklist }));
+  check('收工 hook 不叫 Claude 去已結案的規格補勾', !(s.gate()?.missing ?? []).includes('checklist'), s.gate()?.reason);
+  const older = '記的規格檔 新功能.md 不在記的位置（docs/規劃中/新功能.md）；工作區裡同名的 docs/升級摘要/新功能.md 比記的那份還舊，分不出是不是同一份——不畫它的清單';
+  const five = fiveOf(s.cli([], { session: 's1' }).out);
+  check('終端機照實講', five.includes(older), five.slice(0, 600));
+  check('網頁講同一句', (webNotes?.(v.A) ?? []).includes(older), JSON.stringify(webNotes?.(v.A)));
+  s.cleanup();
+}
+{
+  // 資料夾已經不在了(worktree 清掉了,規格已經併進主資料夾):真的走儀表板收集資料那條路——資料夾不在的卡沒有主資料夾,要用專案的
+  const s = scene();
+  const goneWt = join(s.root, '.claude', 'worktrees', '已經刪掉的');
+  s.write([
+    { ts: T(-20 * MIN), hook: 'UserPromptSubmit', session: 's2', cwd: goneWt, prompt: '寫規格', prompt_id: 's2-a' },
+    { ts: T(-20 * MIN), hook: 'PreToolUse', tool: 'Skill', skill: 'pipeline-monitor:spec', session: 's2', cwd: goneWt, prompt_id: 's2-a' },
+    { ts: T(-19 * MIN), hook: 'PostToolUse', tool: 'Write', session: 's2', cwd: goneWt, file: join(goneWt, 'docs/規劃中/app建議卡.md'), prompt_id: 's2-a' },
+    { ts: T(-10 * MIN), hook: 'UserPromptSubmit', session: 's1', prompt: '看一下', prompt_id: 's1-p1' },
+  ]);
+  const a = s.by(s.sessionOf('s2')?.stages).A;
+  eq('資料夾不在了、主資料夾有 → 講資料夾不在了、規格在主資料夾;不畫清單', `${a?.specPlace?.gone}|${a?.specPlace?.found}|${a?.checklist}`, 'true|main|null');
+  check('句子:資料夾不在了、規格在主資料夾', (webNotes?.(a) ?? []).includes('這個對話的資料夾已經不在了；規格在主資料夾：docs/規劃中/app建議卡.md'), JSON.stringify(webNotes?.(a)));
+  s.cleanup();
+  // 不知道主資料夾在哪(專案裡沒有一張活著的卡):不准講「三個資料夾都沒有同名的」——根本沒辦法找
+  const w = mkdtempSync(join(tmpdir(), 'pm-gone-')), gone = join(w, '不在了');
+  const g = sessionView([
+    { ts: T(-300), hook: 'PreToolUse', tool: 'Skill', skill: 'pipeline-monitor:spec', session: 's1', cwd: gone, prompt_id: 'a' },
+    { ts: T(-290), hook: 'PostToolUse', tool: 'Write', session: 's1', cwd: gone, file: join(gone, 'docs/規劃中/新功能.md'), prompt_id: 'a' },
+  ], STAGES, 's1', null, gone, {}).view.stages.find((x) => x.id === 'A');
+  const gn = webNotes?.(g) ?? [];
+  check('資料夾不在了、也不知道主資料夾 → 講資料夾不在了,不講「都沒有同名的」', gn.includes('這個對話的資料夾已經不在了，找不到記的規格檔（docs/規劃中/新功能.md）') && !gn.some((l) => l.includes('都沒有同名的')), JSON.stringify(gn));
+  rmSync(w, { recursive: true, force: true });
+}
+{
+  // worktree 的對話照第一句話把規格寫進了主資料夾;worktree 裡那一份是 git 帶過來的舊版——不准拿它頂替
+  const main = mkdtempSync(join(tmpdir(), 'pm-main-')), wt = mkdtempSync(join(tmpdir(), 'pm-wt-'));
+  for (const [d, n] of [[main, 5], [wt, 13]]) { mkdirSync(join(d, 'docs', '規劃中'), { recursive: true }); writeFileSync(join(d, 'docs/規劃中/D多輪.md'), specText('D多輪', n)); }
+  const a = sessionView([
+    { ts: T(-300), hook: 'PreToolUse', tool: 'Skill', skill: 'pipeline-monitor:spec', session: 's1', cwd: wt, prompt_id: 'a' },
+    { ts: T(-290), hook: 'PostToolUse', tool: 'Write', session: 's1', cwd: wt, file: join(main, 'docs/規劃中/D多輪.md'), prompt_id: 'a' },
+  ], STAGES, 's1', null, wt, { mainRoot: main }).view.stages.find((x) => x.id === 'A');
+  eq('記在主資料夾 → 只在主資料夾找,不拿 worktree 裡同名的那一份(13 條的舊版)', `${a.specPlace?.found}|${a.specPlace?.recordedIn}|${a.checklist}`, 'main|main|null');
+  check('講「規格寫在主資料夾」,不講「可能還沒併進來」', (webNotes?.(a) ?? []).includes('規格寫在主資料夾（docs/規劃中/D多輪.md），不在這個工作區——不會叫 Claude 去那裡打勾'), JSON.stringify(webNotes?.(a)));
+  for (const d of [main, wt]) rmSync(d, { recursive: true, force: true });
+}
+{
+  // 對話 cd 進了專案的子資料夾:感測器記的 cwd 跟著變,記的絕對路徑在 git 的根底下——舊程式照樣要求對清單,這裡也要
+  const s = scene();
+  const sub = join(s.root, 'src');
+  writeFileSync(join(s.root, 'docs/規劃中/新功能.md'), specText('新功能', 3));
+  s.write(aWrote(s.root).map((e) => ({ ...e, cwd: sub })));
+  renameSync(join(s.root, 'docs/規劃中/新功能.md'), join(s.root, 'docs/進行中/新功能.md'));
+  const a = s.sessionOf('s1')?.stages?.find((x) => x.id === 'A');
+  eq('子資料夾的對話:照 git 的根找,搬到進行中也找得到', `${a?.specPlace?.found}|${a?.specPlace?.rel}|${a?.checklist?.total}`, 'here|docs/進行中/新功能.md|3');
+  const d = decide({ payload: { session_id: 's1', cwd: sub, hook_event_name: 'Stop', stop_hook_active: false }, monitorDir: s.monitorDir, skillHome: s.home });
+  check('收工 hook 照樣要求對清單,指的是新位置', (d?.missing ?? []).includes('checklist') && /docs\/進行中\/新功能\.md/.test(d?.reason ?? ''), d?.reason);
+  s.cleanup();
+}
+{
+  // 對完清單之後照規矩追加施作紀錄(用 Bash,感測器看不到;只有檔案的修改時間變成現在)——
+  // B 不准變成這一輪的最後一步,D 的「找到問題」不准被畫成已走過(第二位審查員抓到:改看檔案修改時間的時候就會這樣)
+  const s = scene();
+  const f = join(s.root, 'docs/規劃中/新功能.md');
+  writeFileSync(f, specText('新功能', 2));
+  s.write(aWrote(s.root));
+  writeFileSync(f, specText('新功能', 2, { 1: ' ✅ 對過 2026-09-22', 2: ' ✅ 對過 2026-09-22' }));
+  s.append([
+    { ts: T(-3 * MIN), hook: 'PostToolUse', tool: 'Edit', file: f, prompt_id: 's1-p2' },
+    { ts: T(-2 * MIN), hook: 'PreToolUse', tool: 'Skill', skill: 'pipeline-monitor:chaos-check', prompt_id: 's1-p2' },
+    { ts: T(-1 * MIN), event: 'stage_report', stage: 'D', verdict: 'found', note: '找到 1 條', source: 'claude', session: undefined },
+  ]);
+  appendFileSync(f, '\n## 施作紀錄\n追加一段\n');
+  const v = s.by(s.sessionOf('s1')?.stages);
+  eq('B 對完清單,時間照舊是打勾那一刻(不是追加紀錄的那一刻)', `${v.B?.closedBy}|${v.B?.doneAt}`, `checklist|${T(-3 * MIN)}`);
+  eq('D 找到問題還是現在這一關,沒有被畫成已走過', `${v.D?.state}|${v.D?.report?.verdict}`, 'current|found');
+  s.cleanup();
+}
+
+section('規格搬家:魔鬼教官 2026-09-22 第二輪——又叫了一次 A 但沒改規格檔,同一份規格搬家之後照樣找得到;沒有寫檔的紀錄可比時,只講分不出,不講是別份');
+{
+  // 第一次 A 用 Write 寫了規格(感測器記到);這一輪又叫了一次 A,Claude 看了說不用改,只記了位置;之後搬到進行中
+  const w = mkdtempSync(join(tmpdir(), 'pm-rerun-'));
+  for (const d of ['規劃中', '進行中', '升級摘要']) mkdirSync(join(w, 'docs', d), { recursive: true });
+  const f = join(w, 'docs/規劃中/X.md');
+  writeFileSync(f, specText('X', 2));
+  const wroteAt = new Date(Math.floor((NOW - 3600_000) / 1000) * 1000);
+  utimesSync(f, wroteAt, wroteAt);
+  const again = [
+    { ts: T(-600), hook: 'PreToolUse', tool: 'Skill', skill: 'pipeline-monitor:spec', session: 's1', cwd: w, prompt_id: 'a2' },
+    { ts: T(-590), event: 'stage_report', stage: 'A', verdict: 'ok', note: 'docs/規劃中/X.md', cwd: w, source: 'claude' },
+  ];
+  const withWrite = [
+    { ts: T(-3601), hook: 'PreToolUse', tool: 'Skill', skill: 'pipeline-monitor:spec', session: 's1', cwd: w, prompt_id: 'a1' },
+    { ts: wroteAt.toISOString(), hook: 'PostToolUse', tool: 'Write', session: 's1', cwd: w, file: f, prompt_id: 'a1' },
+    ...again,
+  ];
+  renameSync(f, join(w, 'docs/進行中/X.md'));
+  const a = sessionView(withWrite, STAGES, 's1', null, w, {}).view.stages.find((x) => x.id === 'A');
+  eq('感測器記到第一次 A 寫了它 → 搬到進行中照樣找得到,清單照畫', `${a.specPlace?.found}|${a.specPlace?.moved}|${a.checklist?.total}`, 'here|true|2');
+  // 兩次都是用 Bash 寫的(感測器沒有寫檔的紀錄):只剩這一次 A 的時間可比——比它還舊就只講分不出,不講是別份
+  const b = sessionView(again, STAGES, 's1', null, w, {}).view.stages.find((x) => x.id === 'A');
+  const bn = webNotes?.(b) ?? [];
+  check('沒有寫檔紀錄可比 → 不畫清單,只講分不出是不是同一份,不講「不是這一輪寫的」', b.specPlace?.found === 'older' && b.checklist === null && bn.some((l) => l.includes('分不出是不是同一份')) && !bn.some((l) => /不是這一輪寫的/.test(l)), JSON.stringify(bn));
+  rmSync(w, { recursive: true, force: true });
 }
 
 process.exit(summary());

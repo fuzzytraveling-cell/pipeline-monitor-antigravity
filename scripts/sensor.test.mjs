@@ -713,7 +713,10 @@ section('五關自動結案:A 的清單就是規格檔裡的 AC(AC-5),B 對完�
   // 找不到規格檔:照實說
   const gone = ev.map((e) => (e.file === spec ? { ...e, file: join(dir, 'docs', '規劃中', '沒有.md') } : e));
   v = by(stagesOfSession(gone, stages, 's1', null, dir));
-  check('規格檔不見了 → 清單說找不到,不當成沒有清單', v.A.checklist?.missing === true, JSON.stringify(v.A.checklist));
+  // 「找不到」住在規格在哪(specPlace)那一份,終端機與網頁從那裡講同一句;清單只在找得到的時候才有(規格搬家 AC-3、AC-4)
+  check('規格檔不見了 → 說找不到(記的位置、三個資料夾都沒有),不當成沒有清單',
+    v.A.specPlace?.found === 'missing' && v.A.specPlace?.given === 'docs/規劃中/沒有.md' && v.A.checklist === null,
+    JSON.stringify({ place: v.A.specPlace, checklist: v.A.checklist }));
   // 規格檔沒照格式:解析不了就說解析不了
   writeFileSync(spec, '# 隨便寫的\n沒有 AC\n');
   v = by(stagesOfSession(ev, stages, 's1', null, dir));

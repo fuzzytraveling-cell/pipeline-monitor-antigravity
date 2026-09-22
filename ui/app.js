@@ -125,10 +125,19 @@ function checklistWhy(cl) {
 /** 寫規格那一關的旁白(施工對話認規格):規格在哪、另寫了一份、第一句話的提示、分不出是誰記的。都只是講,不算 A、不擋人。跟終端機的 specNotes 同一份文案 */
 function specNotes(st) {
   const L = [];
-  const lk = st.link;
-  if (lk?.found === 'main') L.push('規格在主資料夾，不在這個工作區（可能還沒併進來）——不會叫 Claude 去那裡打勾');
-  else if (lk?.found === 'missing') L.push(`找不到規格檔 ${lk.name}.md`);
-  else if (lk?.found === 'ambiguous') L.push(`工作區裡叫 ${lk.name}.md 的規格不只一份（${(lk.where ?? []).join('、')}），分不出是哪一份`);
+  const lk = st.link, at = st.specPlace;
+  // 規格在哪(規格搬家 AC-3、AC-4):別的對話寫的連結、這個對話 A 寫的,兩條路都讀 specPlace 這一份——同一個地方判斷、同一句話
+  // 資料夾不在了(worktree 清掉了):工作區裡沒辦法找,不准講成「都沒有同名的」(R1,魔鬼教官 2026-09-22)
+  if (at?.gone) L.push(at.found === 'main' ? `這個對話的資料夾已經不在了；規格在主資料夾：${at.rel ?? `${at.name}.md`}` : `這個對話的資料夾已經不在了，找不到記的規格檔（${at.given ?? `${at.name}.md`}）`);
+  // 記在主資料夾的(worktree 的對話把規格寫進了主資料夾):講寫在那裡,不講「可能還沒併進來」
+  else if (at?.found === 'main') L.push(at.recordedIn === 'main' ? `規格寫在主資料夾（${at.rel ?? `${at.name}.md`}），不在這個工作區——不會叫 Claude 去那裡打勾` : '規格在主資料夾，不在這個工作區（可能還沒併進來）——不會叫 Claude 去那裡打勾');
+  else if (at?.found === 'missing') L.push(`找不到規格檔 ${at.name}.md${!at.given ? '' : at.recordedIn === 'main' ? `（記的是主資料夾的 ${at.given}；主資料夾的規劃中／進行中／升級摘要都沒有同名的）` : `（記的是 ${at.given}；規劃中／進行中／升級摘要都沒有同名的）`}`);
+  // 同名的那一份比記的那份還舊:分不出是不是同一份,不拿它的勾(R2,魔鬼教官 2026-09-22);證據只到「比較舊」,不講「是別份」(第二輪)
+  else if (at?.found === 'older') L.push(`記的規格檔 ${at.name}.md 不在記的位置（${at.given}）；工作區裡同名的 ${at.rel} 比記的那份還舊，分不出是不是同一份——不畫它的清單`);
+  // 記的位置不在這個工作區、也不在主資料夾:不拿工作區裡同名的另一份頂替(P6,魔鬼教官 2026-09-22)
+  else if (at?.found === 'outside') L.push(`記的規格檔 ${at.name}.md 不在這個工作區，也不在主資料夾——不會叫 Claude 去那裡打勾`);
+  else if (at?.found === 'ambiguous') L.push(`工作區裡叫 ${at.name}.md 的規格不只一份（${(at.where ?? []).join('、')}），分不出是哪一份`);
+  else if (at?.moved) L.push(`規格搬到了 ${at.rel}（記的是 ${at.given}）`);
   if (st.side) L.push(st.side.name ? `另寫了一份規格 ${st.side.name}（等你點頭）` : `${ago(st.side.ts)}又叫了寫規格那一關（寫了哪份看不到）；施工清單還是 ${lk?.name ?? '原本那份'}`);
   if (st.hint) L.push(`從你第一句話看，可能是照 ${st.hint.name} 施工（Claude 還沒確認${st.hint.cut ? '；感測器只記第一句話的開頭，後面有沒有提到別份看不到' : ''}）`);
   if (st.unsure) L.push(`有一筆規格連結（${st.unsure.name}）分不出是哪個對話記的——不算數`);
