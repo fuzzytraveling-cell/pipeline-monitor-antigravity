@@ -218,6 +218,95 @@ section('「你說驗收過了」按鈕:只准認識的工作區、只准驗收�
   rmSync(monitorDir, { recursive: true, force: true }); r.cleanup();
 }
 
+section('兩個分頁同時開著也不准卡死:伺服器幾秒內算過的整頁資料共用一份(generatedAt 照實是那一次的),按了按鈕馬上作廢(2026-09-22 實測:兩個分頁各自每五秒要一次,回應一次要 15～19 秒)');
+{
+  const r = makeRepo({ pkg: { name: 'x' }, files: { 'a.js': '1\n' } });
+  const root = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: r.dir, encoding: 'utf8' }).trim();
+  const name = basename(root);
+  const monitorDir = mkdtempSync(join(tmpdir(), 'pm-monitor-'));
+  mkdirSync(join(monitorDir, 'logs'));
+  copyFileSync(join(ROOT, 'stages.json'), join(monitorDir, 'stages.json'));
+  writeFileSync(join(monitorDir, 'logs', `${name}.jsonl`), JSON.stringify({ ts: new Date().toISOString(), hook: 'UserPromptSubmit', session: 's1', cwd: root, prompt: 'hi' }) + '\n');
+  const server = createApp({ monitorDir });
+  await new Promise((res) => server.listen(0, '127.0.0.1', res));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const get = async () => (await fetch(`${base}/api/status`)).json();
+  const post = (path, body) => fetch(`${base}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const a = await get();
+  const again = await get();
+  eq('幾秒內再要一次 → 同一份(generatedAt 是那一次算的,不是現在)', again.generatedAt, a.generatedAt);
+  const many = await Promise.all(Array.from({ length: 5 }, get));
+  check('五個分頁同時要 → 共用同一份,不各算一次', many.every((x) => x.generatedAt === a.generatedAt), many.map((x) => x.generatedAt).join(','));
+  eq('按鈕寫入被擋下(400:不認得的工作區)不作廢', (await post('/api/clear', { project: name, cwd: '/沒有這個工作區', stage: 'E' })).status, 400);
+  eq('……之後拿到的還是同一份', (await get()).generatedAt, a.generatedAt);
+  eq('按鈕寫入成功(結案這個對話)→ 200', (await post('/api/close', { project: name, session: 's1', cwd: root })).status, 200);
+  const after = await get();
+  check('寫入成功之後馬上重算:按了看得到(對話已結案),不是幾秒前那份', after.generatedAt > a.generatedAt && !!after.projects.find((x) => x.name === name)?.sessions.find((x) => x.id === 's1')?.closedAt, JSON.stringify({ g: after.generatedAt, a: a.generatedAt }));
+  server.close();
+  const quick = createApp({ monitorDir, statusShareMs: 30 });
+  await new Promise((res) => quick.listen(0, '127.0.0.1', res));
+  const qb = `http://127.0.0.1:${quick.address().port}`;
+  const q1 = await (await fetch(`${qb}/api/status`)).json();
+  await new Promise((res) => setTimeout(res, 80));
+  const q2 = await (await fetch(`${qb}/api/status`)).json();
+  check('過了共用的時間就重算(不會一直給舊的)', q2.generatedAt > q1.generatedAt, `${q1.generatedAt} → ${q2.generatedAt}`);
+  quick.close();
+  rmSync(monitorDir, { recursive: true, force: true }); r.cleanup();
+}
+
+section('畫面的輪詢:上一次回來才要下一次(不疊著要);伺服器卡住要放棄、照實說連不上,之後還要再問(真的跑 ui/app.js 的 poll／pollLoop)');
+{
+  const src = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8');
+  check('不再用 setInterval 固定每幾秒要一次(不管上一次回來了沒)', !/setInterval\(\s*poll\b/.test(src));
+  const loop = loadPollLoop();
+  check('從 ui/app.js 拿得出 poll 與 pollLoop(拿不出來這一段就什麼都沒測到)', typeof loop === 'function');
+  if (typeof loop === 'function') {
+    // 伺服器慢(每次 40 毫秒才回),畫面每 5 毫秒就想問一次:同一時間在路上的請求不准超過一個
+    const slow = await loop({ mode: 'slow', POLL_MS: 5, GIVE_UP_MS: 1000, runMs: 400 });
+    eq('伺服器慢的時候,同一時間最多一個請求在路上', slow.maxInflight, 1);
+    check('……而且一直有在問(不是問一次就停)', slow.calls >= 4, `問了 ${slow.calls} 次`);
+    check('……拿到資料就是連得上', slow.connectedSeen.includes(true));
+    // 伺服器卡住、永遠不回:等到盡頭就放棄,說連不上,然後繼續問(伺服器好了才接得回來)
+    const hung = await loop({ mode: 'hung', POLL_MS: 5, GIVE_UP_MS: 30, runMs: 200 });
+    check('伺服器不回 → 放棄那一次,說連不上', hung.connectedSeen.includes(false), JSON.stringify(hung));
+    check('……放棄之後還會再問(不會停在那裡)', hung.calls >= 3, `問了 ${hung.calls} 次`);
+    eq('……同一時間也最多一個請求在路上', hung.maxInflight, 1);
+  }
+}
+
+/**
+ * 把 ui/app.js 的 poll 與 pollLoop **原封不動**拿出來,配上假的 fetch 與計時器跑一段時間(L20:畫面的程式跑在瀏覽器裡,測試沒真的跑過就等於沒測)。
+ * mode:slow = 每次 40 毫秒才回;hung = 永遠不回,只有被放棄(abort)才結束。回:問了幾次、同一時間最多幾個在路上、看過哪些連線狀態。
+ */
+function loadPollLoop() {
+  const text = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8');
+  const poll = text.match(/^async function poll\(\) \{\n[\s\S]*?\n\}\n/m);
+  const loop = text.match(/^async function pollLoop\(\) \{\n[\s\S]*?\n\}\n/m);
+  if (!poll || !loop) return null;
+  return async ({ mode, POLL_MS, GIVE_UP_MS, runMs }) => {
+    let calls = 0, inflight = 0, maxInflight = 0, stop = false;
+    const connectedSeen = [];
+    const fakeFetch = (url, { signal } = {}) => new Promise((resolve, reject) => {
+      calls++; inflight++; maxInflight = Math.max(maxInflight, inflight);
+      let settled = false;
+      const end = (fn) => { if (settled) return; settled = true; inflight--; fn(); };
+      signal?.addEventListener('abort', () => end(() => reject(new Error('放棄了'))));
+      if (mode === 'slow') setTimeout(() => end(() => resolve({ ok: true, json: async () => ({ generatedAt: Date.now(), projects: [] }) })), 40);
+    });
+    const later = (fn, ms) => (stop ? 0 : setTimeout(fn, ms));
+    const make = new Function('POLL_MS', 'GIVE_UP_MS', 'fetch', 'setTimeout', 'clearTimeout', 'AbortController', 'document', 'location', 'safeRender', 'paintFreshness',
+      `let latest = null, connected = false, bootVersion = null;\n${poll[0]}\n${loop[0]}\nreturn { pollLoop, connected: () => connected };`);
+    let api;
+    const paint = () => connectedSeen.push(api?.connected());
+    api = make(POLL_MS, GIVE_UP_MS, fakeFetch, later, clearTimeout, AbortController, { activeElement: null }, { reload() {} }, () => {}, paint);
+    api.pollLoop();
+    await new Promise((res) => setTimeout(res, runMs));
+    stop = true;
+    await new Promise((res) => setTimeout(res, Math.max(60, GIVE_UP_MS + 20)));
+    return { calls, maxInflight, connectedSeen: [...new Set(connectedSeen)] };
+  };
+}
+
 /**
  * 把 ui/app.js 裡的 suggestionsBlock **原封不動**拿出來跑(L20:畫面的程式跑在瀏覽器裡,十幾支測試全綠也沒有一支真的畫過)。
  * 這個函式不碰 DOM,補上它用到的五個外部名字就能在 node 裡跑。拿不出來要紅——不准安靜地跳過。

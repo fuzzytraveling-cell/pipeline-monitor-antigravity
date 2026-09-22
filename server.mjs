@@ -57,15 +57,35 @@ function appVersion() {
   try { return [SERVE['/app.js'], SERVE['/ui.css']].map((f) => statSync(f).mtimeMs).join('-'); } catch { return null; }
 }
 
-export function createApp({ monitorDir = HERE } = {}) {
+/**
+ * 整頁資料算好之後,這麼多毫秒內再有人要就直接給同一份,不重算。
+ * 比畫面輪詢的間隔(ui/app.js 的 POLL_MS,5 秒)短:只有一個分頁時,它每一輪拿到的都是新算的,跟以前一樣新;
+ * 好幾個分頁(或對話裡的預覽)同時開著時,就共用同一份。
+ */
+const STATUS_SHARE_MS = 4000;
+
+export function createApp({ monitorDir = HERE, statusShareMs = STATUS_SHARE_MS } = {}) {
   // 跟 hook.sh／status.mjs／collect.mjs 看同一個地方(同一個環境變數),寫的跟讀的才是同一份(老毛病 P2)。
   // 跟著 monitorDir 走,測試才能在自己的暫存資料夾裡寫,不會碰到真的紀錄。
   const LOG_DIR = process.env.PIPELINE_MONITOR_LOG_DIR ?? join(monitorHome(monitorDir), 'logs');
+  // 最近一次算好的整頁資料。⚠️ 算一次將近 3 秒、而且一次只能算一個:以前每個分頁每五秒各算一次,
+  // 兩個分頁同時開著,請求就越排越長,整頁「連不上」(2026-09-22 實測,回應一次要 15～19 秒)。
+  // 給出去的是那一次算好的原樣,generatedAt 也是那一次的——畫面照樣講得出資料是什麼時候的(AC-1),不會把舊的講成新的。
+  let shared = null;   // { at, body }
   return createServer((req, res) => {
     const url = new URL(req.url, `http://${HOST}`);
-    const json = (code, obj) => { res.writeHead(code, TYPES['.json']); res.end(JSON.stringify(obj)); };
+    const json = (code, obj) => {
+      // 按鈕寫入成功(POST 回 200)就作廢共用的那份:按了馬上看得到。
+      // ⚠️ 要在寫完、回覆的這一刻作廢,不能在收到請求時——內容是分段讀進來的,中間插進來的一次讀取會把「寫之前」的樣子存起來
+      if (req.method === 'POST' && code === 200) shared = null;
+      res.writeHead(code, TYPES['.json']); res.end(JSON.stringify(obj));
+    };
 
     if (url.pathname === '/api/status') {
+      if (shared && Date.now() - shared.at < statusShareMs) {
+        res.writeHead(200, { 'content-type': TYPES['.json'], 'cache-control': 'no-store' });
+        return res.end(shared.body);
+      }
       let body;
       try {
         // appVersion:畫面程式(ui/app.js、ui.css)的版本。開著的分頁發現它變了就自己重新載入——
@@ -73,8 +93,9 @@ export function createApp({ monitorDir = HERE } = {}) {
         body = JSON.stringify({ ...collectAll({ monitorDir }), appVersion: appVersion() });
       } catch (e) {
         // ⚠️ 一個專案讀不到,不該害整頁掛掉。照實回報,讓畫面說「讀不到」。
-        return json(500, { error: String(e?.message ?? e), generatedAt: Date.now() });
+        return json(500, { error: String(e?.message ?? e), generatedAt: Date.now() });   // 讀不到的不共用:下一次重算
       }
+      shared = { at: Date.now(), body };
       res.writeHead(200, { 'content-type': TYPES['.json'], 'cache-control': 'no-store' });
       return res.end(body);
     }

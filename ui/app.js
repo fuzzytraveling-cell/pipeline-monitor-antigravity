@@ -7,7 +7,7 @@
  * ⚠️ 不能妥協的還是 AC-1／AC-2:畫面必須隨時說出資料多新,斷線時整頁承認。
  *    判斷在 lib/freshness.mjs(純函式,被測試釘住),這裡只負責畫。
  */
-import { describeFreshness } from '/freshness.mjs';
+import { describeFreshness, STALE_AFTER_SECONDS } from '/freshness.mjs';
 
 const POLL_MS = 5000;
 let latest = null, connected = false;
@@ -51,9 +51,14 @@ function paintFreshness() {
   $fresh.dataset.state = f.state;
   document.body.classList.toggle('dim', f.dim);
 }
+/** 等多久沒回來就不等了、照實說連不上:跟「資料可能過期了」同一條線(lib/freshness.mjs),不另訂一個數字 */
+const GIVE_UP_MS = STALE_AFTER_SECONDS * 1000;
 async function poll() {
+  // 伺服器卡住、一直不回的話,這一次要有個盡頭:不然輪詢停在這裡,伺服器好了也不會再問(AC-2:不准靜靜停止更新)
+  const ctl = new AbortController();
+  const giveUp = setTimeout(() => ctl.abort(), GIVE_UP_MS);
   try {
-    const r = await fetch('/api/status', { cache: 'no-store' });
+    const r = await fetch('/api/status', { cache: 'no-store', signal: ctl.signal });
     if (!r.ok) throw new Error(String(r.status));
     latest = await r.json(); connected = true;
     // 合併之後重啟服務,開著的分頁跑的還是舊畫面:每幾秒拿新資料用舊的畫法畫,會把新欄位畫錯(魔鬼教官 2026-09-21,L20 的形狀)
@@ -64,7 +69,17 @@ async function poll() {
     // 使用者正在分級表單裡打理由時,這一輪不重畫——重畫會把打到一半的字洗掉(2026-09-13 實測)。資料照抓,下一輪再畫。
     if (!document.activeElement?.closest?.('[data-tier-form]')) safeRender();
   } catch { connected = false; }   // AC-2:不准靜靜停止更新
+  finally { clearTimeout(giveUp); }
   paintFreshness();
+}
+/**
+ * 輪詢:上一次回來(或放棄)之後,才排下一次。
+ * ⚠️ 以前用 setInterval 每五秒固定要一次,不管上一次回來了沒——伺服器算一次將近 3 秒、一次只能算一個,
+ *    兩個分頁同時開著,請求就疊起來越排越長,整頁「連不上」(2026-09-22 實測)。
+ */
+async function pollLoop() {
+  await poll();
+  setTimeout(pollLoop, POLL_MS);
 }
 
 function ago(iso) {
@@ -812,6 +827,5 @@ function safeRender() {
 }
 window.addEventListener('hashchange', safeRender);
 
-poll();
-setInterval(poll, POLL_MS);
+pollLoop();
 setInterval(paintFreshness, 1000);
