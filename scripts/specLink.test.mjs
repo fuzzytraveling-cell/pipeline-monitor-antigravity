@@ -68,11 +68,13 @@ function scene({ touch = 'src/danger.js' } = {}) {
   const write = (lines) => writeFileSync(log, lines.map(line).join('\n') + '\n');
   const append = (lines) => appendFileSync(log, lines.map(line).join('\n') + '\n');
   const events = () => (existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
-  // 跑真的 CLI。對話代號從環境變數給(Claude Code 給 Bash 的那一個);session=null 就拿掉,模擬拿不到代號
+  // 跑真的 CLI。對話代號從環境變數給(Claude Code 給 Bash 的那一個);session=null 就拿掉,模擬拿不到代號。
+  // ⚠️ HOME 一定要給這個假的(裝了 plugin 的那個):指令找「該跑哪個指令」會看家目錄,用真的家目錄的話,
+  //    開發這台電腦裝了 plugin 就綠、GitHub 的機器沒裝就紅(2026-09-22 CI 紅過,LESSONS L24)
   const cli = (args, { session = 's1' } = {}) => {
     const { CLAUDE_CODE_SESSION_ID: _drop, ...env } = process.env;
     if (session) env.CLAUDE_CODE_SESSION_ID = session;
-    try { return { code: 0, out: execFileSync('node', [join(ROOT, 'status.mjs'), ...args], { cwd: root, encoding: 'utf8', env: { ...env, PIPELINE_MONITOR_HOME: monitorDir, PIPELINE_MONITOR_LOG_DIR: logDir } }) }; }
+    try { return { code: 0, out: execFileSync('node', [join(ROOT, 'status.mjs'), ...args], { cwd: root, encoding: 'utf8', env: { ...env, HOME: home, PIPELINE_MONITOR_HOME: monitorDir, PIPELINE_MONITOR_LOG_DIR: logDir } }) }; }
     catch (e) { return { code: e.status ?? 1, out: String(e.stdout ?? '') + String(e.stderr ?? '') }; }
   };
   const project = () => collectAll({ monitorDir, skillHome: home, appTitles: new Map() }).projects[0];
@@ -446,7 +448,7 @@ section('魔鬼教官 2026-09-21 第一輪:「這個對話自己寫的」不只�
   const again = s.cli(['--spec', 'docs/規劃中/app建議卡.md', 'AC-3', 'AC-4']);
   check('連上之後的 Write(打勾、搬家)不擋下一批', again.code === 0, again.out);
   // 從子資料夾跑也認得(照工作區的根解)
-  const sub = (() => { try { return execFileSync('node', [join(ROOT, 'status.mjs'), '--spec', 'docs/規劃中/app建議卡.md'], { cwd: join(s.root, 'src'), encoding: 'utf8', env: { ...process.env, CLAUDE_CODE_SESSION_ID: 's1', PIPELINE_MONITOR_HOME: s.monitorDir, PIPELINE_MONITOR_LOG_DIR: join(s.monitorDir, 'logs') } }); } catch (e) { return `失敗：${e.stdout}`; } })();
+  const sub = (() => { try { return execFileSync('node', [join(ROOT, 'status.mjs'), '--spec', 'docs/規劃中/app建議卡.md'], { cwd: join(s.root, 'src'), encoding: 'utf8', env: { ...process.env, HOME: s.home, CLAUDE_CODE_SESSION_ID: 's1', PIPELINE_MONITOR_HOME: s.monitorDir, PIPELINE_MONITOR_LOG_DIR: join(s.monitorDir, 'logs') } }); } catch (e) { return `失敗：${e.stdout}`; } })();
   check('從子資料夾跑 --spec docs/… 也認得', /記下了/.test(sub), sub);
   s.cleanup();
 }
@@ -596,7 +598,7 @@ section('魔鬼教官 2026-09-21 第一輪:只在主資料夾的規格,--spec �
   writeFileSync(join(s.root, 'docs/進行中/只在主資料夾.md'), specText('只在主資料夾', 3));   // 主資料夾還沒存,worktree 沒有
   const { CLAUDE_CODE_SESSION_ID: _d, ...env } = process.env;
   let out2 = '';
-  try { out2 = execFileSync('node', [join(ROOT, 'status.mjs'), '--spec', 'docs/進行中/只在主資料夾.md'], { cwd: wt, encoding: 'utf8', env: { ...env, CLAUDE_CODE_SESSION_ID: 's1', PIPELINE_MONITOR_HOME: s.monitorDir, PIPELINE_MONITOR_LOG_DIR: join(s.monitorDir, 'logs') } }); } catch (e) { out2 = `失敗：${e.stdout}`; }
+  try { out2 = execFileSync('node', [join(ROOT, 'status.mjs'), '--spec', 'docs/進行中/只在主資料夾.md'], { cwd: wt, encoding: 'utf8', env: { ...env, HOME: s.home, CLAUDE_CODE_SESSION_ID: 's1', PIPELINE_MONITOR_HOME: s.monitorDir, PIPELINE_MONITOR_LOG_DIR: join(s.monitorDir, 'logs') } }); } catch (e) { out2 = `失敗：${e.stdout}`; }
   const firstLine = out2.split('\n')[0];
   check('收下,第一行不說「會畫出」,接著講在主資料夾、不畫、不要求打勾', /記下了/.test(firstLine) && !/會畫出/.test(out2) && /規格在主資料夾/.test(out2) && /不畫那 3 條/.test(out2), out2);
   execFileSync('git', ['worktree', 'remove', '--force', wt], { cwd: s.root });
