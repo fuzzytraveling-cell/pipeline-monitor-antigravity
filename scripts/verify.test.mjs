@@ -566,4 +566,43 @@ section('魔鬼教官第一輪:--report E 同一條寫兩次,先寫的「沒看�
   s.cleanup();
 }
 
+section('魔鬼教官第二輪:收工 hook 的「這一回合改了沒」跟五關同一份——用 Bash 還原也看得到,D 過期就叫 Claude 先問', 'P2');
+{
+  const s = scene({ levels: { none: { id: 'T0', requires: [] }, code: { id: 'T1', requires: [] }, danger: { id: 'T2', requires: ['D'] } } });
+  const h = s.head();
+  const callD = (sec) => ({ ts: T(sec), hook: 'PreToolUse', tool: 'Skill', skill: `${PLUGIN}:chaos-check`, head: h });
+  const repD = (sec) => ({ ts: T(sec), event: 'stage_report', stage: 'D', verdict: 'ok', note: '沒對到已知死法', source: 'claude', by_session: 's1' });
+  s.write([said(-60 * MIN, '改一下'), edit(-50 * MIN, join(s.root, 'src', 'a.js')), callD(-40 * MIN), repD(-35 * MIN), said(-10 * MIN, '把 a.js 剛剛那個改回去')]);
+  s.touch('src/danger.js', -50 * MIN);            // 還留著的改動:這次還是 T2
+  s.touch('src/a.js', -50 * MIN, 'new\n');
+  s.touch('src/a.js', -5 * MIN, '1\n');            // 這一回合用 Bash 還原:git 說它跟起點沒差,感測器也沒看到
+  const d = s.gate();
+  check('這一回合只有 Bash 還原 → 收工 hook 照樣看得到,叫 Claude 先問要不要再跑 D', d?.missing.includes('D:ask'), JSON.stringify(d?.missing));
+  s.cleanup();
+}
+
+section('魔鬼教官第二輪:網頁對話列那一句,Claude 代記的驗收講是 Claude 代記(真的跑 ui/app.js 的 roundWhere)', 'P2');
+{
+  const src = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8');
+  const code = src.match(/^function roundWhere\(stages\) \{\n[\s\S]*?\n\}\n/m)?.[0] ?? null;
+  check('從 ui/app.js 拿得出 roundWhere(拿不出來這一段就什麼都沒測到)', !!code);
+  const rw = code ? new Function(`${code}; return roundWhere;`)() : () => '';
+  const e = (o) => ({ id: 'E', name: '驗收', type: 'browser', skill: 'verify', ...o });
+  eq('Claude 代記 → 講 Claude 代記', rw([e({ state: 'done', ewhere: 'Claude 代記：你說驗收過了' })]), '這一輪走到 E 驗收（Claude 代記：你說驗收過了）');
+  eq('你自己按的 → 你說驗收過了', rw([e({ state: 'done', ewhere: '你說驗收過了' })]), '這一輪走到 E 驗收（你說驗收過了）');
+  eq('舊的服務沒給那一句 → 照舊', rw([e({ state: 'done' })]), '這一輪走到 E 驗收（你說驗收過了）');
+}
+
+section('魔鬼教官第二輪:共用資料夾時,你在另一個對話用 ! 自己記的驗收,這個對話也認(跟按鈕一樣);別的指令帶著 --clear 字樣不算', 'P7');
+{
+  const clearAt = -5 * MIN;
+  const evs = (cmd) => [said(-40 * MIN, '驗收一下'), callV(-20 * MIN), rep(-15 * MIN, 'ok', ALL_SEEN),
+    clear(clearAt, { via: 'claude', by_session: 's2' }), { ts: T(clearAt + 1), hook: 'UserPromptSubmit', prompt: `<bash-input>${cmd}</bash-input>`, prompt_id: 'b1', session: 's2' }]
+    .map((e) => ({ session: e.event ? undefined : 's1', cwd: '/x', ...e }));
+  const E1 = sessionView(evs('pipeline-status --clear E'), STAGES.stages, 's1', null, '/x', {}).view.stages.find((x) => x.id === 'E');
+  check('另一個對話你自己用 ! 記的 → 這個對話也算你說驗收過了', E1.state === 'done' && E1.accept?.bang === true, JSON.stringify(E1.accept));
+  const E2 = sessionView(evs('npx jest --clear-cache'), STAGES.stages, 's1', null, '/x', {}).view.stages.find((x) => x.id === 'E');
+  eq('別的指令帶著 --clear 字樣 → 不算', E2.accept?.valid ?? false, false);
+}
+
 process.exit(summary());

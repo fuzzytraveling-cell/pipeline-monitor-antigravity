@@ -13,8 +13,8 @@
  *      種類是有限的幾種,不會迴圈。stop_hook_active(擋過之後的收工)而這一回合找不到擋過的紀錄 → 放行;記不了紀錄就不擋——防迴圈的底線。
  *      (以前是 stop_hook_active 就放行、同一句話最多擋一次:擋完「D 還沒跑」,D 跑了沒記結論也管不到。)
  *   3. 只在**這一回合**有改到程式區的檔案時才擋,回答問題的回合安靜——例外只有「叫了 D 還沒記結論」(AC-6)。
- *      「這一回合」= 這個對話你說的最後一句話之後(背景工作的通知不算,AC-8);「改了沒」看兩種證據,取較新者:感測器的改檔事件,
- *      與 git 說有改動的檔案的修改時間(用 Bash 寫檔會繞過感測器,L8)。
+ *      「這一回合」= 這個對話你說的最後一句話之後(背景工作的通知不算,AC-8);「改了沒」看三種證據,取較新者:感測器的改檔事件、
+ *      git 說有改動的檔案的修改時間(用 Bash 寫檔會繞過感測器,L8)、五關算的最後一次改檔(感測器記過的檔現在的修改時間:用 Bash 還原也看得到)。
  *      感測器沒記到這個對話的任何一句話 → 不知道回合從哪開始 → 放行(R1:沒問到不當沒有)。
  *
  * 擋不擋、缺什麼,都從儀表板同一份事實算(lib/collect.mjs 的 cardFor → sessionTier,跟對話頁同一個函式),不另外算一份(老毛病 P2)。
@@ -101,7 +101,10 @@ export function decide({ payload, monitorDir = MONITOR_DIR, skillHome = undefine
   // 感測器記到的、落在程式區的改檔事件(這個對話)——「算不算程式檔」跟五關、分級用同一個判斷(lib/tier.mjs)
   const inArea = codeFileFn(ctx.root, cfg.config);
   const editTs = mine.filter((e) => e.hook === 'PostToolUse' && inArea(e.file)).map((e) => Date.parse(e.ts)).filter(Number.isFinite);
-  const changedThisTurn = [...mtimes, ...editTs].some((t) => t >= turnStart - SKEW_MS);
+  // 第三種證據:roundView 算的「最後一次改檔」——感測器記過的程式檔現在的修改時間也在裡面,用 Bash 還原(git 說跟起點沒差)看得到。
+  // 不吃它的話,儀表板說 D、E「要不要再跑／再走由你決定」,這裡卻當成這一回合沒改程式、不叫 Claude 先問(魔鬼教官第二輪,老毛病 P2)
+  const viewEdit = Date.parse(mineNow.view?.lastEdit);
+  const changedThisTurn = [...mtimes, ...editTs, ...(Number.isFinite(viewEdit) ? [viewEdit] : [])].some((t) => t >= turnStart - SKEW_MS);
 
   // 規格連結只認這個對話記的(施工對話認規格 AC-2):五關、分級卡、這裡都從同一份 specContext 算(sessionTier 裡的 sessionView)
   const view = mineNow.view.stages;

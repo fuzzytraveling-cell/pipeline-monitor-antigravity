@@ -158,7 +158,8 @@ function roundWhere(stages) {
   const cur = list.find((x) => x.state === 'current' || x.state === 'done');
   if (cur) {
     // E 驗收:伺服器照 lib/verify.mjs 算好的那一句(Claude 走過一遍,等你查核……);舊的服務沒給就照舊
-    const tail = cur.state === 'done' ? (cur.type === 'browser' ? '（你說驗收過了）' : '（處理完了）') : cur.type === 'browser' && cur.ewhere ? `（${cur.ewhere}）` : '';
+    // 已經驗收也照這一句:Claude 代記的要講是 Claude 代記(魔鬼教官第二輪:以前 done 寫死「你說驗收過了」,第一輪那條只修了一半)
+    const tail = cur.type === 'browser' && cur.ewhere ? `（${cur.ewhere}）` : cur.state === 'done' ? (cur.type === 'browser' ? '（你說驗收過了）' : '（處理完了）') : '';
     return `這一輪走到 ${cur.id} ${cur.name}${tail}`;
   }
   // 最後一步是結論會過期的關、而它在「要處理」或「擱著」:不是沒有紀錄(魔鬼教官第一輪,老毛病 P5:這個「找不到」有兩種意思)。
