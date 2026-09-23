@@ -438,8 +438,7 @@ function workflow(c) {
     const el = st.type === 'browser' ? st.elines ?? null : null;
     const eList = el?.items?.length
       ? `<ul class="acl">${el.items.map((it) => `<li data-verdict="${esc(it.verdict)}"><span class="mark">${esc(it.mark)}</span>
-          <span>${it.id ? `<b>${esc(it.id)}</b> ` : ''}${esc(it.verdict === 'none' ? `沒有結果${it.title ? `（${it.title}）` : ''}` : it.verdict === 'odd' ? `看不懂的一行：${it.text}` : `${it.word}${it.text ? `：${it.text}` : ''}`)}${
-          it.unquoted ? '<span class="muted">（沒附畫面上的原文）</span>' : ''}${it.extra ? '<span class="muted">（不在這一輪的規格裡）</span>' : ''}</span></li>`).join('')}</ul>` : '';
+          <span>${it.id ? `<b>${esc(it.id)}</b> ` : ''}${esc(it.body)}${it.note ? `<span class="muted">${esc(it.note)}</span>` : ''}</span></li>`).join('')}</ul>` : '';
     const status =
       // B(對話本身):改到程式檔就算在動,印最後一次改檔的時間;不數檔案——那要看 git(未檢查清單那張卡)
       st.type === 'main-conversation'

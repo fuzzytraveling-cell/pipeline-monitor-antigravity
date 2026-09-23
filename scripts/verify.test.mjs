@@ -20,7 +20,7 @@ import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 import { decide } from '../gate.mjs';
 import { collectAll } from '../lib/collect.mjs';
 import { safeName, sessionView, lastRunPerStage, acceptOf, rerunLine } from '../lib/events.mjs';
-import { parseWalk, walkSummary, summaryLine, walkItems, eLines, expectedOf } from '../lib/verify.mjs';
+import { parseWalk, walkSummary, summaryLine, walkItems, eLines } from '../lib/verify.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const PLUGIN = JSON.parse(readFileSync(join(ROOT, '.claude-plugin', 'plugin.json'), 'utf8')).name;

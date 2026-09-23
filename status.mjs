@@ -708,18 +708,15 @@ function renderStages(ctx, ev, facts, info = {}) {
     // E 驗收(瀏覽器那一關):三句話分開講——開過瀏覽器、Claude 說走了一遍、你說驗收過了(E 自動驗收 AC-7)。
     // 文案住 lib/verify.mjs,網頁同一份;要驗哪幾條跟 A 那格的清單同一份(AC-4)。「看到了」不打勾——那是 Claude 說的,不是驗收過了(R2)
     if (st.type === 'browser' && st.state !== 'none') {
-      const cl = view.stages.find((v) => v.skill && v.checklist && Array.isArray(v.checklist.items))?.checklist ?? null;
-      const el = eLines(st, { ago, expected: expectedOf(cl), titles: titlesOf(cl) });
+      const el = eLines(st, { ago, expected: expectedOf(view.checklist), titles: titlesOf(view.checklist) });
       const icon = { done: '✅', passed: '✓ ', current: '⏸', stale: '🔁', held: '⏸', seen: '👁' }[st.state] ?? '· ';
       console.log(`   ${label} ${icon} ${el.acts}`);
       console.log(`              ${el.walk}`);
       console.log(`              ${el.human}`);
       if (st.args) console.log(`              叫的時候說：「${st.args.slice(0, 46)}${st.args.length > 46 ? '…' : ''}」`);
       for (const it of el.items) {
-        const tail = `${it.unquoted ? '（沒附畫面上的原文）' : ''}${it.extra ? '（不在這一輪的規格裡）' : ''}`;
-        const body = it.verdict === 'none' ? `${it.id} 沒有結果${it.title ? `（${it.title}）` : ''}`
-          : it.verdict === 'odd' ? `看不懂的一行：${it.text}` : `${it.id} ${it.word}${it.text ? `：${it.text}` : ''}`;
-        console.log(`              ${it.mark} ${body.slice(0, 90)}${body.length > 90 ? '…' : ''}${tail}`);
+        const body = `${it.id ? `${it.id} ` : ''}${it.body}`;
+        console.log(`              ${it.mark} ${body.slice(0, 90)}${body.length > 90 ? '…' : ''}${it.note}`);
       }
       continue;
     }
@@ -865,7 +862,7 @@ function checklistWhy(cl) {
  *   記 via:'claude'、對話代號與它給的原話;算不算數由讀取端對感測器記的、你在 E 之後說的最後一句(跟 --decide 同一套)。
  *   ⚠️ 以前 Claude 替你跑的跟你自己按的一模一樣(9/16 那一筆就是)。你自己的終端機沒有這個代號,照舊是你說的。
  */
-async function doClear(ctx, ev, args) {
+async function doClear(ctx, args) {
   const [stageId, ...words] = args;
   const { stages } = loadStages(HERE, ctx.root, ctx.mainRoot);
   const st = stages.find((x) => x.id.toLowerCase() === String(stageId).toLowerCase());
@@ -1263,8 +1260,8 @@ function roundOfWalk(ctx, f, st) {
   if (r.unfinished > 0) console.log(`   （前面有 ${r.unfinished} 趟叫了沒記結論——可能沒走完，不算一趟）`);
 
   // 照哪份規格(AC-4):A 那格畫的那一份。只在主資料夾的照那份讀(只讀);找不到、沒有,都不自己編
-  const a = f.view.stages.find((x) => x.skill) ?? null;
-  const cl = a?.checklist ?? null;
+  const a = f.view.stages.find((x) => x.skill) ?? null;   // 寫規格那一關:講「跟 A 那格同一份」與規格在哪(specPlace)
+  const cl = f.view.checklist ?? null;
   const place = a?.specPlace ?? null;
   if (cl?.parsed && Array.isArray(cl.items)) {
     const rel = typeof cl.file === 'string' ? relative(ctx.root, cl.file).split('\\').join('/') : `${place?.name ?? '這一輪的規格'}.md`;
@@ -1723,7 +1720,7 @@ async function main() {
     return 0;
   }
 
-  if (at('--clear') !== -1) return doClear(ctx, ev, after('--clear'));
+  if (at('--clear') !== -1) return doClear(ctx, after('--clear'));
   if (at('--spec') !== -1) return doSpec(ctx, ev, after('--spec'));
   if (at('--report') !== -1) { const [id, verdict, ...note] = after('--report'); return doReport(ctx, id, verdict, note.join(' ')); }
   if (at('--decide') !== -1) return doDecide(ctx, ev, after('--decide'));
