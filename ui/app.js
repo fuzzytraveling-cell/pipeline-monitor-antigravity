@@ -157,14 +157,15 @@ function roundWhere(stages) {
   const list = stages ?? [];
   const cur = list.find((x) => x.state === 'current' || x.state === 'done');
   if (cur) {
-    const tail = cur.state === 'done' ? (cur.type === 'browser' ? '（你說驗收過了）' : '（處理完了）') : '';
+    // E 驗收:伺服器照 lib/verify.mjs 算好的那一句(Claude 走過一遍,等你查核……);舊的服務沒給就照舊
+    const tail = cur.state === 'done' ? (cur.type === 'browser' ? '（你說驗收過了）' : '（處理完了）') : cur.type === 'browser' && cur.ewhere ? `（${cur.ewhere}）` : '';
     return `這一輪走到 ${cur.id} ${cur.name}${tail}`;
   }
   // 最後一步是結論會過期的關、而它在「要處理」或「擱著」:不是沒有紀錄(魔鬼教官第一輪,老毛病 P5:這個「找不到」有兩種意思)。
   // B 清單沒對完的樣子也是 stale,但它不會是最後一步——後面的關動了它才變 stale,所以只看有 skill 的關
   const open = [...list].reverse().find((x) => (x.state === 'stale' || x.state === 'held') && x.skill);
   if (open) {
-    const why = open.state === 'held' ? '你說不用再跑' : open.rerun?.state === 'ask' ? '要不要再跑由你決定'
+    const why = open.type === 'browser' && open.ewhere ? open.ewhere : open.state === 'held' ? '你說不用再跑' : open.rerun?.state === 'ask' ? '要不要再跑由你決定'
       : open.rerun?.state === 'found' ? '找到問題，還沒處理完' : open.rerun?.state === 'no-report' ? 'Claude 還沒記結論' : '要處理';
     return `這一輪走到 ${open.id} ${open.name}（${why}）`;
   }
@@ -429,8 +430,16 @@ function workflow(c) {
       : st.via === 'typed' ? `你叫了 /${esc(st.calledAs ?? '')}` : `Claude 叫了 /${esc(st.calledAs ?? st.skill ?? '')}`;
     const said = st.type === 'browser' ? '驗收過了' : '處理完了';
     // 只有驗收那一關有按鈕(五關自動結案 AC-10):其他關由儀表板自動辨識——按鈕多了會被忽略跳過(Oscar)。跟 CLI 的 --clear 同一種紀錄(source:human)
-    const stamp = st.type === 'browser' && s === 'seen' && c.path
+    // E 還沒被你說驗收過(只開過瀏覽器、Claude 走過一遍等你查核、你說過了之後又改了程式、你說不用再走)都給按鈕;按了是你說的(source:human)
+    const stamp = st.type === 'browser' && ['seen', 'ran', 'stale', 'held'].includes(s) && c.path
       ? `<button class="mini-btn" data-clear="${esc(st.id)}" data-proj="${esc(c.project ?? '')}" data-cwd="${esc(c.path)}">你說${said}</button>` : '';
+    // E 驗收:三句話分開講——開過瀏覽器、Claude 說走了一遍、你說驗收過了(E 自動驗收 AC-7)。文案是伺服器照 lib/verify.mjs 算好的,這裡只畫;
+    // 「看到了」不劃掉、不打勾(那是 Claude 說的,R2)。舊的服務沒給 elines 就照舊畫一行
+    const el = st.type === 'browser' ? st.elines ?? null : null;
+    const eList = el?.items?.length
+      ? `<ul class="acl">${el.items.map((it) => `<li data-verdict="${esc(it.verdict)}"><span class="mark">${esc(it.mark)}</span>
+          <span>${it.id ? `<b>${esc(it.id)}</b> ` : ''}${esc(it.verdict === 'none' ? `沒有結果${it.title ? `（${it.title}）` : ''}` : it.verdict === 'odd' ? `看不懂的一行：${it.text}` : `${it.word}${it.text ? `：${it.text}` : ''}`)}${
+          it.unquoted ? '<span class="muted">（沒附畫面上的原文）</span>' : ''}${it.extra ? '<span class="muted">（不在這一輪的規格裡）</span>' : ''}</span></li>`).join('')}</ul>` : '';
     const status =
       // B(對話本身):改到程式檔就算在動,印最後一次改檔的時間;不數檔案——那要看 git(未檢查清單那張卡)
       st.type === 'main-conversation'
@@ -481,7 +490,7 @@ function workflow(c) {
     // 結論的說明有清單(多行)時,一行一條列在卡上——C 的建議、D 的發現就住在這裡
     const noteLines = String(st.report?.note ?? '').split('\n').map((l) => l.trim()).filter(Boolean);
     // 已走過的關也要列(C 已走過,它的建議還是要看得到——「有幾條就列幾條」)
-    const noteHtml = noteLines.length > 1 && (s === 'done' || s === 'ran' || s === 'stale' || s === 'passed' || s === 'held')
+    const noteHtml = !el && noteLines.length > 1 && (s === 'done' || s === 'ran' || s === 'stale' || s === 'passed' || s === 'held')
       ? `<ul class="rnote">${noteLines.slice(1).map((l) => `<li>${esc(l.replace(/^[-•]\s*/, ''))}</li>`).join('')}</ul>` : '';
 
     return `<div class="railcell" data-state="${s}">
@@ -495,10 +504,10 @@ function workflow(c) {
           <div class="atitle">${esc(st.id)} ${esc(st.name)}
             <span class="ahouse">${esc(r.house)}</span></div>
           <div class="adoes">${esc(r.does)}</div>
-          <div class="astatus">${esc(status)}</div>
-          ${saidArgs}${notes}${clHtml}${noteHtml}${stamp}
+          <div class="astatus">${el ? [el.acts, el.walk, el.human].map(esc).join('<br>') : esc(status)}</div>
+          ${saidArgs}${notes}${clHtml}${noteHtml}${eList}${stamp}
         </div>
-        <span class="lamp" title="${s === 'passed' ? '已走過' : s === 'done' || s === 'ran' ? '現在這一關'
+        <span class="lamp" title="${st.type === 'browser' && st.ewhere ? esc(st.ewhere) : s === 'passed' ? '已走過' : s === 'done' || s === 'ran' ? '現在這一關'
           : s === 'stale' ? (st.type === 'main-conversation' ? '清單沒對完' : !st.rerun ? '結論過期,要再跑一次'
             : st.rerun.state === 'no-report' ? 'Claude 還沒記結論' : st.rerun.state === 'found' ? 'Claude 說找到問題,還沒處理完' : '改過程式檔,要不要再跑由你決定')
           : s === 'held' ? 'Claude 記下你說不用再跑——是你的決定,不是驗過了' : s === 'seen' ? '開過瀏覽器' : '這一輪還沒跑'}"></span>

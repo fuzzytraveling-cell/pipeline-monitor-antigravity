@@ -1,5 +1,5 @@
 {
   "name": "pipeline-monitor",
-  "description": "產線監視器：感測器記下每個對話「誰在什麼時候呼叫了什麼」（只記路徑、你說的話的前 200 字、Claude 提的建議卡內容，全在本機），裝在使用者層級，每個專案自動記；不想記的專案放 .claude/pipeline-monitor.off，或按儀表板的「退出記錄」。另帶四支指令：/pipeline-monitor:spec（A 寫規格）、:cleanup（C 打掃）、:chaos-check（D 魔鬼教官）、:tier-setup（分級）——通用版，專案專屬的東西一律從那個專案自己的檔案讀。",
+  "description": "產線監視器：感測器記下每個對話「誰在什麼時候呼叫了什麼」（只記路徑、你說的話的前 200 字、Claude 提的建議卡內容，全在本機），裝在使用者層級，每個專案自動記；不想記的專案放 .claude/pipeline-monitor.off，或按儀表板的「退出記錄」。另帶五支指令：/pipeline-monitor:spec（A 寫規格）、:cleanup（C 打掃）、:chaos-check（D 魔鬼教官）、:verify（E 驗收：照規格在畫面上走一遍，驗收過了只有你能說）、:tier-setup（分級）——通用版，專案專屬的東西一律從那個專案自己的檔案讀。",
   "author": { "name": "Oscar Hsieh" }
 }

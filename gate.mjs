@@ -55,8 +55,9 @@ function commandFor(skill, root, mainRoot, home) {
 /**
  * 決定擋不擋。回 null = 放行;否則回 { reason, missing, level, project, cwd, session, again }。
  * 除了讀檔與問 git,沒有副作用——記紀錄是 main() 的事,測試才能直接呼叫。
- * missing 是這一次擋的「種類」:關卡代號(A、C、D)、tests、checklist,結論會過期的關另有兩種——
- *   D:report(叫了還沒記結論,AC-6)、D:ask(D 之後又改了程式,要不要再跑先問人,AC-1)。記進 gate_blocked,這一回合同一種不再擋(AC-7)。
+ * missing 是這一次擋的「種類」:關卡代號(A、C、D、E)、tests、checklist,結論會過期的關(D、E)另有兩種——
+ *   <關>:report(叫了還沒記結論,AC-6)、<關>:ask(之後又改了程式,要不要再跑／再走先問人,AC-1)。記進 gate_blocked,這一回合同一種不再擋(AC-7)。
+ *   E 只有在專案自己的分級把它放進清單時才會出現(E 自動驗收 AC-8,預設三級都不放)。
  */
 export function decide({ payload, monitorDir = MONITOR_DIR, skillHome = undefined }) {
   if (!payload || typeof payload !== 'object') return null;
@@ -132,11 +133,33 @@ export function decide({ payload, monitorDir = MONITOR_DIR, skillHome = undefine
       continue;
     }
     const st = view.find((s) => s.id === key);
-    if (!st || !st.skill) continue;                                // B、E、未建的關:不是 hook 能要求的
+    if (!st || !st.skill) continue;                                // B、未建的關、沒有指令的瀏覽器關:不是 hook 能要求的
     // 規格是別的對話寫的、Claude 記了照哪份施工 → 不叫重跑 A(AC-7);連結分不出是哪個對話記的、而這個對話可能就是 → 不擋(AC-2)
     if (st.id === specStage?.id && (st.link || st.unsure)) continue;
     const cmd = commandFor(st.skill, ctx.root, ctx.mainRoot, skillHome);
     const name = `${st.id} ${st.name}`;
+    // E 驗收(瀏覽器那一關,E 自動驗收 AC-8):分級把 E 放進清單時,要的是「Claude 照規格走過一遍」,不是要使用者按——
+    // 讀 roundView 算好的 E 這一輪在哪(acceptStateOf),跟五關那一格、分級卡同一份。使用者說驗收過了(之後沒再改程式)就不要求
+    if (st.rerunAfterChange && st.rerun && st.type === 'browser') {
+      const es = st.estate ?? st.rerun.estate ?? st.rerun.state;
+      if (es === 'none') {
+        if (!cmd) continue;                                        // 指令不存在,要求了也做不到
+        missing.push({ key, line: `- ${name}：這一輪還沒走 → 跑 ${cmd}（照這一輪的規格逐條在畫面上看，每條記看到了（附畫面上的原文）／沒看到／驗不了；`
+          + '「驗收過了」只有使用者能說）。走完不要自己再走，要再走先問使用者' });
+      } else if (es === 'no-report') {
+        // 沒改檔的回合也要看(跟 D 同一條):交給背景跑、走完沒記結論,儀表板就永遠不知道
+        missing.push({ key: `${key}:report`, anyTurn: true,
+          line: `- ${name}：叫了，還沒記結論。還在走就照實說還在走，不准先記結論交差；走完照那支指令的收尾記：pipeline-status --report ${st.id} ok|found "…"。`
+            + `沒走完（中斷了）就再叫一次，那還算第一趟；使用者說不用走了就 pipeline-status --decide ${st.id} skip "使用者的原話"` });
+      } else if (es === 'ask' || es === 'accepted-stale') {
+        const why = es === 'accepted-stale' ? '使用者說驗收過了之後，又改了程式檔' : rerunLine(st.rerun, { ago });
+        missing.push({ key: `${key}:ask`, ask: true,
+          line: `- ${name}：${why}。不要自己再走——先停下來問使用者（白話＋舉例）：走過之後改了什麼、可能影響哪幾條、上一趟從叫到記結論花了多久`
+            + `（跑 pipeline-status --round ${st.id} 拿）、不再走的風險，最後一行給建議。使用者說走才走；說不用就 pipeline-status --decide ${st.id} skip "使用者的原話"；`
+            + `說看過了、可以，就照他的原話 pipeline-status --clear ${st.id} "使用者的原話"` });
+      }
+      continue;                                                    // 驗收過了／你說不用再走／Claude 走過(等使用者查核):這一關不用再要求
+    }
     // 結論會過期的關(D):讀 roundView 算好的「要不要再跑」,跟五關那一格、分級卡同一句話(D 多輪先問人 AC-9)——這裡不另外比時間
     if (st.rerunAfterChange && st.rerun) {
       const r = st.rerun;

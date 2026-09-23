@@ -19,8 +19,9 @@ import { join, dirname, basename, resolve, relative, isAbsolute } from 'node:pat
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { appendFileSync } from 'node:fs';
-import { readEvents, loadStages, lastRunPerStage, runsPerStage, roundView, editsOf, reportsIn, reportLogIn, decisionsIn, perStageOfRound, gateHeartbeat, safeName, logFileOf, specContext,
+import { readEvents, loadStages, lastRunPerStage, runsPerStage, roundView, editsOf, reportsIn, reportLogIn, decisionsIn, clearLogIn, perStageOfRound, gateHeartbeat, safeName, logFileOf, specContext,
          sessionsOf, sessionView, rerunLine, tookLine, rerunMapOf, runMode, afterCall } from './lib/events.mjs';
+import { eLines, expectedOf, titlesOf, parseWalk, walkSummary, summaryLine } from './lib/verify.mjs';
 import { readChecklist, locateSpec } from './lib/checklist.mjs';
 import { buildTier, readTierConfig, writeTierConfig, proposeCodeArea, codeFileFn, computeTier, changeTimeOf } from './lib/tier.mjs';
 import { changeFacts } from './lib/origin.mjs';
@@ -630,6 +631,7 @@ function stageFacts(ctx, ev, info = {}) {
     spec: { ...spec, startHere: specContext(ev.events, { cwd: ctx.root, cpAt }).startHere }, root: ctx.root, mainRoot: ctx.mainRoot,
     // 結論會過期的關(D):每一筆結論與決定,配得出「叫 → 結論」、對得回你說的話(D 多輪先問人;跟卡片同一種取法)
     reportLog: reportLogIn(ev.events, here), decisions: decisionsIn(ev.events, here), events: ev.events,
+    clearLog: clearLogIn(ev.events, here),
   });
   // 結論會過期的關(D):Claude 跑的時候按這個對話算——叫了幾次、你說了什麼看這個對話,改檔看整個資料夾——跟收工 hook、--round、對話頁同一份
   // (D 多輪先問人 AC-9)。以前這裡按整個資料夾數叫了幾次:共用資料夾時終端機說「要不要再跑由你決定」、--round 說「這是第一次」、
@@ -701,6 +703,24 @@ function renderStages(ctx, ev, facts, info = {}) {
         : st.state === 'stale' ? `   ${label} 🔁 改過程式檔（最後一次 ${ago(st.ranAt)}）,${prog}——${checklistWhy(cl)},不算寫完`
         : st.state === 'done' ? `   ${label} ✅ 改過程式檔（最後一次 ${ago(st.ranAt)}）,${ago(st.doneAt)}Claude 對完清單`
         : `   ${label} ✓  改過程式檔（最後一次 ${ago(st.ranAt)}）${st.closedBy === 'checklist' ? ',Claude 對完清單' : ''}——已走過`);
+      continue;
+    }
+    // E 驗收(瀏覽器那一關):三句話分開講——開過瀏覽器、Claude 說走了一遍、你說驗收過了(E 自動驗收 AC-7)。
+    // 文案住 lib/verify.mjs,網頁同一份;要驗哪幾條跟 A 那格的清單同一份(AC-4)。「看到了」不打勾——那是 Claude 說的,不是驗收過了(R2)
+    if (st.type === 'browser' && st.state !== 'none') {
+      const cl = view.stages.find((v) => v.skill && v.checklist && Array.isArray(v.checklist.items))?.checklist ?? null;
+      const el = eLines(st, { ago, expected: expectedOf(cl), titles: titlesOf(cl) });
+      const icon = { done: '✅', passed: '✓ ', current: '⏸', stale: '🔁', held: '⏸', seen: '👁' }[st.state] ?? '· ';
+      console.log(`   ${label} ${icon} ${el.acts}`);
+      console.log(`              ${el.walk}`);
+      console.log(`              ${el.human}`);
+      if (st.args) console.log(`              叫的時候說：「${st.args.slice(0, 46)}${st.args.length > 46 ? '…' : ''}」`);
+      for (const it of el.items) {
+        const tail = `${it.unquoted ? '（沒附畫面上的原文）' : ''}${it.extra ? '（不在這一輪的規格裡）' : ''}`;
+        const body = it.verdict === 'none' ? `${it.id} 沒有結果${it.title ? `（${it.title}）` : ''}`
+          : it.verdict === 'odd' ? `看不懂的一行：${it.text}` : `${it.id} ${it.word}${it.text ? `：${it.text}` : ''}`;
+        console.log(`              ${it.mark} ${body.slice(0, 90)}${body.length > 90 ? '…' : ''}${tail}`);
+      }
       continue;
     }
     // 「被叫」的證據有兩種:你自己打的斜線指令(不經過 Skill 工具,L19)、或 Claude 自己去叫。字要跟證據一樣大:叫了,不是跑完了
@@ -781,9 +801,10 @@ function renderStages(ctx, ev, facts, info = {}) {
   }
   console.log('\n   ⚠️ 上面寫的是「叫了」,不是「通過」——感測器只看得到指令被叫,');
   console.log('      看不到結果。驗屋師傅來過,不等於房子修好了。');
-  // 只有驗收那一關由人說;其他關由儀表板自動辨識,不用你按(五關自動結案 AC-10)
-  const e = view.stages.find((v) => v.type === 'browser' && v.state === 'seen');
-  if (e) console.log(`   驗收過了要留紀錄：  pipeline-status --clear ${e.id}`);
+  // 只有驗收那一關由人說;其他關由儀表板自動辨識,不用你按(五關自動結案 AC-10)。
+  // ⚠️ 這一行 Claude 也讀得到:不寫成一句叫人照著跑的指令——Claude 替你記要附你的原話(E 自動驗收 AC-9)
+  const e = view.stages.find((v) => v.type === 'browser' && v.state !== 'none' && v.state !== 'done' && v.state !== 'passed');
+  if (e) console.log(`   驗收過了由你說：按儀表板 ${e.id} 那一格的按鈕，或在你自己的終端機跑 pipeline-status --clear ${e.id}（Claude 替你記要附你的原話）`);
 }
 
 /** 規格檔裡的 AC 清單(五關自動結案 AC-5)。給人看的是標題與白話那一句,不印技術那層。 */
@@ -838,8 +859,14 @@ function checklistWhy(cl) {
   return '清單沒對完';
 }
 
-/** 人蓋的結案章(AC-9)。⚠️ 寫進同一份 append-only 紀錄,但標明 source:'human'。 */
-function doClear(ctx, stageId) {
+/**
+ * 人蓋的結案章(AC-9)。⚠️ 寫進同一份 append-only 紀錄,但標明 source:'human'。
+ * Claude 替你記(E 自動驗收 AC-9):指令的環境有對話代號(CLAUDE_CODE_SESSION_ID)就是 Claude 在跑——一定要附你的原話,
+ *   記 via:'claude'、對話代號與它給的原話;算不算數由讀取端對感測器記的、你在 E 之後說的最後一句(跟 --decide 同一套)。
+ *   ⚠️ 以前 Claude 替你跑的跟你自己按的一模一樣(9/16 那一筆就是)。你自己的終端機沒有這個代號,照舊是你說的。
+ */
+async function doClear(ctx, ev, args) {
+  const [stageId, ...words] = args;
   const { stages } = loadStages(HERE, ctx.root, ctx.mainRoot);
   const st = stages.find((x) => x.id.toLowerCase() === String(stageId).toLowerCase());
   if (!st) {
@@ -852,17 +879,37 @@ function doClear(ctx, stageId) {
     console.log(`${st.id} ${st.name} 現在由儀表板自動辨識,不用你按。${e ? `只有 ${e.id} ${e.name} 由你說：  pipeline-status --clear ${e.id}` : ''}`);
     return 1;
   }
+  const sid = sessionFromEnv();
+  const quote = words.join(' ').trim();
+  if (sid && !quote) {
+    console.log(`這是 Claude 在替使用者記「${st.name}過了」——要附上使用者的原話：  pipeline-status --clear ${st.id} "使用者說的話"`);
+    console.log(`   使用者沒開口就不准記。他自己按儀表板 ${st.id} 那一格的按鈕，不用這一步。`);
+    return 1;
+  }
   try {
     appendFileSync(logFileOf(LOG_DIR, ctx.project), JSON.stringify({
       ts: new Date().toISOString(), event: 'stage_cleared', stage: st.id,
       cwd: ctx.root, head: ctx.head?.slice(0, 7), source: 'human',
+      // Claude 代記:是你的決定(source 照舊是 human),但是 Claude 記的——欄位刻意不叫 session(讀紀錄的程式會把帶 session 的都當成那個對話的活動)
+      ...(sid ? { via: 'claude', by_session: sid, quote: cutBytes(quote, 600) } : {}),
     }) + '\n');
   } catch (e) {
     console.log(`❌ 沒記成功：${e.message}`);
     return 1;
   }
-  console.log(`✅ 記下了：你說 ${st.id} ${st.name} ${st.type === 'browser' ? '驗收過了' : '處理完了'}（${ctx.head?.slice(0, 7)}）`);
-  console.log('   ⚠️ 這是「你說的」,不是系統驗證的——畫面上會照實這樣寫。');
+  if (!sid) {
+    console.log(`✅ 記下了：你說 ${st.id} ${st.name}過了（${ctx.head?.slice(0, 7)}）`);
+    console.log('   ⚠️ 這是「你說的」,不是系統驗證的——畫面上會照實這樣寫。');
+    return 0;
+  }
+  // 記完再算一次:講清楚這筆算不算數、畫面會附哪一句(跟 --decide 同一個做法)
+  const f = await rerunFacts(ctx, readEvents(LOG_DIR, ctx.project));
+  const a = f?.view.stages.find((x) => x.id === st.id)?.accept ?? null;
+  console.log(`✅ 記下了：使用者說 ${st.id} ${st.name}過了（Claude 代記）。`);
+  if (a?.valid && a.by === 'claude') console.log(`   儀表板附的是 ${st.id} 之後使用者說的最後一句：「${String(a.said.text).replace(/\s+/g, ' ').slice(0, 60)}${a.said.text.length > 60 || a.said.cut ? '…' : ''}」——對得上就是他說的。`);
+  else if (a?.rejected?.why === 'no-words' || (!a?.valid && a?.rejected)) console.log(`   ⚠️ 這筆不算數：${st.id} 之後，紀錄裡沒有使用者說的話——分不出是不是他說的。儀表板照實這樣講。`);
+  else if (!a) console.log(`   ⚠️ 這一輪 ${st.id} 沒有動過（沒開過瀏覽器、沒走過一趟）——這筆沒有東西可以蓋，儀表板不會算它。`);
+  console.log('   ⚠️ 這是「使用者說的、Claude 代記的」，不是系統驗證的——畫面上會照實這樣寫。');
   return 0;
 }
 
@@ -1038,6 +1085,15 @@ function doReport(ctx, stageId, verdict, note) {
   // 說明放得下一張清單(C 的建議、D 的發現,一行一條)。單行紀錄要遠小於 4096 bytes(感測器 AC-4)——
   // 算 bytes 不算字(中文一個字 3 bytes)。太長不截:整份另存一個檔,紀錄裡留第一行與檔名,「有幾條就列幾條」(Oscar 2026-09-16)
   let text = String(note ?? '').trim();
+  // E 驗收(瀏覽器那一關):一行一條「AC-n 看到了／沒看到／驗不了」(E 自動驗收 AC-1)。有沒看到的卻記 ok,等於把「找到問題」講成「沒問題」——不收
+  const walk = st.type === 'browser' ? parseWalk(text) : null;
+  if (walk) {
+    const miss = walk.items.filter((x) => x.verdict === 'missing').map((x) => x.id);
+    if (verdict === 'ok' && miss.length) {
+      console.log(`${miss.join('、')} 寫的是「沒看到」——有沒看到的，結論要記 found：  pipeline-status --report ${st.id} found "…"`);
+      return 1;
+    }
+  }
   let noteFile = null;
   if (Buffer.byteLength(text, 'utf8') > MAX_NOTE_BYTES) {
     try {
@@ -1062,6 +1118,16 @@ function doReport(ctx, stageId, verdict, note) {
   } catch (e) {
     console.log(`❌ 沒記成功：${e.message}`);
     return 1;
+  }
+  if (walk) {
+    // E:講的是走了一遍、每條看到什麼,不是「沒問題」;驗收過了只有使用者能說(AC-3)
+    console.log(`✅ 記下了：Claude 說 ${st.id} ${st.name}走了一遍（${summaryLine(walkSummary(walk))}）`);
+    if (!walk.items.length) console.log('   ⚠️ 說明裡沒有一條照格式寫（AC-1 看到了：「畫面上的原文」／AC-2 沒看到：…／AC-3 驗不了：原因）——儀表板只能講「分不出看了哪幾條」。');
+    const bare = walk.items.filter((x) => x.verdict === 'saw' && !x.quoted).map((x) => x.id);
+    if (bare.length) console.log(`   ⚠️ ${bare.join('、')} 寫看到了，卻沒附畫面上的原文（「」裡的字）——儀表板會照實標「沒附畫面上的原文」。`);
+    if (noteFile) console.log(`   清單很長,整份存在 ${noteFile.split('/').slice(-2).join('/')},儀表板會一條一條列出來。`);
+    console.log('   ⚠️ 這是「Claude 說的」，不是驗收過了——驗收過了只有使用者能說（儀表板 E 那一格的按鈕）。');
+    return 0;
   }
   console.log(`✅ 記下了：Claude 說 ${st.id} ${st.name} ${verdict === 'ok' ? '沒問題' : '找到問題'}${text ? `（${text.split('\n')[0]}）` : ''}`);
   if (noteFile) console.log(`   清單很長,整份存在 ${noteFile.split('/').slice(-2).join('/')},儀表板會一條一條列出來。`);
@@ -1126,6 +1192,8 @@ async function doRound(ctx, ev, stageId) {
   if (!st) return 1;
   const f = await rerunFacts(ctx, ev);
   if (!f) { console.log('這個資料夾讀不到（不在了、或不是 git 專案），答不出第幾次。'); return 1; }
+  // E 驗收(瀏覽器那一關)答的是另一組事實:照哪份規格、要驗哪幾條、怎麼跑起來(E 自動驗收 AC-4、AC-5)
+  if (st.type === 'browser') return roundOfWalk(ctx, f, st);
   const r = f.view.stages.find((x) => x.id === st.id)?.rerun ?? { state: 'none', count: 0, rounds: 0, unfinished: 0 };
   const name = `${st.id} ${st.name}`;
   // 第幾次只算跑完(記了結論)的:叫了沒跑完不算一輪——不然下一次真的跑會被當成第二輪、只看第一次之後改的檔(魔鬼教官第一輪,R2)。
@@ -1179,6 +1247,108 @@ async function doRound(ctx, ev, stageId) {
 }
 
 /**
+ * --round E:verify(E 驗收)開工第一步——這一輪照哪份規格走、要驗哪幾條、這是第幾趟、專案怎麼跑起來(E 自動驗收 AC-4、AC-5、AC-6)。
+ * 規格在哪只在 roundView 算一次(A 那格的清單:A 寫的、--spec 連的、搬了家的;分批做的只有這一批),這裡只照印——skill 不自己找(老毛病 P2)。
+ * 第二趟以上跟 D 一樣:上一趟花多久(紀錄算的,不估)、第一趟之後改了哪些檔——問使用者要不要再走,要拿這些講。
+ */
+function roundOfWalk(ctx, f, st) {
+  const v = f.view.stages.find((x) => x.id === st.id) ?? null;
+  const r = v?.rerun ?? { state: 'none', count: 0, rounds: 0, unfinished: 0 };
+  const name = `${st.id} ${st.name}`;
+  const inProgress = r.count > 0 && !r.last?.report && !r.concluded;
+  const nth = r.rounds + 1;
+  console.log(r.count === 0 ? `━━ ${name}：這一輪還沒走過——這是第一趟 ━━`
+    : inProgress ? `━━ ${name}：這一輪第 ${nth} 趟（${ago(r.last.call.ts)}叫的，還沒記結論——就是現在這一趟）━━`
+    : `━━ ${name}：這一輪已經走完 ${r.rounds} 趟（記了結論的）；再走是第 ${nth} 趟 ━━`);
+  if (r.unfinished > 0) console.log(`   （前面有 ${r.unfinished} 趟叫了沒記結論——可能沒走完，不算一趟）`);
+
+  // 照哪份規格(AC-4):A 那格畫的那一份。只在主資料夾的照那份讀(只讀);找不到、沒有,都不自己編
+  const a = f.view.stages.find((x) => x.skill) ?? null;
+  const cl = a?.checklist ?? null;
+  const place = a?.specPlace ?? null;
+  if (cl?.parsed && Array.isArray(cl.items)) {
+    const rel = typeof cl.file === 'string' ? relative(ctx.root, cl.file).split('\\').join('/') : `${place?.name ?? '這一輪的規格'}.md`;
+    console.log(`   照這份規格驗：${rel}（跟儀表板 ${a.id} 那格的清單同一份${a.link ? '；是別的對話寫的、這個對話連上的' : ''}）`);
+    if (cl.batch) console.log(`   分批做：這一批只驗 ${cl.batch.join('、')}，其他條不在這一批`);
+    for (const it of cl.items.filter((x) => x.inBatch !== false)) console.log(`      ${it.id} ${it.title}${it.plain ? ` —— ${it.plain}` : ''}`);
+    console.log('   每條在畫面上要看到什麼，寫在規格檔那一條的「會發生的情況」：打開上面那份讀，照那段在畫面上找。');
+  } else if (place?.found === 'main' && place.rel && ctx.mainRoot) {
+    console.log(`   規格在主資料夾，不在這個工作區：${join(ctx.mainRoot, place.rel)}——照那份讀（只讀，不在那裡打勾）。`);
+  } else if (cl?.missing || (place && place.found !== 'here')) {
+    console.log(`   找不到這一輪的規格檔${place?.name ? `（${place.name}.md）` : ''}——不自己編一份。`);
+  } else {
+    console.log('   這一輪沒有規格（沒跑過寫規格那一關、也沒連上別的對話寫的）。');
+  }
+  if (!cl?.parsed && !(place?.found === 'main' && place.rel)) {
+    console.log(v?.args ? `   叫 verify 時說：「${v.args}」——照這句驗；一句話拆成幾條要看的，條目用數字編號（1、2、3）。`
+      : '   照使用者在對話裡交代的那件事驗（條目用數字編號）；他沒講要看什麼就先問，問不到就回報「沒有東西可以照著驗」，不自己編步驟。');
+  }
+
+  // 怎麼跑起來(AC-5):從專案自己讀;讀不懂、沒有,都照實講,不猜
+  const li = launchInfo(ctx);
+  if (li.broken) console.log(`   怎麼跑起來：${li.rel} 讀不懂（${li.broken}）——不要猜：每條標「驗不了：啟動設定讀不懂」，跟使用者講。`);
+  else if (li.configs) {
+    console.log(`   怎麼跑起來：${li.rel}${li.from === 'main' ? '（這個工作區沒有，這是主資料夾的——照它在這個工作區補一份，回報講明）' : ''}`);
+    for (const c of li.configs) console.log(`      ${c.name ?? '（沒有名字）'}${c.port ? `：埠 ${c.port}` : ''}${c.url ? `：${c.url}` : ''}`);
+    console.log('      用 app 的預覽照這個名字開起來；等多久交給預覽工具，它說起不來就照它的話寫「驗不了：專案跑不起來（…）」，不自己編秒數。');
+  } else if (li.pkgBroken) {
+    console.log('   怎麼跑起來：沒有 .claude/launch.json，package.json 讀不懂——不要猜：每條標「驗不了：啟動設定讀不懂」，跟使用者講。');
+  } else if (li.scripts.length) {
+    console.log(`   怎麼跑起來：沒有 .claude/launch.json；package.json 有 ${li.scripts.map((x) => `${x.name}（${x.cmd}）`).join('、')}——`
+      + '照它補一份 .claude/launch.json（回報第一行講明「我補了 launch.json」），再用 app 的預覽開起來。');
+  } else {
+    console.log('   怎麼跑起來：沒有 .claude/launch.json，package.json 也沒有 dev／start／preview——這個專案看起來沒有畫面可以開：每條標「驗不了：沒有畫面可以開」，不硬走。');
+  }
+  console.log('   驗的是你自己開起來的那一份（這個工作區的程式），不是已經在跑的那一份（例如常駐儀表板跑的是主資料夾的程式）；回報寫網址。');
+
+  // 第二趟以上(AC-6):跟 D 同一種事實——上一趟花多久、第一趟之後改了什麼。要不要再走是使用者決定的
+  if (nth >= 2) {
+    console.log(`   ${r.took ? `${tookLine(r.took, { unit: '趟' })}（紀錄算的：從叫 verify 到記結論；用了多少 tokens 這裡看不到）` : '上一趟從叫到記結論：紀錄裡看不到（上一趟沒記結論、或配不到是哪一次叫的）'}`);
+    const files = roundFiles(ctx, f, r);
+    if (files.state !== 'ok') console.log(`   拿不到第一趟之後改了哪些檔（${files.why}）。`);
+    else {
+      const look = files.list.filter((x) => x.look);
+      console.log(look.length ? `   第一趟（${ago(r.first.ts)}）之後改了 ${look.length} 個程式檔：${look.slice(0, 8).map((x) => x.file).join('、')}${look.length > 8 ? ' …' : ''}`
+        : `   第一趟（${ago(r.first.ts)}）之後沒有改到程式區。`);
+      if (f.shared) console.log('   ⚠️ 這個工作區有好幾個對話：git 看到的改動可能含別的對話改的，清單照列。');
+    }
+    console.log('   再走一趟預設整份再走；使用者說只看哪幾條就只看那幾條——回報第一行寫第幾趟、看了哪幾條。');
+  }
+  if (!inProgress && r.count > 0) {
+    console.log('   問使用者「要不要再走一趟」的時候（白話＋舉例）：走過之後改了什麼（上面那幾個檔）、可能影響哪幾條、上一趟花了多久、不再走的風險，最後一行給建議。');
+    console.log(`      使用者說走才走；說不用就 pipeline-status --decide ${st.id} skip "使用者的原話"；說看過了、可以，就照他的原話 pipeline-status --clear ${st.id} "使用者的原話"。`);
+  }
+  console.log(`   記結論：pipeline-status --report ${st.id} ok|found "第一行摘要" 之後一行一條——AC-1 看到了：「畫面上的原文」／AC-2 沒看到：…／AC-3 驗不了：原因。有任何一條沒看到就記 found。`);
+  console.log(`   「驗收過了」只有使用者能說：不准按儀表板的按鈕；使用者親口說了，才照他的原話 pipeline-status --clear ${st.id} "原話"。`);
+  console.log('   走完不要自己再走；要再走先問使用者。');
+  return 0;
+}
+
+/**
+ * 專案怎麼跑起來(E 自動驗收 AC-5):.claude/launch.json——這個工作區沒有就看主資料夾(worktree 常常沒有,.claude/* 多半被 gitignore;跟分級設定同一條規則)。
+ * 沒有 launch.json 就看 package.json 的 dev／start／preview。讀不懂要講讀不懂,不當成沒有(R1);例外訊息不給人看(CLAUDE.md:不印程式的內部值)。
+ */
+function launchInfo(ctx) {
+  for (const d of [...new Set([ctx.root, ctx.mainRoot].filter(Boolean))]) {
+    const p = join(d, '.claude', 'launch.json');
+    if (!existsSync(p)) continue;
+    const from = d === ctx.root ? 'here' : 'main';
+    const rel = from === 'here' ? '.claude/launch.json' : p;
+    let j = null;
+    try { j = JSON.parse(readFileSync(p, 'utf8')); } catch { return { from, rel, broken: '不是正確的 JSON' }; }
+    if (!Array.isArray(j?.configurations)) return { from, rel, broken: '裡面沒有 configurations' };
+    return { from, rel, configs: j.configurations.map((c) => ({
+      name: typeof c?.name === 'string' ? c.name : null, port: Number.isFinite(c?.port) ? c.port : null, url: typeof c?.url === 'string' ? c.url : null })) };
+  }
+  const pk = join(ctx.root, 'package.json');
+  if (!existsSync(pk)) return { from: null, rel: null, scripts: [] };
+  try {
+    const s = JSON.parse(readFileSync(pk, 'utf8'))?.scripts ?? {};
+    return { from: null, rel: null, scripts: ['dev', 'start', 'preview'].filter((k) => typeof s[k] === 'string').map((k) => ({ name: k, cmd: s[k] })) };
+  } catch { return { from: null, rel: null, scripts: [], pkgBroken: true }; }
+}
+
+/**
  * 第一輪(第一次跑完的那一次)被叫之後改了哪些檔(給 --round)。look:要看的(程式區、測試檔);danger／test／gone 是標記。
  * 感測器那一半照呼叫端的範圍(這個對話,或這個工作區),git 那一半是整個工作區——共用時照列、講明(AC-12 的併發)。
  */
@@ -1223,12 +1393,18 @@ async function doDecide(ctx, ev, args) {
   const st = rerunStageOf(ctx, stageId, '--decide');
   if (!st) return 1;
   const name = `${st.id} ${st.name}`;
-  if (verb !== 'skip') { console.log(`只有一種決定：skip（這一輪不用再跑）。例：  pipeline-status --decide ${st.id} skip "不用跑了"`); return 1; }
+  const vb = st.type === 'browser' ? '走' : '跑';   // D 是再跑一輪,E 驗收是再走一趟
+  if (verb !== 'skip') { console.log(`只有一種決定：skip（這一輪不用再${vb}）。例：  pipeline-status --decide ${st.id} skip "不用${vb}了"`); return 1; }
   const quote = words.join(' ').trim();
-  if (!quote) { console.log(`要附上使用者說的話（原話）。例：  pipeline-status --decide ${st.id} skip "不用跑了"`); return 1; }
+  if (!quote) { console.log(`要附上使用者說的話（原話）。例：  pipeline-status --decide ${st.id} skip "不用${vb}了"`); return 1; }
   const f = await rerunFacts(ctx, ev);
   const r = f?.view.stages.find((x) => x.id === st.id)?.rerun ?? null;
-  if (!r || r.state === 'none') { console.log(`這一輪還沒有 ${name} 的紀錄——這個決定沒有一次 ${st.id} 可以蓋。`); return 1; }
+  if (!r || r.state === 'none') {
+    console.log(st.type === 'browser'
+      ? `這一輪 ${name} 還沒走過一趟——這個決定沒有一趟可以蓋。使用者看過、說可以的話，照他的原話 pipeline-status --clear ${st.id} "使用者的原話"。`
+      : `這一輪還沒有 ${name} 的紀錄——這個決定沒有一次 ${st.id} 可以蓋。`);
+    return 1;
+  }
   const sid = sessionFromEnv();
   try {
     appendFileSync(logFileOf(LOG_DIR, ctx.project), JSON.stringify({
@@ -1241,12 +1417,12 @@ async function doDecide(ctx, ev, args) {
   }
   // 記完再算一次:講清楚這筆算不算數、畫面會附哪一句
   const r2 = (await rerunFacts(ctx, readEvents(LOG_DIR, ctx.project)))?.view.stages.find((x) => x.id === st.id)?.rerun ?? null;
-  console.log(`✅ 記下了：你說 ${name} 這一輪不用再跑（Claude 代記）。`);
+  console.log(`✅ 記下了：你說 ${name} 這一輪不用再${vb}（Claude 代記）。`);
   const d = r2?.decision;
   if (r2?.state === 'skipped') console.log(`   儀表板附的是你在 ${st.id} 被叫之後說的最後一句：「${String(d.said.text).replace(/\s+/g, ' ').slice(0, 60)}${d.said.text.length > 60 || d.said.cut ? '…' : ''}」——對得上就是你說的。`);
   else if (d?.why === 'no-words') console.log(`   ⚠️ 這筆不算數：${st.id} 被叫之後，紀錄裡沒有你說的話——分不出是不是你說的。儀表板照實這樣講，收工 hook 也不認。`);
   else if (d?.why === 'owner') console.log('   ⚠️ 這筆不算數：分不出是哪個對話記的（拿不到對話代號，而這個工作區有別的對話；或不是叫這一次的那個對話）。');
-  else if (r2?.state === 'ask') console.log('   ⚠️ 你那句話之後又改了程式檔——那次改動不算在這個決定裡，儀表板還是「要不要再跑由你決定」。');
+  else if (r2?.state === 'ask') console.log(`   ⚠️ 你那句話之後又改了程式檔——那次改動不算在這個決定裡，儀表板還是「要不要再${vb}由你決定」。`);
   else console.log(`   （${name} 已經有結論、之後沒再改程式檔——這個決定只在「之後又改了程式檔」時才用得上。）`);
   console.log('   ⚠️ 這是「你說的、Claude 代記的」，不是驗過了——儀表板照實這樣寫，不打勾。');
   return 0;
@@ -1547,7 +1723,7 @@ async function main() {
     return 0;
   }
 
-  if (at('--clear') !== -1) return doClear(ctx, argv[at('--clear') + 1]);
+  if (at('--clear') !== -1) return doClear(ctx, ev, after('--clear'));
   if (at('--spec') !== -1) return doSpec(ctx, ev, after('--spec'));
   if (at('--report') !== -1) { const [id, verdict, ...note] = after('--report'); return doReport(ctx, id, verdict, note.join(' ')); }
   if (at('--decide') !== -1) return doDecide(ctx, ev, after('--decide'));

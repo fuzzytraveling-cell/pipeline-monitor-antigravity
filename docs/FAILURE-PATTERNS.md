@@ -47,7 +47,8 @@
 `scripts/skills.test.mjs` 對 `stages.json` 的 skill 名與 `skills/` 資料夾的那段；
 `scripts/specLink.test.mjs` 標 P2 的段落（規格連結:五關、分級卡、收工 hook 說同一件事）；
 `scripts/collect.test.mjs`、`scripts/gate.test.mjs`、`scripts/origin.test.mjs` 標 P2 的段落（這一輪的起點:存檔前後四處同一張單子、共用資料夾一份分級、基準只算一次）；
-`scripts/specLink.test.mjs` 標 P2 的規格搬家段落（寫規格那一關的旁白終端機、網頁各抄一份：每一種情況真的各跑一次，要一字不差）。
+`scripts/specLink.test.mjs` 標 P2 的規格搬家段落（寫規格那一關的旁白終端機、網頁各抄一份：每一種情況真的各跑一次，要一字不差）；
+`scripts/verify.test.mjs` 標 P2 的段落（E 驗收照哪份規格由 `--round E` 給、skill 不自己找；E 這一輪在哪，五關、分級卡、收工 hook 同一份）。
 
 ---
 
@@ -97,6 +98,7 @@
 先問：**差 0 是因為沒動過，還是因為動過的都進去了？** 分不出來就要說分不出來，或去找第三個證據（這次是 git 的 reflog）。
 **釘住它的測試**：`scripts/collect.test.mjs` 標 P5 的段落（三階梯：空分支一格不亮、快轉合併 merge 那格要亮、沒證據要說分不出來）；
 `scripts/ui.test.mjs` 標 P5 的段落（建議卡那一區：一張都沒有也要畫、伺服器沒回答不准講成「沒有」、要開在這裡的卡掛在別頁要指路）；
+`scripts/verify.test.mjs` 標 P5 的段落（E 驗收:一條都沒照格式寫不是「0 條沒看到」，是分不出看了哪幾條；規格裡有、沒回報的講「沒有結果」）；
 `scripts/specLink.test.mjs` 標 P5 的段落（這一批記的代號對不上檔案要講出來、不結案）；
 `scripts/gate.test.mjs`、`scripts/tier.test.mjs`、`scripts/collect.test.mjs`、`scripts/origin.test.mjs`、`scripts/ui.test.mjs` 標 P5 的段落
 （這一輪的起點:存檔之後收工 hook 照樣擋、你調高的還在；「看不全」跟「沒有改動」各一張臉）。
@@ -128,6 +130,7 @@
 `scripts/ui.test.mjs` 標 P6 的段落（接不到的那條路——app 的叉叉——畫面要明講；收回的分不出是哪一張也要明講）；
 `scripts/specLink.test.mjs` 標 P6 的兩個段落（別的對話寫的規格連上了,收工 hook 不叫重寫；沒連上時兩條路都講——「自己寫的」不只看 Write）；
 `scripts/gate.test.mjs` 標 P6 的段落（對話中途換進資料夾，起點是它在這裡的第一筆紀錄）；
+`scripts/verify.test.mjs` 標 P6 的段落（E 驗收「走一趟」有兩條路：Claude 叫 verify、你自己打斜線指令，兩條都認；瀏覽器動作只算開過）；
 `scripts/specLink.test.mjs` 標 P6 的規格搬家段落（A 自己寫的規格搬到進行中之後清單照畫、收工 hook 照樣要求對清單，指的是新位置；
 魔鬼教官第一輪那段：記在主資料夾、工作區外、子資料夾、資料夾已經不在，都照記的地方找，不拿同名的另一份頂替）。
 
@@ -140,10 +143,14 @@
 - worktree 對話的第一則訊息前面被系統附加一段 `<system-reminder>`，截 200 字之後使用者打的字整個不見（誠實修補 E3，2026-09-11）
 - 背景工作做完時，Claude Code 把一則 `<task-notification>` 當成一句話送進對話——同一個 hook、同一個欄位，連 `prompt_id` 都常沿用前一句人話的。
   收工 hook 把「這一回合」的開始當成那則通知，程式在那之前改完，就被當成「這一回合沒改程式」放行；「N 則訊息」也把它數進去（D 多輪先問人 AC-8，2026-09-22 07:20 實測，LESSONS L26）
+- 反過來的同一件事：**Claude 做的，被當成你做的**。Claude 聽你說完之後替你跑 `pipeline-status --clear E`，紀錄跟你自己按的按鈕一模一樣（`source: human`）——
+  9/16 那一筆就是。E 有了 Claude 自己走一遍之後，Claude 替你說「驗收過了」的機會只會更多（E 自動驗收 AC-9，開工前檢視抓到）
 
 ⚠️ 漏掉的方向：回合的邊界被系統挪晚，**在那之前做的事就看不見了**——畫面比事實安靜（R1）。
 
-**哪裡會再犯**：任何讀 UserPromptSubmit 的 `prompt` 的地方——回合從哪開始、對話有幾則訊息、第一句話、畫面上「你說的原話」。
+**哪裡會再犯**：任何讀 UserPromptSubmit 的 `prompt` 的地方——回合從哪開始、對話有幾則訊息、第一句話、畫面上「你說的原話」；
+任何標著 `source: human` 的紀錄——先問：**寫這一筆的，可能是 Claude 替你跑的指令嗎？** 指令的環境帶著對話代號，就是 Claude 在跑。
 分辨只在讀的那一端做一次（`lib/events.mjs` 的 `saidByHuman`）；感測器照舊全部照記，不在熱路徑上判斷。
 **釘住它的測試**：`scripts/sensor.test.mjs` 標 P7 的 E3 段落（剝掉 system-reminder 之後才截 200 字）；
-`scripts/rerun.test.mjs` 標 P7 的段落（系統通知不重算回合、不算訊息數、不當成你說不用再跑的那句話）。
+`scripts/rerun.test.mjs` 標 P7 的段落（系統通知不重算回合、不算訊息數、不當成你說不用再跑的那句話）；
+`scripts/verify.test.mjs` 標 P7 的段落（Claude 代記的「驗收過了」要對得回你在 E 之後說的話；通知不算；記一筆不算數的不蓋掉你按的）。

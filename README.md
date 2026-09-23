@@ -20,10 +20,12 @@ alias pipeline-status='node "/Users/oscarhsieh/Desktop/pipeline-monitor/status.m
 ```sh
 pipeline-status              # 看現況（還原點 + 改動體檢 + 五關）
 pipeline-status --checkpoint # 跑完整檢查,全綠就蓋一個還原點
-pipeline-status --clear E    # 記下「E 驗收過了」（A 到 D 由儀表板自動辨識,不用你按）
+pipeline-status --clear E    # 記下「E 驗收過了」（A 到 D 由儀表板自動辨識,不用你按）；Claude 替你記要附你的原話：--clear E "你的原話"
 pipeline-status --spec <規格檔>  # 照別的對話寫好的規格施工：Claude 在施工的對話裡記一筆照哪份（--spec 無＝沒有照哪份）
 pipeline-status --round D    # D 這一輪第幾次、怎麼跑、第一次之後改了哪些檔（Claude 跑 D 的第一步；問你要不要再跑之前也看它）
 pipeline-status --decide D skip "你的原話"   # 你說這一輪不用再跑 D：Claude 代記，儀表板附你在 D 之後說的最後一句
+pipeline-status --round E    # E 驗收這一輪照哪份規格、要驗哪幾條、第幾趟、專案怎麼跑起來（Claude 跑 verify 的第一步）
+pipeline-status --report E ok|found "…"   # Claude 記下走一遍的結論：第一行摘要，之後一行一條（AC-1 看到了：「原文」／沒看到／驗不了）
 pipeline-status --on         # 把感測器掛到**這個**專案（--off 拆掉）
 pipeline-status --tier-init  # 設定分級的骨架（程式區）；危險清單在對話裡說「幫我設定分級」
 pipeline-status --tier T2 "理由"   # 這次調高（只准往上）；收回是 --tier-retract
@@ -53,15 +55,16 @@ pipeline-status --install
 
 「掛在哪」看設定，「活著嗎」看紀錄——兩件事分開講，證據跟設定打架時證據贏。
 
-### plugin 帶的三關指令（通用版）
+### plugin 帶的四關指令（通用版）
 
-裝了 plugin 之後，每個專案都多三支指令，對應五關的 A／C／D：
+裝了 plugin 之後，每個專案都多四支指令，對應五關的 A／C／D／E：
 
 | 指令 | 做什麼 | 不做什麼 |
 |---|---|---|
 | `/pipeline-monitor:spec` | A 寫規格：一句需求 → 一頁可以打勾的驗收條件，寫到 `docs/規劃中/`，停下來等你點頭 | 不寫程式、不改既有檔案 |
 | `/pipeline-monitor:cleanup` | C 打掃：只刪證明得出來是死的東西，其餘出建議清單 | 不碰測試檔、不改控制流 |
 | `/pipeline-monitor:chaos-check` | D 魔鬼教官：拿這個專案自己的 `docs/FAILURE-PATTERNS.md` 對照這次改動 | 不改檔案、**不說「通過」** |
+| `/pipeline-monitor:verify` | E 驗收：照這一輪的規格在畫面上走一遍，每條記看到了（附畫面上的原文）／沒看到／驗不了，給你做第二次查核 | 不改程式、不存截圖、**不說「驗收過了」**（那句只有你能說） |
 
 它們是**通用版**：不知道你的專案的任何事。專案專屬的內容（死法清單、教訓、規格範本、分級、要跑的檢查）
 一律從那個專案自己的檔案讀；讀不到就退回三條紅線（沒問到≠沒有、跑過≠通過、不編數字），並且會在回覆裡說用的是哪一套。
