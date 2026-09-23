@@ -154,9 +154,9 @@ export function decide({ payload, monitorDir = MONITOR_DIR, skillHome = undefine
       } else if (es === 'ask' || es === 'accepted-stale') {
         const why = es === 'accepted-stale' ? '使用者說驗收過了之後，又改了程式檔' : rerunLine(st.rerun, { ago });
         missing.push({ key: `${key}:ask`, ask: true,
-          line: `- ${name}：${why}。不要自己再走——先停下來問使用者（白話＋舉例）：走過之後改了什麼、可能影響哪幾條、上一趟從叫到記結論花了多久`
+          line: `- ${name}：${why}。不要自己再走——先停下來問使用者（白話＋舉例）：之後改了什麼、可能影響哪幾條、上一趟從叫到記結論花了多久`
             + `（跑 pipeline-status --round ${st.id} 拿）、不再走的風險，最後一行給建議。使用者說走才走；說不用就 pipeline-status --decide ${st.id} skip "使用者的原話"；`
-            + `說看過了、可以，就照他的原話 pipeline-status --clear ${st.id} "使用者的原話"` });
+            + `說看過了、可以（驗收現在這一版），才照他的原話 pipeline-status --clear ${st.id} "使用者的原話"——「不用再走」不是「驗收過了」，不准記成 --clear` });
       }
       continue;                                                    // 驗收過了／你說不用再走／Claude 走過(等使用者查核):這一關不用再要求
     }
@@ -210,7 +210,7 @@ export function decide({ payload, monitorDir = MONITOR_DIR, skillHome = undefine
   const scope = changeScope(mineNow.base, () => '').short;
   // 有「先問人」那一行時,最後那句不准叫它「先把缺的跑完」——那會跟「不要自己再跑」打架(AC-7)
   const closing = due.some((m) => m.ask)
-    ? '標「不要自己再跑」的那一項是要你先停下來問使用者、等使用者決定，不是叫你再跑；其他缺的先補完再收工。這是分級的要求，不是建議。'
+    ? '標「不要自己再跑」「不要自己再走」的那一項是要你先停下來問使用者、等使用者決定，不是叫你再跑；其他缺的先補完再收工。這是分級的要求，不是建議。'
     : '先把缺的跑完再收工；跑完照那支指令的收尾把結果記給儀表板。這是分級的要求，不是建議。';
   const reason = [
     `[產線監視器] 這次改動至少 ${level}（${touched}；${scope}）。收工前還缺：`,
