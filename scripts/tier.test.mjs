@@ -13,6 +13,7 @@ import {
   readTierConfig, computeTier, manualTier, requirementStatus, candidateFiles, buildTier, proposeCodeArea, RANKS,
 } from '../lib/tier.mjs';
 import { describeTier } from '../status.mjs';
+import { rerunOf } from '../lib/events.mjs';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -130,18 +131,25 @@ section('「需要」那幾項:只講有沒有紀錄,不講通過');
   eq('問不到改動 → unknown', requirementStatus(['tests'], { stages, perStage, cleared, health: null })[0].state, 'unknown');
   check('B(對話)／E(未建)／Z(沒這關) → unknown,各有說法', by.B.state === 'unknown' && by.E.state === 'unknown' && by.Z.state === 'unknown');
   check('沒有任何一項叫 passed', rs.every((x) => !('passed' in x)));
-  // 五關自動結案:Claude 記的結論也算結案,但要說得出是 Claude 說的;結論會過期的關之後又改了程式檔就不算 ok
+  // 五關自動結案:Claude 記的結論也算結案,但要說得出是 Claude 說的。結論會過期的關(D)只讀 roundView 算好的「要不要再跑」
+  // (lib/events.mjs 的 rerunOf),這裡不另外比時間——以前這裡比結論時間、收工 hook 比被叫的時間(D 多輪先問人 AC-9)
   const stagesD = [{ id: 'D', name: '魔鬼教官', skill: 'chaos-check', rerunAfterChange: true }, { id: 'C', name: '打掃', skill: 'cleanup' }];
   const ps = new Map([['D', { ts: '2026-09-16T01:00:00Z' }], ['C', { ts: '2026-09-16T01:00:00Z' }]]);
-  const reports = new Map([['D', { ts: '2026-09-16T02:00:00Z', verdict: 'ok', note: '沒對到' }], ['C', { ts: '2026-09-16T02:00:00Z', verdict: 'ok', note: '列了 3 條' }]]);
-  const rr = Object.fromEntries(requirementStatus(['D', 'C'], { stages: stagesD, perStage: ps, cleared: new Map(), health: null, reports }).map((x) => [x.key, x]));
+  const reports = new Map([['C', { ts: '2026-09-16T02:00:00Z', verdict: 'ok', note: '列了 3 條' }]]);
+  const call = { ts: '2026-09-16T01:00:00Z', session: 's1' };
+  const okRep = { ts: '2026-09-16T02:00:00Z', stage: 'D', verdict: 'ok', note: '沒對到' };
+  const judged = (o) => new Map([['D', rerunOf({ calls: [call], reports: [okRep], ...o })]]);
+  const R = (rerun) => Object.fromEntries(requirementStatus(['D', 'C'], { stages: stagesD, perStage: ps, cleared: new Map(), health: null, reports, rerun }).map((x) => [x.key, x]));
+  const rr = R(judged({}));
   check('Claude 說沒問題 → ok,而且說是 Claude 說的', rr.D.state === 'ok' && rr.D.detail.includes('Claude 說'), rr.D.detail);
-  const stale = Object.fromEntries(requirementStatus(['D', 'C'], { stages: stagesD, perStage: ps, cleared: new Map(), health: null, reports, lastEdit: '2026-09-16T03:00:00Z' }).map((x) => [x.key, x]));
-  check('結論之後又改了程式檔 → D 不算 ok,說要再跑', stale.D.state === 'ran' && stale.D.detail.includes('再跑'), stale.D.detail);
+  const stale = R(judged({ lastEdit: '2026-09-16T03:00:00Z' }));
+  check('D 被叫之後又改了程式檔 → D 不算 ok,說要不要再跑由你決定(不是「要再跑」)', stale.D.state === 'ran' && stale.D.detail.includes('要不要再跑由你決定'), stale.D.detail);
   eq('C 沒標 rerunAfterChange → 還是 ok', stale.C.state, 'ok');
-  const foundR = new Map([['D', { ts: '2026-09-16T02:00:00Z', verdict: 'found', note: '找到 2 條' }]]);
-  const fr = requirementStatus(['D'], { stages: stagesD, perStage: ps, cleared: new Map(), health: null, reports: foundR })[0];
+  const fr = R(judged({ reports: [{ ...okRep, verdict: 'found', note: '找到 2 條' }] })).D;
   check('Claude 說找到問題 → ran,講出來', fr.state === 'ran' && fr.detail.includes('找到問題'), fr.detail);
+  const late = R(judged({ reports: [{ ...okRep, ts: '2026-09-16T04:00:00Z' }], lastEdit: '2026-09-16T03:00:00Z' })).D;
+  check('修完才記「沒問題」也算 D 之後改過(比的是 D 被叫的時間,不是結論記下的時間)', late.state === 'ran' && late.detail.includes('要不要再跑'), late.detail);
+  eq('沒給「要不要再跑」的判斷 → 問不到,不猜', R(new Map()).D.state, 'unknown');
 }
 
 section('候選提醒:只提這次動到、在程式區、名字像會存東西、不在危險清單的');

@@ -128,7 +128,7 @@ section('AC-6：關卡清單專案可以覆寫');
   r.cleanup();
 }
 
-section('E3：記的是使用者說的話,不是系統塞在前面的說明');
+section('E3：記的是使用者說的話,不是系統塞在前面的說明', 'P7');
 {
   // 2026-09-11 實測:worktree 對話的第一則訊息被記成「<system-reminder>\nYou are operating in…」,
   // 使用者真正打的「測試pipeline-status」在 200 字之外,整個不見。
@@ -697,9 +697,10 @@ section('五關自動結案:A 的清單就是規格檔裡的 AC(AC-5),B 對完�
   let v = by(stagesOfSession(ev, stages, 's1', null, dir));
   check('A 帶著清單:三條、都還沒對、白話那句有讀到', v.A.checklist?.parsed && v.A.checklist.total === 3 && v.A.checklist.unmarked === 3 && v.A.checklist.items[0].plain === '一句白話', JSON.stringify(v.A.checklist));
   eq('B 改了程式、清單沒對:現在這一關,帶著進度', `${v.B.state}/${v.B.checklist?.unmarked}`, 'current/3');
-  const withD = [...ev, { ts: T(3), hook: 'PreToolUse', tool: 'Skill', skill: 'chaos-check', session: 's1', cwd: dir }];
+  const withD = [...ev, { ts: T(3), hook: 'PreToolUse', tool: 'Skill', skill: 'chaos-check', session: 's1', cwd: dir },
+                 { ts: new Date(Date.UTC(2026, 8, 16, 3, 30)).toISOString(), event: 'stage_report', stage: 'D', verdict: 'ok', note: '沒對到', cwd: dir, source: 'claude' }];
   v = by(stagesOfSession(withD, stages, 's1', null, dir));
-  eq('D 跑了、清單還沒對:B 不劃掉(要處理的樣子),D 現在', `${v.B.state}/${v.D.state}`, 'stale/current');
+  eq('D 跑了、清單還沒對:B 不劃掉(要處理的樣子),D 現在(Claude 說沒問題)', `${v.B.state}/${v.D.state}`, 'stale/done');
   write([' ✅ 對過 2026-09-16', ' ⏳ 待討論：不確定要不要', ' ✅ 對過 2026-09-16']);
   const marked = [...withD, { ts: T(4), hook: 'PostToolUse', tool: 'Edit', session: 's1', cwd: dir, prompt_id: 'p3', file: spec }];
   v = by(stagesOfSession(marked, stages, 's1', null, dir));

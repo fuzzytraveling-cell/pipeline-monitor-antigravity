@@ -420,6 +420,10 @@ a.ext { color: var(--color-lake-blue); }
 .acard[data-state="stale"] .lamp { background: transparent; border-color: var(--color-coral); border-style: dashed; }
 .acard[data-state="stale"] .astatus { color: var(--color-coral); }
 .acard[data-state="seen"] .lamp { background: transparent; border-color: var(--color-lake-blue); border-style: dashed; }
+/* 你說不用再跑(held,D 多輪先問人 AC-4):擱著——不亮、不劃掉、不打勾、也不是警示。圓點空心灰:是你的決定,不是驗過了 */
+.railcell[data-state="held"] .dot { background: transparent; border-color: var(--color-graphite); border-style: dashed; }
+.acard[data-state="held"] .lamp { background: transparent; border-color: var(--color-graphite); border-style: dashed; }
+.mini span[data-s="held"] { background: var(--color-smoke); opacity: .6; }
 .mini span[data-s="seen"] { background: var(--color-ash); }
 .acard .mini-btn { margin-top: 8px; }
 .srow .sact { grid-column: 2; grid-row: 1 / span 2; display: flex; gap: 8px; align-items: center; }

@@ -69,27 +69,31 @@ section('T1 這一回合改了程式區、C 與 D 還沒跑 → 擋一次,理由
   check('理由指名 plugin 的 chaos-check,不叫 cleanup', (d?.reason ?? '').includes(`/${PLUGIN}:chaos-check`) && !(d?.reason ?? '').includes(`/${PLUGIN}:cleanup`), d?.reason);
   check('理由裡沒有程式內部值', !/null|undefined|NaN/.test(d?.reason ?? ''), d?.reason);
 
-  // C 跟 D 在最後一次改檔之後都跑過 → 放行
+  // C 跟 D 在最後一次改檔之後都跑過、D 記了結論 → 放行
   s.write([
     { ts: T(-5 * MIN), hook: 'UserPromptSubmit', prompt: '幫我改一下' },
     { ts: T(-4 * MIN), hook: 'PostToolUse', tool: 'Edit', file: join(s.root, 'src/a.js') },
     { ts: T(-3 * MIN), hook: 'PreToolUse', tool: 'Skill', skill: `${PLUGIN}:cleanup` },
     { ts: T(-2 * MIN), hook: 'PreToolUse', tool: 'Skill', skill: 'chaos-check' },
+    { ts: T(-2 * MIN + 10), event: 'stage_report', stage: 'D', verdict: 'ok', note: '沒對到已知死法', source: 'claude' },
   ]);
-  eq('C、D 都在改檔之後跑過 → 放行', decide({ payload: s.payload, monitorDir: s.monitorDir, skillHome: s.home }), null);
+  eq('C、D 都在改檔之後跑過、D 記了結論 → 放行', decide({ payload: s.payload, monitorDir: s.monitorDir, skillHome: s.home }), null);
 
-  // D 跑過,但之後又改了檔(檔案修改時間比 D 晚)→ 要再跑一次(AC-9)
+  // D 跑過、記了結論,但之後又改了檔(檔案修改時間比 D 晚)→ 不叫它再跑,叫它先問人(D 多輪先問人 AC-1、AC-9)
   s.write([
     { ts: T(-5 * MIN), hook: 'UserPromptSubmit', prompt: '幫我改一下' },
     { ts: T(-4 * MIN), hook: 'PostToolUse', tool: 'Edit', file: join(s.root, 'src/a.js') },
     { ts: T(-3 * MIN), hook: 'PreToolUse', tool: 'Skill', skill: 'cleanup' },
     { ts: T(-3 * MIN), hook: 'PreToolUse', tool: 'Skill', skill: 'chaos-check' },
+    { ts: T(-3 * MIN + 10), event: 'stage_report', stage: 'D', verdict: 'found', note: '找到 1 條', source: 'claude' },
   ]);
   writeFileSync(join(s.root, 'src/a.js'), 'changed again\n');          // 現在改的,mtime = 現在,比 D 晚
   const again = decide({ payload: s.payload, monitorDir: s.monitorDir, skillHome: s.home });
-  // C 是列建議,這一輪跑過就算;D 標了 rerunAfterChange(stages.json),改了之後要再跑
-  eq('D 之後又改了 → 只缺 D(C 這一輪列過就算)', (again?.missing ?? []).join(','), 'D');
-  check('理由說「最後一次改檔之後還沒再跑」', /之後還沒再跑/.test(again?.reason ?? ''), again?.reason);
+  // C 是列建議,這一輪跑過就算;D 標了 rerunAfterChange(stages.json),改了之後是「要不要再跑,先問人」
+  eq('D 之後又改了 → 只缺「D 先問人」(C 這一輪列過就算)', (again?.missing ?? []).join(','), 'D:ask');
+  check('理由說要不要再跑由使用者決定、不要自己再跑、他說不用就 --decide',
+    /要不要再跑由你決定/.test(again?.reason ?? '') && /不要自己再跑/.test(again?.reason ?? '') && /--decide D skip/.test(again?.reason ?? ''), again?.reason);
+  check('最後那句不叫它「先把缺的跑完」(跟「不要自己再跑」打架,AC-7)', !/先把缺的跑完再收工/.test(again?.reason ?? '') && /先停下來問使用者/.test(again?.reason ?? ''), again?.reason);
   s.cleanup();
 }
 
@@ -168,8 +172,9 @@ section('T2:碰到危險清單 → 還要 A 與測試檔;專案自己有同名�
     { ts: T(-4 * MIN), hook: 'PostToolUse', tool: 'Edit', file: join(s.root, 'src/danger.js') },
     { ts: T(-3 * MIN), hook: 'PreToolUse', tool: 'Skill', skill: 'cleanup' },
     { ts: T(-3 * MIN), hook: 'PreToolUse', tool: 'Skill', skill: 'chaos-check' },
+    { ts: T(-3 * MIN + 10), event: 'stage_report', stage: 'D', verdict: 'ok', note: '沒對到已知死法', source: 'claude' },
   ]);
-  eq('A 打過、C D 跑過、有測試檔 → 放行', decide({ payload: s.payload, monitorDir: s.monitorDir, skillHome: s.home }), null);
+  eq('A 打過、C D 跑過(D 記了結論)、有測試檔 → 放行', decide({ payload: s.payload, monitorDir: s.monitorDir, skillHome: s.home }), null);
   s.cleanup();
 }
 
@@ -207,6 +212,7 @@ section('有規格的輪次:改了程式、清單還有沒標的 → 先對清�
     { ts: T(-4 * MIN), hook: 'PostToolUse', tool: 'Edit', file: join(s.root, 'src/a.js'), prompt_id: 'p2' },
     { ts: T(-3 * MIN), hook: 'PreToolUse', tool: 'Skill', skill: 'cleanup' },
     { ts: T(-3 * MIN), hook: 'PreToolUse', tool: 'Skill', skill: 'chaos-check' },
+    { ts: T(-3 * MIN + 10), event: 'stage_report', stage: 'D', verdict: 'ok', note: '沒對到已知死法', source: 'claude' },
   ]);
   const d = decide({ payload: s.payload, monitorDir: s.monitorDir, skillHome: s.home });
   check('C、D 都跑過,只剩清單 → 擋,理由點名 AC-1 跟檔案', d?.missing?.join(',') === 'checklist' && /AC-1/.test(d?.reason ?? '') && /x\.md/.test(d?.reason ?? '') && !/AC-2/.test(d?.reason ?? ''), d?.reason);
@@ -257,7 +263,7 @@ section('共用工作區:分級一個資料夾一份——收工 hook 跟對話�
   s.cleanup();
 }
 
-section('只刪檔的回合:刪掉的檔看它所在資料夾的時間——D 說沒問題之後刪了檔,收工 hook 要再要 D,不准安靜放行(魔鬼教官 2026-09-22)', 'P5');
+section('只刪檔的回合:刪掉的檔看它所在資料夾的時間——D 說沒問題之後刪了檔,收工 hook 要問要不要再跑,不准安靜放行(魔鬼教官 2026-09-22)', 'P5');
 {
   const s = scene();
   s.write([
@@ -271,7 +277,7 @@ section('只刪檔的回合:刪掉的檔看它所在資料夾的時間——D �
   execFileSync('git', ['commit', '-qm', '刪檔'], { cwd: s.root });
   const d = decide({ payload: s.payload, monitorDir: s.monitorDir, skillHome: s.home });
   check('擋了(這一回合有改到:刪檔)', d !== null, '只刪檔的回合被當成沒改程式,安靜放行');
-  check('要 D 再跑一次(刪檔在 D 之後)', (d?.missing ?? []).includes('D') && /最後一次改檔之後還沒再跑/.test(d?.reason ?? ''), d?.reason);
+  check('要問要不要再跑 D(刪檔在 D 之後;D 多輪先問人:不叫它自己再跑)', (d?.missing ?? []).includes('D:ask') && /要不要再跑由你決定/.test(d?.reason ?? ''), d?.reason);
   eq('刪掉的是危險清單上的檔 → T2', d?.level, 'T2');
   s.cleanup();
 }

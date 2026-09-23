@@ -14,14 +14,15 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync, mkdirSync, existsSync, realpathSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, realpathSync, statSync } from 'node:fs';
 import { join, dirname, basename, resolve, relative, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { appendFileSync } from 'node:fs';
-import { readEvents, loadStages, lastRunPerStage, runsPerStage, roundView, editsOf, reportsIn, perStageOfRound, gateHeartbeat, safeName, logFileOf, specContext } from './lib/events.mjs';
+import { readEvents, loadStages, lastRunPerStage, runsPerStage, roundView, editsOf, reportsIn, reportLogIn, decisionsIn, perStageOfRound, gateHeartbeat, safeName, logFileOf, specContext,
+         sessionsOf, sessionView, rerunLine, tookLine, rerunMapOf, runMode, afterCall } from './lib/events.mjs';
 import { readChecklist, locateSpec } from './lib/checklist.mjs';
-import { buildTier, readTierConfig, writeTierConfig, proposeCodeArea, codeFileFn } from './lib/tier.mjs';
+import { buildTier, readTierConfig, writeTierConfig, proposeCodeArea, codeFileFn, computeTier, changeTimeOf } from './lib/tier.mjs';
 import { changeFacts } from './lib/origin.mjs';
 import { changeScope } from './lib/scope.mjs';
 import { monitorHome } from './lib/paths.mjs';
@@ -614,7 +615,7 @@ function stageFacts(ctx, ev, info = {}) {
   // 人自己在終端機跑拿不到 → 工作區層級,這個工作區只有一個對話在動時等於它(lib/events.mjs 的 specContext)。
   // ⚠️ 以前一律用工作區層級:worktree 只要來過別的對話,剛記了連結的 Claude 自己一看就是「A 沒有紀錄」(魔鬼教官 2026-09-21,老毛病 P2)
   const sid = sessionFromEnv();
-  const mine = sid && ev.events.some((e) => e.cwd === ctx.root && e.session === sid) ? sid : null;
+  const mine = sid && ev.events.some((e) => e.session === sid && inWorkspace(ctx, e.cwd)) ? sid : null;
   // 「這次改動」的基準(lib/origin.mjs):roundView 算出這一輪的起點就照它問 git,改動體檢、分級、五關的 B 拿同一份(規格:這一輪的起點)
   const change = changeFacts({ root: ctx.root, cpCommit: info.cpUsable ? info.cp?.commit ?? null : null, cpCommits: info.rel?.commitsAfter ?? null,
                                hasCommits: ctx.hasCommits, isCode,
@@ -622,13 +623,28 @@ function stageFacts(ctx, ev, info = {}) {
   // 起點跟儀表板那張卡同一個(工作區層級:共用資料夾時是最早開口的那個)——分級一個資料夾一份,「調高」也是按資料夾記的。
   // ⚠️ 以前拿這個對話的第一句話配整個資料夾的 A:共用資料夾時終端機跟收工 hook 講不同的等級(魔鬼教官 2026-09-22,P2)。規格連結照舊按這個對話
   const spec = specContext(ev.events, { cwd: ctx.root, cpAt, session: mine });
+  const here = (e) => e.cwd === ctx.root;
   const view = roundView({
     runs, stages, cleared, reports, edits, isCode, cpAt,
     gitChanges: change.gitChanges,
     spec: { ...spec, startHere: specContext(ev.events, { cwd: ctx.root, cpAt }).startHere }, root: ctx.root, mainRoot: ctx.mainRoot,
+    // 結論會過期的關(D):每一筆結論與決定,配得出「叫 → 結論」、對得回你說的話(D 多輪先問人;跟卡片同一種取法)
+    reportLog: reportLogIn(ev.events, here), decisions: decisionsIn(ev.events, here), events: ev.events,
   });
+  // 結論會過期的關(D):Claude 跑的時候按這個對話算——叫了幾次、你說了什麼看這個對話,改檔看整個資料夾——跟收工 hook、--round、對話頁同一份
+  // (D 多輪先問人 AC-9)。以前這裡按整個資料夾數叫了幾次:共用資料夾時終端機說「要不要再跑由你決定」、--round 說「這是第一次」、
+  // 收工 hook 說「去跑」(魔鬼教官第一輪,老毛病 P2)
+  if (mine) {
+    const sv = sessionView(ev.events, stages, mine, cpAt, ctx.root, { isCode, gitChanges: [], mainRoot: ctx.mainRoot, folderEdit: view.lastEdit });
+    view.stages = view.stages.map((st) => (st.rerunAfterChange ? sv.view.stages.find((x) => x.id === st.id) ?? st : st));
+  }
   const { base, health } = change.facts();
   return { stages, perStage: perStageOfRound(view), cleared, reports, view, sawAnyEventHere, base, health };
+}
+
+/** 這一筆紀錄的資料夾在不在這個工作區裡(就是工作區的根,或它底下的子資料夾——對話可以開在專案的子資料夾)。 */
+function inWorkspace(ctx, cwd) {
+  return typeof cwd === 'string' && (cwd === ctx.root || cwd.startsWith(`${ctx.root}/`));
 }
 
 function renderStages(ctx, ev, facts, info = {}) {
@@ -690,6 +706,12 @@ function renderStages(ctx, ev, facts, info = {}) {
     // 「被叫」的證據有兩種:你自己打的斜線指令(不經過 Skill 工具,L19)、或 Claude 自己去叫。字要跟證據一樣大:叫了,不是跑完了
     const verb = st.type === 'browser' ? `開瀏覽器跑過一輪${st.count ? `（${st.count} 個動作）` : ''}`
       : st.via === 'typed' ? `你叫了 /${st.calledAs}` : `Claude 叫了 /${st.calledAs ?? st.skill}`;
+    // 結論會過期的關(D):「要不要再跑」那一句與「上一輪從叫到記結論幾分鐘」都從 lib/events.mjs 拿(D 多輪先問人 AC-9、AC-13),這裡只負責印。
+    // 花了多久只在最後一次跑完時印——還在跑的那一次只講「N 分鐘前叫的」
+    const took = st.rerun?.took?.latest ? `（${tookLine(st.rerun.took)}）` : '';
+    const lastHead = String(st.report?.note ?? '').split('\n')[0].trim();
+    // 上一次 Claude 說了什麼:只在「要不要再跑」與「你說不用再跑」時補——找到問題那一句本身就帶著結論(跟網頁同一條規則)
+    const prev = (st.rerun?.state === 'ask' || st.rerun?.state === 'skipped') && lastHead ? ` · 上一次 Claude 說：${lastHead}` : '';
     switch (st.state) {
       case 'main':     console.log(`   ${label} ●  就是你在講話的那個對話（這一輪還沒改到程式檔）`); break;
       case 'notbuilt': console.log(`   ${label} ⚫ 未建`); break;
@@ -710,13 +732,15 @@ function renderStages(ctx, ev, facts, info = {}) {
         }
         const head = String(st.report?.note ?? '').split('\n')[0].trim();
         const who = st.closedBy === 'nod' ? `,${ago(st.nodAt)}開始改程式檔,算你點頭開工了` : st.closedBy === 'claude' && head ? `,Claude 說：${head}` : st.closedBy === 'human' ? ',你說處理完了' : '';
-        console.log(`   ${label} ✓  ${ago(st.ranAt)}${verb}${who}——已走過`);
+        console.log(`   ${label} ✓  ${ago(st.ranAt)}${verb}${who}——已走過${took}`);
         // 已走過的關,結論的清單還是要列(C 的建議不能因為走過了就不見)
         for (const line of String(st.report?.note ?? '').split('\n').slice(1)) if (line.trim()) console.log(`              ${line.trim().slice(0, 90)}`);
         break;
       }
-      // 結論會過期的關:之後又改了程式檔,要再跑一次(AC-9)。不劃掉、不打勾
-      case 'stale':    console.log(`   ${label} 🔁 ${ago(st.ranAt)}${verb},之後又改了程式檔——要再跑一次`); break;
+      // 結論會過期的關(D):D 之後又改了程式檔——要不要再跑由你決定(D 多輪先問人 AC-2),不是「要再跑」;叫了沒記結論也是這個樣子。不劃掉、不打勾
+      case 'stale':    console.log(`   ${label} 🔁 ${ago(st.ranAt)}${verb},${st.rerun ? rerunLine(st.rerun, { ago }) : '之後又改了程式檔——要再跑一次'}${prev}${took}`); break;
+      // 你說不用再跑(AC-4):附你在 D 之後說的最後一句(感測器記的)與時間。擱著——是你的決定,不是驗過了,所以不是 ✅
+      case 'held':     console.log(`   ${label} ⏸ ${ago(st.ranAt)}${verb},${rerunLine(st.rerun, { ago })}${prev}${took}`); break;
       case 'seen': {
         // 開過瀏覽器 ≠ 驗收過。講得出去了哪,算不算驗收由人說(--clear E)
         const where = st.hosts?.length ? `,去了 ${st.hosts.slice(0, 3).join('、')}` : '';
@@ -731,11 +755,11 @@ function renderStages(ctx, ev, facts, info = {}) {
         const first = view.stages.find((v) => v.skill);
         let tail;
         const head = String(st.report?.note ?? '').split('\n')[0].trim();
-        if (closed) tail = st.closedBy === 'claude' ? `,${ago(st.doneAt)}Claude 說${head ? `：${head}` : '沒問題'}` : `,${ago(st.doneAt)}你說${said}`;
-        else if (st.report?.verdict === 'found') tail = `,Claude 說找到問題${head ? `：${head}` : ''}——還沒處理完`;
+        if (closed) tail = (st.closedBy === 'claude' ? `,${ago(st.doneAt)}Claude 說${head ? `：${head}` : '沒問題'}` : `,${ago(st.doneAt)}你說${said}`) + took;
+        else if (st.report?.verdict === 'found') tail = `,Claude 說找到問題${head ? `：${head}` : ''}——還沒處理完${took}`;
         else if (st.type === 'browser') tail = `,還沒有人說${said}`;
         else if (first && st.id === first.id) tail = ',等你點頭開工';
-        else tail = ',Claude 還沒記結論';
+        else tail = `,${st.rerun ? rerunLine(st.rerun, { ago }) : 'Claude 還沒記結論'}`;
         console.log(`   ${label} ${closed ? '✅' : '⏸'} ${ago(st.ranAt)}${verb}${tail}`);
         if (st.args) console.log(`              「${st.args.slice(0, 46)}${st.args.length > 46 ? '…' : ''}」`);
         // 結論的說明有清單(多行)時,一行一行印——C 的建議、D 的發現就住在這裡
@@ -1027,9 +1051,12 @@ function doReport(ctx, stageId, verdict, note) {
       return 1;
     }
   }
+  // 對話代號(Claude Code 給指令的環境變數):「叫 → 結論」配對時不把別的對話的結論配給這個對話(D 多輪先問人,Oscar 2026-09-22 決定記)。
+  // 欄位刻意不叫 session:讀紀錄的程式會把帶 session 的每一筆都當成那個對話的活動(跟 --spec 同一個理由)
+  const sid = sessionFromEnv();
   try {
     appendFileSync(logFileOf(LOG_DIR, ctx.project), JSON.stringify({
-      ts: new Date().toISOString(), event: 'stage_report', stage: st.id, verdict, note: text || null, noteFile,
+      ts: new Date().toISOString(), event: 'stage_report', stage: st.id, verdict, note: text || null, noteFile, ...(sid ? { by_session: sid } : {}),
       cwd: ctx.root, head: ctx.head?.slice(0, 7), source: 'claude',
     }) + '\n');
   } catch (e) {
@@ -1039,6 +1066,189 @@ function doReport(ctx, stageId, verdict, note) {
   console.log(`✅ 記下了：Claude 說 ${st.id} ${st.name} ${verdict === 'ok' ? '沒問題' : '找到問題'}${text ? `（${text.split('\n')[0]}）` : ''}`);
   if (noteFile) console.log(`   清單很長,整份存在 ${noteFile.split('/').slice(-2).join('/')},儀表板會一條一條列出來。`);
   console.log('   ⚠️ 這是「Claude 說的」,不是人驗證的——畫面上會照實標「Claude 說」。');
+  return 0;
+}
+
+/* ────────────── 結論會過期的關:要不要再跑(D 多輪先問人) ────────────── */
+
+/**
+ * 這個資料夾(或這個對話)這一輪的五關與分級——--round、--decide 從這裡拿,跟收工 hook 走同一條路(老毛病 P2):
+ *   Claude 跑的(拿得到對話代號,而且這個對話在這裡動過)→ lib/collect.mjs 的 cardFor → sessionTier,跟收工 hook、對話頁同一個函式;
+ *   人自己在終端機跑 → 這個工作區那一份(跟終端機的五關、儀表板那張卡同一份)。
+ * collect.mjs 會回頭 import 這支,所以用到才載入(放在最上面會繞圈)。回 null = 這個資料夾讀不到。
+ */
+async function rerunFacts(ctx, ev) {
+  const sid = sessionFromEnv();
+  // 對話開在子資料夾也算在這裡動過(魔鬼教官第一輪:以前只認 cwd 剛好等於根,子資料夾的對話永遠「這一輪還沒有 D 的紀錄」)
+  const mine = sid && ev.events.some((e) => e.session === sid && inWorkspace(ctx, e.cwd)) ? sid : null;
+  if (mine) {
+    const { cardFor, sessionTier } = await import('./lib/collect.mjs');
+    const got = cardFor({ monitorDir: HERE, path: ctx.root });
+    if (!got || got.card.gone || got.card.notGit) return null;
+    const shared = sessionsOf(got.events).find((s) => s.id === mine)?.sharesCwd === true;
+    const t = sessionTier({ card: got.card, events: got.events, stages: got.stages, session: mine, cwd: ctx.root, shared, monitorDir: HERE });
+    return { view: t.view, tier: t.tier, health: got.card.health, sid: mine, shared, events: got.events };
+  }
+  const info = gatherChange(ctx);
+  const facts = stageFacts(ctx, ev, info);
+  info.h = facts.health; info.base = facts.base;
+  const shared = new Set(ev.events.filter((e) => e.cwd === ctx.root && e.hook && e.session).map((e) => e.session)).size > 1;
+  return { view: facts.view, tier: tierOf(ctx, ev, info, facts), health: facts.health, sid: null, shared, events: ev.events };
+}
+
+/** 分不了級的原因,一句白話(給 runMode)。分得了就是 null。 */
+function noLevelOf(t) {
+  if (!t || t.state === 'ok') return null;
+  return t.state === 'unset' ? '這個專案沒設定分級' : t.state === 'broken' ? '這個專案的分級設定讀不懂'
+    : t.state === 'off' ? '這個專案設定成不分級' : '這次分不了級';
+}
+
+/** 結論會過期的關(給 --round／--decide 的錯誤訊息):認不出、或不是這種關就回一句白話並回 null。 */
+function rerunStageOf(ctx, stageId, flag) {
+  const { stages } = loadStages(HERE, ctx.root, ctx.mainRoot);
+  const st = stages.find((x) => x.id.toLowerCase() === String(stageId ?? '').toLowerCase());
+  if (st?.rerunAfterChange) return st;
+  const list = stages.filter((x) => x.rerunAfterChange).map((x) => `${x.id} ${x.name}`).join('、') || '這個專案沒有';
+  console.log(`${st ? `${st.id} ${st.name} 的結論不會因為之後改檔而過期，沒有「${flag === '--round' ? '第幾次' : '要不要再跑'}」可講。` : `認不出關卡「${stageId ?? ''}」。`}能用 ${flag} 的關：${list}`);
+  return null;
+}
+
+/**
+ * --round <關>:這一關(結論會過期的,例如 D)這一輪第幾次、怎麼跑、第一次之後改了哪些檔(D 多輪先問人 AC-10、AC-11、AC-12、AC-3)。
+ * skill 開工第一步先跑它,照它說的分路走;要問人「要不要再跑」之前也跑它,拿「改了什麼、上一輪花多久」。
+ * 「第一次之後改了誰」= 感測器的改檔 ∪ git 說跟第一次那一刻的版本(那一筆紀錄的 head)有差、而且變動時間在那之後的檔
+ *   (Bash 寫檔繞過感測器,L8;新檔也算,L2)。基準是那一刻的 head,不是現在的 HEAD:第一輪之後存過檔的改動才不會消失。
+ *   「之後」跟 rerunOf 同一個判斷(lib/events.mjs 的 afterCall)。
+ * 拿不到清單(那一筆沒有 head、git 問不到)照實講,看整批(R1);時間只從紀錄拿,拿不到就說看不到,不估(R3)。
+ */
+async function doRound(ctx, ev, stageId) {
+  const st = rerunStageOf(ctx, stageId, '--round');
+  if (!st) return 1;
+  const f = await rerunFacts(ctx, ev);
+  if (!f) { console.log('這個資料夾讀不到（不在了、或不是 git 專案），答不出第幾次。'); return 1; }
+  const r = f.view.stages.find((x) => x.id === st.id)?.rerun ?? { state: 'none', count: 0, rounds: 0, unfinished: 0 };
+  const name = `${st.id} ${st.name}`;
+  // 第幾次只算跑完(記了結論)的:叫了沒跑完不算一輪——不然下一次真的跑會被當成第二輪、只看第一次之後改的檔(魔鬼教官第一輪,R2)。
+  // 最後一次叫還沒記結論 → 它就是現在這一次;都記了 → 再跑是下一次。兩種都是「跑完的次數 + 1」
+  const inProgress = r.count > 0 && !r.last?.report && !r.concluded;
+  const nth = r.rounds + 1;
+  const t = f.tier;
+  const noLevel = noLevelOf(t);
+  const mode = runMode({ nth, levelId: t?.final?.id ?? null, agents: t?.final?.agents === true, noLevel });
+  console.log(r.count === 0 ? `━━ ${name}：這一輪還沒有紀錄——這是第一次 ━━`
+    : inProgress ? `━━ ${name}：這一輪第 ${nth} 次（${ago(r.last.call.ts)}叫的，還沒記結論——就是現在這一次）━━`
+    : `━━ ${name}：這一輪已經跑完 ${r.rounds} 次（記了結論的）；再跑是第 ${nth} 次 ━━`);
+  if (r.unfinished > 0) console.log(`   （前面有 ${r.unfinished} 次叫了沒記結論——可能沒跑完，不算一輪）`);
+  if (noLevel) console.log(`   分級：${noLevel}`);
+  else {
+    const dh = t.machine?.hits?.danger ?? [], ch = t.machine?.hits?.code ?? [];
+    console.log(`   分級：${t.final.id}（${dh.length ? `碰到危險清單：${dh.slice(0, 3).join('、')}${dh.length > 3 ? ` 等 ${dh.length} 個` : ''}` : ch.length ? `碰到程式區 ${ch.length} 個檔` : '沒碰到程式區'}）`);
+  }
+  if (nth >= 2) {
+    console.log(`   ${r.took ? `${tookLine(r.took)}（紀錄算的：從叫 ${st.id} 到記結論；用了多少 tokens 這裡看不到）` : '上一輪從叫到記結論：紀錄裡看不到（上一次沒記結論、或配不到是哪一次叫的）'}`);
+    const files = roundFiles(ctx, f, r);
+    if (files.state !== 'ok') {
+      console.log(`   拿不到第一次之後改了哪些檔（${files.why}）——這次看整批，回報第一行寫「拿不到第一輪之後的清單，這次看的是整批」。`);
+    } else {
+      const look = files.list.filter((x) => x.look);
+      const other = files.list.filter((x) => !x.look);
+      console.log(look.length
+        ? `   第一次（${ago(r.first.ts)}，版本 ${r.first.head}）之後改了 ${look.length} 個要看的檔：`
+        : `   第一次（${ago(r.first.ts)}，版本 ${r.first.head}）之後沒有改到程式區或測試檔。`);
+      for (const x of look) console.log(`      ${x.file}${x.danger ? '　危險清單' : ''}${x.test ? '　測試檔' : ''}${x.gone ? '　已刪' : ''}`);
+      if (other.length) console.log(`   另外改了 ${other.length} 個不在程式區的檔（文件、設定），這一次不用看：${other.slice(0, 5).map((x) => x.file).join('、')}${other.length > 5 ? ' …' : ''}`);
+      if (f.shared) console.log('   ⚠️ 這個工作區有好幾個對話：git 看到的改動可能含別的對話改的，清單照列。');
+      if (look.length) console.log(`   回報第一行寫「第 ${nth} 輪只看了第一輪之後改的 ${look.length} 個檔：${look.slice(0, 5).map((x) => x.file).join('、')}${look.length > 5 ? ' …' : ''}」，不准講成全部看過。`);
+    }
+  }
+  const n = f.health?.touchedTests ?? null;
+  console.log(`   這一輪有沒有動到測試檔：${n === null ? '問不到' : n > 0 ? `有（${n} 個）` : '沒有'}`);
+  console.log(`   跑法：${mode.line}。`);
+  console.log(`   修完不要自己再跑這一關；要再跑先問使用者。`);
+  if (!inProgress && r.count > 0) {
+    // 要問人之前(AC-3、AC-12):每條修法的標記有兩條硬門檻,Claude 只准往上調;最後一行給建議,決定是人的
+    const dangerEmpty = t?.state === 'ok' && t.dangerEmpty;
+    console.log('   問使用者「要不要再跑」的時候（白話＋舉例）：');
+    console.log(`      每條修法標「小修」或「建議再看」——改到上面標「危險清單」的檔、或上面的檔比第一輪 ${st.id} 指出的位置多（修法蔓延到別處），都是建議再看；`);
+    console.log('      其餘是小修，照實講有沒有測試守著（上面那一行）。只准往上調，不准往下調。');
+    if (dangerEmpty) console.log('      這個專案的危險清單是空的，硬門檻只剩「蔓延」那一條——問的時候講。');
+    console.log('      最後一行給建議：全部小修 → 我建議不跑；有任何一條建議再看 → 我建議跑。使用者說跑才跑。');
+    console.log(`      使用者說不用：pipeline-status --decide ${st.id} skip "使用者的原話"`);
+  }
+  return 0;
+}
+
+/**
+ * 第一輪(第一次跑完的那一次)被叫之後改了哪些檔(給 --round)。look:要看的(程式區、測試檔);danger／test／gone 是標記。
+ * 感測器那一半照呼叫端的範圍(這個對話,或這個工作區),git 那一半是整個工作區——共用時照列、講明(AC-12 的併發)。
+ */
+function roundFiles(ctx, f, r) {
+  const first = r.first;
+  if (!first) return { state: 'none', why: '這一輪還沒有跑完的一次' };
+  const head = typeof first.head === 'string' ? first.head.trim() : '';
+  if (!head) return { state: 'none', why: '那一次的紀錄沒有記版本' };
+  const tracked = git(['diff', '--name-status', '--no-renames', head], ctx.root);
+  const untracked = git(['ls-files', '--others', '--exclude-standard'], ctx.root);
+  if (tracked === null || untracked === null) return { state: 'none', why: 'git 問不到跟那個版本差了什麼' };
+  // 「那個版本之後才出現的檔」(新增、還沒追蹤的):搬家(git mv／mv)不會改檔案的修改時間,只看它自己的時間,搬進來的新位置會被篩掉——
+  // 搬進危險清單的檔就不會標出來(魔鬼教官第一輪,老毛病 P1)。所以這種檔再看它所在資料夾的時間:搬進來、新建都會更新它。只會多列,不會少列
+  const rows = tracked.split('\n').filter(Boolean).map((l) => l.split('\t'));
+  const added = new Set([...rows.filter((x) => x[0] === 'A').map((x) => x[1]), ...untracked.split('\n').filter(Boolean)]);
+  const dirTime = (p) => { try { return statSync(join(ctx.root, dirname(p))).mtimeMs; } catch { return null; } };
+  const inRoot = (p) => { const rel = isAbsolute(p) ? relative(ctx.root, p) : p; return rel && !rel.startsWith('..') && !isAbsolute(rel) ? rel.split('\\').join('/') : null; };
+  const fromSensor = f.events.filter((e) => e.hook === 'PostToolUse' && typeof e.file === 'string'
+      && (f.sid ? e.session === f.sid : e.cwd === ctx.root) && afterCall(Date.parse(e.ts), first.ts))
+    .map((e) => inRoot(e.file)).filter(Boolean);
+  const fromGit = [...rows.map((x) => x[1]), ...untracked.split('\n')].filter(Boolean)
+    .filter((p) => { const t = changeTimeOf(ctx.root, p); return (t !== null && afterCall(t, first.ts)) || (added.has(p) && afterCall(dirTime(p), first.ts)); });
+  const cfg = readTierConfig(ctx.root, ctx.mainRoot, HERE);
+  const isCode = codeFileFn(ctx.root, cfg.state === 'ok' ? cfg.config : null);
+  const inDanger = (p) => cfg.state === 'ok' && computeTier([p], cfg.config).rank === 2;
+  const list = [...new Set([...fromGit, ...fromSensor])].sort().map((p) => {
+    const test = TEST_FILE.test(p);
+    return { file: p, test, danger: inDanger(p), gone: !existsSync(join(ctx.root, p)), look: test || isCode(p) };
+  });
+  return { state: 'ok', list };
+}
+
+/**
+ * --decide <關> skip "<你的原話>":Claude 記下「你說這一輪不用再跑這一關」(D 多輪先問人 AC-4)。事件 stage_decision。
+ * ⚠️ 標 source:'human'、via:'claude'——是你的決定,Claude 代記。畫面附的**不是這裡給的字**,是感測器記的、
+ *    這一關被叫之後你說的最後一句(記這一筆的那個對話的);這裡給的字只留著對照(quote)。擋得住「根本沒問你」,擋不住「記錯」——
+ *    那要靠畫面上你的原話讓你自己對得出來(R2:證據只有這麼大)。
+ * 只准結論會過期的關、只有 skip 一種、一定要附你的話;這一輪還沒跑過就沒有東西可以蓋。記不了檔 → 大聲失敗(跟 --report 一樣)。
+ */
+async function doDecide(ctx, ev, args) {
+  const [stageId, verb, ...words] = args;
+  const st = rerunStageOf(ctx, stageId, '--decide');
+  if (!st) return 1;
+  const name = `${st.id} ${st.name}`;
+  if (verb !== 'skip') { console.log(`只有一種決定：skip（這一輪不用再跑）。例：  pipeline-status --decide ${st.id} skip "不用跑了"`); return 1; }
+  const quote = words.join(' ').trim();
+  if (!quote) { console.log(`要附上使用者說的話（原話）。例：  pipeline-status --decide ${st.id} skip "不用跑了"`); return 1; }
+  const f = await rerunFacts(ctx, ev);
+  const r = f?.view.stages.find((x) => x.id === st.id)?.rerun ?? null;
+  if (!r || r.state === 'none') { console.log(`這一輪還沒有 ${name} 的紀錄——這個決定沒有一次 ${st.id} 可以蓋。`); return 1; }
+  const sid = sessionFromEnv();
+  try {
+    appendFileSync(logFileOf(LOG_DIR, ctx.project), JSON.stringify({
+      ts: new Date().toISOString(), event: 'stage_decision', stage: st.id, decision: 'skip', quote: cutBytes(quote, 600),
+      ...(sid ? { by_session: sid } : {}), cwd: ctx.root, head: ctx.head?.slice(0, 7), source: 'human', via: 'claude',
+    }) + '\n');
+  } catch (e) {
+    console.log(`❌ 沒記成功：${e.message}`);
+    return 1;
+  }
+  // 記完再算一次:講清楚這筆算不算數、畫面會附哪一句
+  const r2 = (await rerunFacts(ctx, readEvents(LOG_DIR, ctx.project)))?.view.stages.find((x) => x.id === st.id)?.rerun ?? null;
+  console.log(`✅ 記下了：你說 ${name} 這一輪不用再跑（Claude 代記）。`);
+  const d = r2?.decision;
+  if (r2?.state === 'skipped') console.log(`   儀表板附的是你在 ${st.id} 被叫之後說的最後一句：「${String(d.said.text).replace(/\s+/g, ' ').slice(0, 60)}${d.said.text.length > 60 || d.said.cut ? '…' : ''}」——對得上就是你說的。`);
+  else if (d?.why === 'no-words') console.log(`   ⚠️ 這筆不算數：${st.id} 被叫之後，紀錄裡沒有你說的話——分不出是不是你說的。儀表板照實這樣講，收工 hook 也不認。`);
+  else if (d?.why === 'owner') console.log('   ⚠️ 這筆不算數：分不出是哪個對話記的（拿不到對話代號，而這個工作區有別的對話；或不是叫這一次的那個對話）。');
+  else if (r2?.state === 'ask') console.log('   ⚠️ 你那句話之後又改了程式檔——那次改動不算在這個決定裡，儀表板還是「要不要再跑由你決定」。');
+  else console.log(`   （${name} 已經有結論、之後沒再改程式檔——這個決定只在「之後又改了程式檔」時才用得上。）`);
+  console.log('   ⚠️ 這是「你說的、Claude 代記的」，不是驗過了——儀表板照實這樣寫，不打勾。');
   return 0;
 }
 
@@ -1087,7 +1297,7 @@ function tierOf(ctx, ev, info, facts) {
     root: ctx.root, mainRoot: ctx.mainRoot, monitorDir: HERE, health: info.h,
     stages: facts.stages, perStage: facts.perStage, cleared: facts.cleared,
     events: ev.events, cwd: ctx.root, cpUsable: info.cpUsable, cpAt: info.cp?.at ?? null,
-    head: ctx.head?.slice(0, 7) ?? null, reports: facts.reports, lastEdit: facts.view.lastEdit, spec: facts.view.spec,
+    head: ctx.head?.slice(0, 7) ?? null, reports: facts.reports, spec: facts.view.spec, rerun: rerunMapOf(facts.view), ago,
     basis: facts.base ? { kind: facts.base.kind, why: facts.base.why ?? null, origin: facts.base.origin ?? null,
                           moved: facts.base.moved === true, commits: facts.base.commits ?? null } : null,
   });
@@ -1340,6 +1550,8 @@ async function main() {
   if (at('--clear') !== -1) return doClear(ctx, argv[at('--clear') + 1]);
   if (at('--spec') !== -1) return doSpec(ctx, ev, after('--spec'));
   if (at('--report') !== -1) { const [id, verdict, ...note] = after('--report'); return doReport(ctx, id, verdict, note.join(' ')); }
+  if (at('--decide') !== -1) return doDecide(ctx, ev, after('--decide'));
+  if (at('--round') !== -1) return doRound(ctx, ev, argv[at('--round') + 1]);
   if (at('--suggest') !== -1) {
     let stdin = '';
     try { stdin = readFileSync(0, 'utf8'); } catch { stdin = ''; }

@@ -96,9 +96,14 @@ const clock = (iso) => {
     ? `${String(d.getMonth() + 1)}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
     : '時間對不上';
 };
-// 狀態是伺服器算好的(lib/events.mjs 的 roundView):main／notbuilt／none／passed／current／done。
+// 狀態是伺服器算好的(lib/events.mjs 的 roundView):main／notbuilt／none／passed／current／done／stale／held／seen。
 // 畫面上 current 沿用「ran」的樣式(亮),passed 是劃掉變淡,done 是劃掉但深色(你說處理完了)。
-const stageState = (st) => st.state === 'current' ? 'ran' : (st.state ?? 'none');   // stale(結論過期,要再跑)照原樣給 CSS
+// stale(要處理:D 之後又改了程式、要不要再跑你決定;B 清單沒對完)與 held(你說不用再跑:擱著,不劃掉、不打勾)照原樣給 CSS
+const stageState = (st) => st.state === 'current' ? 'ran' : (st.state ?? 'none');
+/** 結論會過期的關(D)的兩句話,伺服器照 lib/events.mjs 算好給的(D 多輪先問人 AC-9、AC-13)——這裡不另寫一份。舊的服務沒給就不印 */
+const tookTail = (st) => (st.rerun?.took ? `（${st.rerun.took}）` : '');
+// 上一次 Claude 說了什麼:只在「要不要再跑」與「你說不用再跑」時補一句——找到問題那一句本身就帶著結論,不重複
+const prevSaid = (st) => (noteHead(st) && (st.rerun?.state === 'ask' || st.rerun?.state === 'skipped') ? ` · 上一次 Claude 說：${noteHead(st)}` : '');
 /** 清單收合的狀態:key 是「工作區|關」。沒記過就用 dflt(驗收清單預設展開;收起來的建議卡預設收著);記在 localStorage,重新整理也記得。畫面每幾秒重畫一次,不能靠 DOM 記 */
 const FOLD_KEY = 'pm-fold';
 function foldStore() { try { return JSON.parse(localStorage.getItem(FOLD_KEY) ?? '{}'); } catch { return {}; } }
@@ -149,10 +154,21 @@ const sensed = (st) => st.type !== 'main-conversation' && st.type !== 'not-built
 
 /** 這一輪走到哪,一句話。對話列與案件卡共用,兩邊才說同一句。 */
 function roundWhere(stages) {
-  const cur = (stages ?? []).find((x) => x.state === 'current' || x.state === 'done');
-  if (!cur) return '這一輪還沒有紀錄';
-  const tail = cur.state === 'done' ? (cur.type === 'browser' ? '（你說驗收過了）' : '（處理完了）') : '';
-  return `這一輪走到 ${cur.id} ${cur.name}${tail}`;
+  const list = stages ?? [];
+  const cur = list.find((x) => x.state === 'current' || x.state === 'done');
+  if (cur) {
+    const tail = cur.state === 'done' ? (cur.type === 'browser' ? '（你說驗收過了）' : '（處理完了）') : '';
+    return `這一輪走到 ${cur.id} ${cur.name}${tail}`;
+  }
+  // 最後一步是結論會過期的關、而它在「要處理」或「擱著」:不是沒有紀錄(魔鬼教官第一輪,老毛病 P5:這個「找不到」有兩種意思)。
+  // B 清單沒對完的樣子也是 stale,但它不會是最後一步——後面的關動了它才變 stale,所以只看有 skill 的關
+  const open = [...list].reverse().find((x) => (x.state === 'stale' || x.state === 'held') && x.skill);
+  if (open) {
+    const why = open.state === 'held' ? '你說不用再跑' : open.rerun?.state === 'ask' ? '要不要再跑由你決定'
+      : open.rerun?.state === 'found' ? '找到問題，還沒處理完' : open.rerun?.state === 'no-report' ? 'Claude 還沒記結論' : '要處理';
+    return `這一輪走到 ${open.id} ${open.name}（${why}）`;
+  }
+  return '這一輪還沒有紀錄';
 }
 
 /**
@@ -429,13 +445,15 @@ function workflow(c) {
       // 已走過的關,結論還是要講一句(誰說的、說了什麼),不然像是憑空劃掉的
       // 照別的對話寫的規格施工(施工對話認規格 AC-1):連結不是 A 的一次呼叫,沒有「叫了」的時間,講照哪份、誰說的
       : s === 'passed' && st.closedBy === 'link' && st.link ? `已走過：${linkLine(st.link)}`
-      : s === 'passed' ? `${ago(st.ranAt)}${verb}${st.closedBy === 'nod' ? `,${ago(st.nodAt)}開始改程式檔,算你點頭開工了` : st.closedBy === 'claude' && noteHead(st) ? `,Claude 說：${noteHead(st)}` : st.closedBy === 'human' ? `,你說${said}` : ''}——已走過`
-      // 結論會過期的關(D):之後又改了程式檔,要再跑一次(AC-9)。不劃掉、不打勾
-      : s === 'stale' ? `${ago(st.ranAt)}${verb},之後又改了程式檔——要再跑一次`
+      : s === 'passed' ? `${ago(st.ranAt)}${verb}${st.closedBy === 'nod' ? `,${ago(st.nodAt)}開始改程式檔,算你點頭開工了` : st.closedBy === 'claude' && noteHead(st) ? `,Claude 說：${noteHead(st)}` : st.closedBy === 'human' ? `,你說${said}` : ''}——已走過${tookTail(st)}`
+      // 結論會過期的關(D):D 之後又改了程式檔——要不要再跑由你決定(D 多輪先問人 AC-2),不是「要再跑」;叫了沒記結論也是這個樣子。不劃掉、不打勾
+      : s === 'stale' ? `${ago(st.ranAt)}${verb},${st.rerun?.line ?? '之後又改了程式檔——要再跑一次'}${prevSaid(st)}${tookTail(st)}`
+      // 你說不用再跑(AC-4):附你在 D 之後說的最後一句(感測器記的,不是 Claude 轉述的)與時間,讓你自己對得出來。擱著,不是驗過了
+      : s === 'held' ? `${ago(st.ranAt)}${verb},${st.rerun?.line ?? '你說不用再跑'}${prevSaid(st)}${tookTail(st)}`
       // 結案要說得出是誰說的(AC-11):Claude 記的結論、或你說(E 驗收、舊紀錄)
-      : s === 'done' ? `${ago(st.ranAt)}${verb},${ago(st.doneAt ?? st.clearedAt)}${st.closedBy === 'claude' ? `Claude 說${noteHead(st) ? `：${noteHead(st)}` : '沒問題'}` : `你說${said}`}`
-      : s === 'ran' ? `${ago(st.ranAt)}${verb},${st.report?.verdict === 'found' ? `Claude 說找到問題${noteHead(st) ? `：${noteHead(st)}` : ''}——還沒處理完`
-          : st.type === 'browser' ? `還沒有人說${said}` : (c.stages.find((v) => v.skill)?.id === st.id ? '等你點頭開工' : 'Claude 還沒記結論')}`
+      : s === 'done' ? `${ago(st.ranAt)}${verb},${ago(st.doneAt ?? st.clearedAt)}${st.closedBy === 'claude' ? `Claude 說${noteHead(st) ? `：${noteHead(st)}` : '沒問題'}` : `你說${said}`}${tookTail(st)}`
+      : s === 'ran' ? `${ago(st.ranAt)}${verb},${st.report?.verdict === 'found' ? `Claude 說找到問題${noteHead(st) ? `：${noteHead(st)}` : ''}——還沒處理完${tookTail(st)}`
+          : st.type === 'browser' ? `還沒有人說${said}` : (c.stages.find((v) => v.skill)?.id === st.id ? '等你點頭開工' : st.rerun?.line ?? 'Claude 還沒記結論')}`
       // 開過瀏覽器 ≠ 驗收過(Oscar 2026-09-15:截圖儀表板也會讓 E 亮)。講去了哪,不亮,算不算由人按
       : s === 'seen' ? `${ago(st.ranAt)}開過瀏覽器（${st.count} 個動作${st.hosts?.length ? `,去了 ${st.hosts.slice(0, 3).join('、')}` : ''}）——算不算驗收你說了算`
       // 「沒有紀錄」跟「這裡根本沒有這個指令」是兩件事——Forma Pro 沒有 /spec,那一關永遠不會有紀錄
@@ -463,7 +481,7 @@ function workflow(c) {
     // 結論的說明有清單(多行)時,一行一條列在卡上——C 的建議、D 的發現就住在這裡
     const noteLines = String(st.report?.note ?? '').split('\n').map((l) => l.trim()).filter(Boolean);
     // 已走過的關也要列(C 已走過,它的建議還是要看得到——「有幾條就列幾條」)
-    const noteHtml = noteLines.length > 1 && (s === 'done' || s === 'ran' || s === 'stale' || s === 'passed')
+    const noteHtml = noteLines.length > 1 && (s === 'done' || s === 'ran' || s === 'stale' || s === 'passed' || s === 'held')
       ? `<ul class="rnote">${noteLines.slice(1).map((l) => `<li>${esc(l.replace(/^[-•]\s*/, ''))}</li>`).join('')}</ul>` : '';
 
     return `<div class="railcell" data-state="${s}">
@@ -480,7 +498,10 @@ function workflow(c) {
           <div class="astatus">${esc(status)}</div>
           ${saidArgs}${notes}${clHtml}${noteHtml}${stamp}
         </div>
-        <span class="lamp" title="${s === 'passed' ? '已走過' : s === 'done' || s === 'ran' ? '現在這一關' : s === 'stale' ? '結論過期,要再跑一次' : s === 'seen' ? '開過瀏覽器' : '這一輪還沒跑'}"></span>
+        <span class="lamp" title="${s === 'passed' ? '已走過' : s === 'done' || s === 'ran' ? '現在這一關'
+          : s === 'stale' ? (st.type === 'main-conversation' ? '清單沒對完' : !st.rerun ? '結論過期,要再跑一次'
+            : st.rerun.state === 'no-report' ? 'Claude 還沒記結論' : st.rerun.state === 'found' ? 'Claude 說找到問題,還沒處理完' : '改過程式檔,要不要再跑由你決定')
+          : s === 'held' ? 'Claude 記下你說不用再跑——是你的決定,不是驗過了' : s === 'seen' ? '開過瀏覽器' : '這一輪還沒跑'}"></span>
       </div>`;
   }).join('');
 
