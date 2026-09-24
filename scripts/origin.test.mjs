@@ -13,10 +13,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import process from 'node:process';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
-import { reflogOf, versionAt, changeBase, changeFacts } from '../lib/origin.mjs';
+import { reflogOf, versionAt, changeBase, changeFacts, takeoverOf, tenureEvents, previousTenant } from '../lib/origin.mjs';
 import { changeTimeOf } from '../lib/tier.mjs';
 import { changeScope } from '../lib/scope.mjs';
 import { changeHealth, checkpointRelation } from '../lib/git.mjs';
+import { sessionsOf } from '../lib/events.mjs';
 
 const out = (dir, ...a) => execFileSync('git', a, { cwd: dir, encoding: 'utf8' }).trim();
 const NOW = Date.now();                                   // 「現在」只取一次(L18)
@@ -198,6 +199,110 @@ section('其他幾張臉:一次都沒存過檔、對話是換進這個資料夾�
   writeFileSync(join(r.dir, 'src/a.js'), '3\n'); commitAt(r.dir, T(-2 * MIN), 'two');
   eq('基準記得起點之後存了幾次', changeBase({ root: r.dir, origin: { at: T(-5 * MIN) }, relationOf: relationOf(r.dir) }).commits, 2);
   r.cleanup();
+}
+
+/**
+ * app 重用資料夾的真實樣子(規格:新對話接手舊資料夾;2026-09-24 實測):主資料夾開 worktree(舊分支)→ 舊對話在上面存檔 →
+ * app 收掉對話時脫離分支 → 別的對話的改動併進 main(碰到危險檔)→ 新對話來了,app 在同一個資料夾從 main 開新分支。
+ * 時間都用 GIT_COMMITTER_DATE 控制——reflog 的時間跟著它走。
+ */
+function reusedFolder() {
+  const r = makeRepo({ files: { 'src/a.js': '1\n', 'src/danger.js': 'd\n' }, at: T(-300 * MIN) });
+  const wt = join(mkdtempSync(join(tmpdir(), 'pm-origin-reuse-')), 'wt');
+  const g = (cwd, at, ...a) => execFileSync('git', a, { cwd, stdio: 'ignore', env: { ...process.env, GIT_AUTHOR_DATE: at, GIT_COMMITTER_DATE: at } });
+  g(r.dir, T(-240 * MIN), 'worktree', 'add', '-q', '-b', 'old', wt);
+  writeFileSync(join(wt, 'src/danger.js'), 'old conversation\n');
+  g(wt, T(-230 * MIN), 'commit', '-qam', '舊對話存檔');
+  g(wt, T(-200 * MIN), 'checkout', '-q', '--detach');                                   // app 收掉舊對話
+  writeFileSync(join(r.dir, 'src/danger.js'), 'merged from another conversation\n');
+  g(r.dir, T(-100 * MIN), 'commit', '-qam', '別的對話併進 main');
+  const main = out(r.dir, 'rev-parse', '--abbrev-ref', 'HEAD');
+  g(wt, T(-10 * MIN), 'checkout', '-q', '-b', 'new', main);                           // app 把資料夾換新分支給新對話
+  const cleanup = () => { execFileSync('git', ['worktree', 'remove', '--force', wt], { cwd: r.dir, stdio: 'ignore' }); r.cleanup(); };
+  return { r, wt, g, switched: out(wt, 'rev-parse', 'HEAD'), cleanup };
+}
+
+section('換人:app 把舊資料夾換新分支給新對話——認得出來;脫離分支、同一個對話自己換分支、收掉的對話接回原分支、換過去還沒人動,都不算換人(規格:新對話接手舊資料夾 AC-1、AC-2)', 'P6');
+{
+  const h = (session, sec, cwd = '/w') => ({ ts: new Date(sec * 1000).toISOString(), hook: 'UserPromptSubmit', session, cwd });
+  const sha = (c) => c.repeat(40);
+  const rl = [
+    { sha: sha('a'), sec: 1000, gs: '' },                                          // app 建 worktree
+    { sha: sha('b'), sec: 2000, gs: 'commit: 舊對話存檔' },
+    { sha: sha('b'), sec: 3000, gs: 'checkout: moving from old to HEAD' },         // app 收掉舊對話(脫離分支)
+    { sha: sha('c'), sec: 4000, gs: `checkout: moving from ${sha('b')} to new` },  // app 換新分支給新對話
+  ];
+  const got = takeoverOf({ reflog: rl, events: [h('s0', 1500), h('s0', 2500), h('s1', 4001)], cwd: '/w' });
+  eq('舊對話在前、新對話在後 → 換人,時間是換分支那一刻、版本是換過去的那一個', `${got.state}|${got.at}|${got.commit}|${got.to}`, `ok|${new Date(4000_000).toISOString()}|${sha('c')}|new`);
+  eq('別的資料夾的紀錄不算', takeoverOf({ reflog: rl, events: [h('s0', 1500, '/x'), h('s1', 4001)], cwd: '/w' }).state, 'ok');
+  eq('只有脫離分支、還沒人接手 → 不算換人(收掉的對話自己的頁面不准變成「資料夾換人了」)',
+    takeoverOf({ reflog: rl.slice(0, 3), events: [h('s0', 1500), h('s0', 2500)], cwd: '/w' }).state, 'none');
+  eq('同一個對話在換分支前後都有動作(自己換分支)→ 不算換人,之前做的照算',
+    takeoverOf({ reflog: rl, events: [h('s0', 1500), h('s0', 4001)], cwd: '/w' }).state, 'none');
+  const resume = [...rl.slice(0, 3), { sha: sha('b'), sec: 4000, gs: `checkout: moving from ${sha('b')} to old` }];
+  eq('收掉的對話被 app 接回原分支(試驗場那個資料夾 9 月 15、17 日各一次)→ 不算換人',
+    takeoverOf({ reflog: resume, events: [h('s0', 1500), h('s0', 4003)], cwd: '/w' }).state, 'none');
+  eq('換過去之後還沒有人動 → 分不出是誰換的,不算(寧可多算)', takeoverOf({ reflog: rl, events: [h('s0', 1500)], cwd: '/w' }).state, 'none');
+  eq('新對話的第一句話比換分支早一秒(同一秒內誰先記分不出來)→ 還是換人', takeoverOf({ reflog: rl, events: [h('s0', 1500), h('s1', 3999)], cwd: '/w' }).state, 'ok');
+  eq('舊對話最後一個動作在換分支前三秒 → 還是上一手的', takeoverOf({ reflog: rl, events: [h('s0', 3997), h('s1', 4001)], cwd: '/w' }).state, 'ok');
+  // 新對話接手之後自己又換了一次分支:那一次它橫跨(不是換人),往更早找到的才是它接手的那一刻
+  const twice = [...rl, { sha: sha('d'), sec: 5000, gs: 'checkout: moving from new to feat' }];
+  const t2 = takeoverOf({ reflog: twice, events: [h('s0', 1500), h('s1', 4001), h('s1', 5001)], cwd: '/w' });
+  eq('接手之後自己又換了一次分支 → 接手的那一刻還是第一次換的那一筆', `${t2.state}|${t2.commit}`, `ok|${sha('c')}`);
+  eq('reflog 問不到 → 分不出來(unknown),不說換過、也不說沒換過', takeoverOf({ reflog: null, events: [h('s1', 4001)], cwd: '/w' }).state, 'unknown');
+
+  // 這一手的紀錄:這個資料夾換人之前的全部拿掉(感測器的、CLI 記的結論都算),別的資料夾的照留
+  const ev = [
+    { ...h('s0', 1500), hook: 'PreToolUse', tool: 'Skill', skill: 'spec' },
+    { ts: new Date(1600_000).toISOString(), event: 'stage_report', stage: 'A', verdict: 'ok', cwd: '/w', source: 'claude' },
+    { ts: new Date(2600_000).toISOString(), event: 'stage_cleared', stage: 'E', cwd: '/w', source: 'human' },
+    { ts: '讀不懂的時間', event: 'stage_report', stage: 'C', cwd: '/w' },
+    h('s9', 1500, '/x'),
+    h('s1', 4001),
+    // 換人之後你在儀表板上替上一手按了結案:帶著上一手的對話代號、記在這個資料夾——是上一手的,不是這一手的對話(魔鬼教官 2026-09-24)
+    { ts: new Date(4100_000).toISOString(), event: 'session_closed', session: 's0', cwd: '/w', source: 'human' },
+    { ts: new Date(4200_000).toISOString(), event: 'session_closed', session: 's0', cwd: '/x', source: 'human' },
+  ];
+  const kept = tenureEvents(ev, '/w', got);
+  eq('留下的:別的資料夾的、換人之後的(時間讀不懂的分不出是不是這一手的,不留;換人之後替上一手按的結案也不留)',
+    kept.map((e) => `${e.session ?? e.stage}${e.event === 'session_closed' ? '結案' : ''}`).join(','), 's9,s1,s0結案');
+  eq('只剩這一手的對話(新對話不會又被算成跟上一手共用)', sessionsOf(kept).filter((x) => x.cwd === '/w').map((x) => x.id).join(','), 's1');
+  eq('沒換過人 → 原封不動', tenureEvents(ev, '/w', { state: 'none' }).length, ev.length);
+  eq('上一手:s0 是、s1 不是、只在別的資料夾動過的不是', [previousTenant(ev, '/w', got, 's0'), previousTenant(ev, '/w', got, 's1'), previousTenant(ev, '/w', got, 's9')].join(','), 'true,false,false');
+}
+
+section('換人之後的「這次改動」:從換過去的那個版本算——舊對話存的、別的對話併進 main 的都不算進來;同一秒、早一秒也一樣(規格:新對話接手舊資料夾 AC-1)', 'P1');
+{
+  const f = reusedFolder();
+  // 新對話只改了程式區的 a.js,存了檔(reflog 在那之後才讀——同一份拿來找換人、算基準,跟程式裡一樣)
+  writeFileSync(join(f.wt, 'src/a.js'), 'new conversation\n');
+  commitAt(f.wt, T(-3 * MIN), '新對話存檔');
+  const rl = reflogOf(f.wt);
+  check('reflog 讀得到換分支那一筆的說明', rl.some((e) => /^checkout: moving from \S+ to new$/.test(e.gs)), JSON.stringify(rl.map((e) => e.gs)));
+  const took = takeoverOf({ reflog: rl, cwd: f.wt, events: [
+    { ts: T(-235 * MIN), hook: 'UserPromptSubmit', session: 's0', cwd: f.wt },
+    { ts: T(-10 * MIN + 1), hook: 'UserPromptSubmit', session: 's1', cwd: f.wt },
+  ] });
+  eq('認得出換人,版本是換過去的那一個', `${took.state}|${took.commit}`, `ok|${f.switched}`);
+  const rel = relationOf(f.wt);
+  const base = changeBase({ root: f.wt, origin: { at: T(-10 * MIN + 1), from: 'prompt', sessions: 1 }, relationOf: rel, reflog: rl, takeover: took });
+  eq('基準是換過去的那個版本', `${base.kind}|${base.since}`, `origin|${f.switched}`);
+  eq('清單只有這個對話改的(別的對話併進 main 的危險檔不在裡面)', changeHealth(f.wt, base.since).list.join(','), 'src/a.js');
+  // 以前的算法:舊對話的 A 當起點 → 舊的版本,危險檔被算成這個對話改的(9/24 的 T2)
+  const old = changeBase({ root: f.wt, origin: { at: T(-235 * MIN), from: 'A', sessions: null }, relationOf: rel, reflog: rl });
+  check('對照:從舊對話的 A 算,危險檔就混進來(這次要修的洞)', changeHealth(f.wt, old.since).list.includes('src/danger.js'), JSON.stringify(changeHealth(f.wt, old.since).list));
+  // 新對話的第一句話跟換分支同一秒、甚至早一秒(同一秒內分不出先後):照「同一秒算之後」會拿到換之前的舊版本
+  for (const [label, at] of [['同一秒', T(-10 * MIN)], ['早一秒', T(-10 * MIN - 1)]]) {
+    const b = changeBase({ root: f.wt, origin: { at, from: 'prompt', sessions: 1 }, relationOf: rel, reflog: rl, takeover: took });
+    eq(`第一句話跟換分支${label} → 還是換過去的那個版本`, b.since, f.switched);
+  }
+  // 換人之後一筆紀錄都還沒有:起點就是換人那一刻(git 的事實),不退回只看還沒存檔的
+  const none = changeBase({ root: f.wt, origin: null, relationOf: rel, reflog: rl, takeover: took });
+  eq('沒有這一輪的紀錄,但知道換人 → 從換人那一刻的版本算', `${none.kind}|${none.since}|${none.origin?.from}`, `origin|${f.switched}|takeover`);
+  const sc = changeScope(none, () => '10 分鐘前');
+  check('文案講「從這個資料夾換到這條分支（10 分鐘前）那一刻」', /從這個資料夾換到這條分支（10 分鐘前）那一刻的版本算起/.test(sc.note), sc.note);
+  eq('換過去之後又存了檔 → 知道中間動過(0 的時候不准畫綠臉)', none.moved, true);
+  f.cleanup();
 }
 
 section('刪掉的檔也有時間:看它所在資料夾的時間(上限,只會說得比實際晚)——以前沒有時間,只刪檔的回合收工 hook 安靜放行(魔鬼教官 2026-09-22)', 'P5');

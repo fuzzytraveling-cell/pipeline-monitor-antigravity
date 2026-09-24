@@ -485,4 +485,30 @@ section('分級卡與未檢查清單:只看得到還沒存的時候不畫「沒�
     !/from '\/scope\.mjs'/.test(src) && [...src.matchAll(/^import .* from '([^']+)'/gm)].every((m) => m[1] === '/freshness.mjs'), [...src.matchAll(/^import .* from '([^']+)'/gm)].map((m) => m[1]).join(','));
 }
 
+section('上一手的對話頁:講明資料夾換人了,不畫資料夾現在的分支、還原點、改動、分級;五關那一格不給按資料夾記的按鈕(真的跑 ui/app.js 的 sessionPage;規格:新對話接手舊資料夾 AC-5)', 'P6');
+{
+  const src = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8');
+  const code = src.match(/^function sessionPage\(name, sid\) \{\n[\s\S]*?\n\}\n/m)?.[0] ?? null;
+  check('從 ui/app.js 拿得出 sessionPage(拿不出來這一段就什麼都沒測到)', !!code);
+  const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const ago = (iso) => (iso ? '2 天前' : '');
+  const stub = (n) => () => `<${n}>`;
+  const card = { path: '/w', branch: 'claude/new', project: 'p', stages: [] };
+  const sess = (o) => ({ id: 's0', title: '舊對話', prompts: 3, lastTs: '2026-09-22T07:45:00Z', closedAt: '2026-09-22T07:45:00Z', stages: [], card, cwd: '/w', ...o });
+  const latest = { projects: [{ name: 'p', sessions: [
+    sess({ movedOn: { at: '2026-09-24T01:52:43Z' }, sharesCwd: false }),
+    sess({ id: 's1', title: '新對話', closedAt: null, movedOn: null, sharesCwd: false }),
+  ] }] };
+  // workflow 換成會講出它拿到哪個資料夾的替身:E 那一格「你說驗收過了」的按鈕是按資料夾記的,path 在就會畫
+  const page = code ? new Function('latest', 'esc', 'ago', 'workflow', 'statRestore', 'statLadder', 'statChanges', 'statTier', 'sensorLine',
+    `${code}; return sessionPage;`)(latest, esc, ago, (c) => `<workflow path=${c.path}>`, stub('restore'), stub('ladder'), stub('changes'), stub('tier'), stub('sensor')) : null;
+  const old = page?.('p', 's0') ?? '';
+  check('上一手:講這個資料夾 N 前換到另一條分支、給別的對話用了', /2 天前換到另一條分支、給別的對話用了/.test(old), old);
+  check('上一手:不畫還原點、三階梯、改動、分級(那是下一手的)', !/<restore>|<ladder>|<changes>|<tier>/.test(old), old);
+  check('上一手:不寫資料夾現在的分支名', !old.includes('claude/new'), old);
+  check('上一手:五關照畫,但沒有資料夾(按鈕不畫——在這一頁按,記到的是下一手)', /<workflow path=null>/.test(old), old);
+  const cur = page?.('p', 's1') ?? '';
+  check('這一手:照舊畫四張卡、寫分支名、不說跟別的對話共用', /<restore>/.test(cur) && /<tier>/.test(cur) && cur.includes('claude/new') && !/還有別的對話在用/.test(cur), cur);
+}
+
 process.exit(summary());

@@ -15,7 +15,8 @@ import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 import { decide } from '../gate.mjs';
-import { safeName } from '../lib/events.mjs';
+import { collectAll, cardFor } from '../lib/collect.mjs';
+import { safeName, sessionsOf } from '../lib/events.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const PLUGIN = JSON.parse(readFileSync(join(ROOT, '.claude-plugin', 'plugin.json'), 'utf8')).name;
@@ -308,6 +309,135 @@ section('對話中途換進這個資料夾:起點是它在這裡的第一筆紀�
   const d = decide({ payload: s.payload, monitorDir: s.monitorDir, skillHome: s.home });
   check('擋了(存檔過的危險檔還在清單裡)', d !== null && d.level === 'T2', JSON.stringify(d?.missing));
   check('理由講從這一輪算、含已存檔的(不是「找不到起點」)', /這一輪，含已存檔的/.test(d?.reason ?? ''), d?.reason);
+  s.cleanup();
+}
+
+/**
+ * 新對話接手舊資料夾(規格:新對話接手舊資料夾;2026-09-24 那個資料夾的縮小版)。
+ * 主資料夾開 worktree(舊分支 old)→ 舊對話 s0 在裡面叫 A、C、D,改危險檔、存檔、蓋章 → app 收掉(脫離分支)→
+ * 別的對話的改動併進 main(碰到危險檔)→ app 在同一個資料夾從 main 開新分支 new,給新對話 s1;s1 只改程式區的 a.js(還沒存)。
+ * 時間用 GIT_COMMITTER_DATE 控制(reflog 跟著它走)。
+ */
+function reuseScene() {
+  const cfg = JSON.stringify({ tiers: { code: ['src/'], danger: ['src/danger.js'] } });
+  const r = makeRepo({ files: { 'src/a.js': '1\n', 'src/danger.js': 'd\n', 'README.md': 'r\n', '.claude/pipeline-stages.json': cfg }, at: T(-300 * MIN) });
+  const main = out(r.dir, 'rev-parse', '--abbrev-ref', 'HEAD');
+  const g = (cwd, at, ...a) => execFileSync('git', a, { cwd, stdio: 'ignore', env: { ...process.env, GIT_AUTHOR_DATE: at, GIT_COMMITTER_DATE: at } });
+  const wtParent = mkdtempSync(join(tmpdir(), 'pm-gate-reuse-'));
+  g(r.dir, T(-240 * MIN), 'worktree', 'add', '-q', '-b', 'old', join(wtParent, 'wt'));
+  const root = out(join(wtParent, 'wt'), 'rev-parse', '--show-toplevel');
+  writeFileSync(join(root, 'src/danger.js'), 's0 的改動\n');
+  g(root, T(-231 * MIN), 'commit', '-qam', 's0 存檔');
+  const monitorDir = mkdtempSync(join(tmpdir(), 'pm-gate-'));
+  mkdirSync(join(monitorDir, 'logs')); mkdirSync(join(monitorDir, 'checkpoints'));
+  copyFileSync(join(ROOT, 'stages.json'), join(monitorDir, 'stages.json'));
+  const project = safeName(basename(out(r.dir, 'rev-parse', '--show-toplevel')));
+  writeFileSync(join(monitorDir, 'checkpoints', `${project}__old.json`), JSON.stringify({
+    commit: out(root, 'rev-parse', 'HEAD'), branch: 'old', worktree: root, at: T(-230 * MIN), checks: ['test'] }));
+  g(root, T(-200 * MIN), 'checkout', '-q', '--detach');                                  // app 收掉 s0
+  writeFileSync(join(r.dir, 'src/danger.js'), '別的對話的改動\n');
+  g(r.dir, T(-100 * MIN), 'commit', '-qam', '別的對話併進 main');
+  g(root, T(-10 * MIN), 'checkout', '-q', '-b', 'new', main);                            // app 把資料夾換新分支給 s1
+  writeFileSync(join(root, 'src/a.js'), 's1 的改動\n');
+  const past = new Date(Date.now() - 4 * MIN * 1000);
+  utimesSync(join(root, 'src/a.js'), past, past);
+  const home = mkdtempSync(join(tmpdir(), 'pm-home-'));
+  mkdirSync(join(home, '.claude', 'skills'), { recursive: true });
+  symlinkSync(ROOT, join(home, '.claude', 'skills', PLUGIN));
+  const log = join(monitorDir, 'logs', `${project}.jsonl`);
+  // 上一手 s0 的紀錄:A、C、D 都跑過,C、D 記了結論(CLI 記的,沒有對話代號)
+  const old = [
+    { ts: T(-239 * MIN), hook: 'UserPromptSubmit', session: 's0', prompt: '改匯出' },
+    { ts: T(-238 * MIN), hook: 'PreToolUse', tool: 'Skill', session: 's0', skill: 'spec' },
+    { ts: T(-236 * MIN), hook: 'PostToolUse', tool: 'Edit', session: 's0', file: join(root, 'src/danger.js') },
+    { ts: T(-235 * MIN), hook: 'PreToolUse', tool: 'Skill', session: 's0', skill: 'cleanup' },
+    { ts: T(-234 * MIN), event: 'stage_report', stage: 'C', verdict: 'ok', note: '列了建議', source: 'claude' },
+    { ts: T(-233 * MIN), hook: 'PreToolUse', tool: 'Skill', session: 's0', skill: 'chaos-check' },
+    { ts: T(-232 * MIN), event: 'stage_report', stage: 'D', verdict: 'ok', note: '沒對到已知死法', source: 'claude' },
+  ];
+  const write = (lines) => writeFileSync(log, [...old, ...lines].map((o) => JSON.stringify({ cwd: root, ...o })).join('\n') + '\n');
+  const payload = { session_id: 's1', cwd: root, hook_event_name: 'Stop', stop_hook_active: false };
+  // 終端機:人自己跑的那種(沒有對話代號)——看的是這個資料夾那一份,跟專案卡同一份
+  const env = { ...process.env, PIPELINE_MONITOR_HOME: monitorDir, PIPELINE_MONITOR_LOG_DIR: join(monitorDir, 'logs'), HOME: home, CLAUDE_CODE_SESSION_ID: '' };
+  const cli = () => execFileSync('node', [join(ROOT, 'status.mjs')], { cwd: root, encoding: 'utf8', env });
+  const cleanup = () => {
+    execFileSync('git', ['worktree', 'remove', '--force', root], { cwd: r.dir, stdio: 'ignore' });
+    for (const d of [monitorDir, home, wtParent]) rmSync(d, { recursive: true, force: true });
+    r.cleanup();
+  };
+  return { root, monitorDir, home, project, g, write, payload, cli, cleanup };
+}
+
+section('新對話接手舊資料夾:收工 hook、儀表板、終端機都從接手那一刻算——T1、只要 D;上一手的 A、C、章都不算(規格:新對話接手舊資料夾 AC-1、AC-3、AC-4、AC-5)', 'P6');
+{
+  const s = reuseScene();
+  const mine = [
+    { ts: T(-10 * MIN + 1), hook: 'UserPromptSubmit', session: 's1', prompt: '整理一下程式' },
+    { ts: T(-5 * MIN), hook: 'PostToolUse', tool: 'Edit', session: 's1', file: join(s.root, 'src/a.js') },
+  ];
+  s.write(mine);
+  const d = decide({ payload: s.payload, monitorDir: s.monitorDir, skillHome: s.home });
+  eq('收工 hook:T1(上一手、別的對話碰過的危險檔不算這個對話的)', d?.level, 'T1');
+  eq('收工 hook:只缺 D——不叫補 A、C(上一手跑的不算這一手的;T1 也不要)', (d?.missing ?? []).join(','), 'D');
+  const p = collectAll({ monitorDir: s.monitorDir, skillHome: s.home }).projects[0];
+  const c = p?.cards.find((x) => x.path === s.root);
+  const s1 = p?.sessions.find((x) => x.id === 's1'), s0 = p?.sessions.find((x) => x.id === 's0');
+  eq('儀表板:還沒有還原點(上一手在舊分支蓋的章不算)', c?.checkpoint, null);
+  eq('儀表板:這一輪 1 個檔(不是從舊章算出來的一堆)', c?.files?.total, 1);
+  check('儀表板:從這個對話第一句話算起', /這個對話第一句話/.test(c?.scope?.note ?? ''), c?.scope?.note);
+  eq('對話頁:T1、不說跟別的對話共用(上一手已經撤場)、不是上一手', `${s1?.tier?.final?.id}|${s1?.sharesCwd}|${s1?.movedOn}`, 'T1|false|null');
+  check('上一手的頁面:講明資料夾換人了、不給它資料夾現在的分級', !!s0?.movedOn?.at && s0?.tier === null, JSON.stringify({ movedOn: s0?.movedOn, tier: s0?.tier }));
+  const txt = s.cli();
+  check('終端機:還沒有還原點、1 個檔案、T1', /還沒有還原點/.test(txt) && /\n {3}1 個檔案/.test(txt) && /\n {3}T1（/.test(txt), txt);
+  check('終端機:A、C 這一輪還沒跑(上一手跑的不算成這一輪的)', /A 寫規格\s+⚪ 這一輪還沒跑/.test(txt) && /C 打掃\s+⚪ 這一輪還沒跑/.test(txt), txt);
+  // 換人之後你在儀表板上替上一手按了結案:那一筆帶著上一手的對話代號、記在這個資料夾(魔鬼教官 2026-09-24 重現)
+  s.write([...mine, { ts: T(-1 * MIN), event: 'session_closed', session: 's0', cwd: s.root, source: 'human' }]);
+  const p2 = collectAll({ monitorDir: s.monitorDir, skillHome: s.home }).projects[0];
+  eq('替上一手按了結案之後:新對話照舊不說共用、上一手照舊是上一手',
+    `${p2?.sessions.find((x) => x.id === 's1')?.sharesCwd}|${!!p2?.sessions.find((x) => x.id === 's0')?.movedOn}`, 'false|true');
+  eq('收工 hook 拿到的紀錄裡也只有這一手的對話(它的「共用」從這裡算)',
+    sessionsOf(cardFor({ monitorDir: s.monitorDir, path: s.root, skillHome: s.home }).events).filter((x) => x.cwd === s.root).map((x) => x.id).join(','), 's1');
+  // 這一手自己跑了 D、記了結論 → 放行
+  s.write([...mine,
+    { ts: T(-2 * MIN), hook: 'PreToolUse', tool: 'Skill', session: 's1', skill: 'chaos-check' },
+    { ts: T(-2 * MIN + 10), event: 'stage_report', stage: 'D', verdict: 'ok', note: '沒對到已知死法', source: 'claude' },
+  ]);
+  eq('這一手跑了 D、記了結論 → 放行', decide({ payload: s.payload, monitorDir: s.monitorDir, skillHome: s.home }), null);
+  s.cleanup();
+}
+
+section('同一個資料夾兩顆章:終端機跟儀表板認同一顆——這條分支、接手之後蓋的;不看檔名排序的運氣(規格:新對話接手舊資料夾 AC-3)', 'P2');
+{
+  const s = reuseScene();
+  s.g(s.root, T(-3 * MIN), 'commit', '-qam', 's1 存檔');
+  const head = out(s.root, 'rev-parse', 'HEAD');
+  // 「new」排在「old」前面:以前儀表板照檔名的順序讀,後讀到的(old,上一手的)蓋掉先讀到的
+  writeFileSync(join(s.monitorDir, 'checkpoints', `${s.project}__new.json`), JSON.stringify({
+    commit: head, branch: 'new', worktree: s.root, at: T(-2 * MIN), checks: ['test'] }));
+  s.write([{ ts: T(-10 * MIN + 1), hook: 'UserPromptSubmit', session: 's1', prompt: '整理一下程式' }]);
+  const c = collectAll({ monitorDir: s.monitorDir, skillHome: s.home }).projects[0]?.cards.find((x) => x.path === s.root);
+  eq('儀表板認這條分支、接手之後蓋的那一顆', `${c?.checkpoint?.branch}|${c?.checkpoint?.commit}`, `new|${head}`);
+  const txt = s.cli();
+  check('終端機認同一顆', txt.includes(`最後一次檢查全綠：${head.slice(0, 7)}`), txt.slice(0, 400));
+  s.cleanup();
+}
+
+section('同一個對話自己中途換分支:不算換人,之前做的照算——改動只准看起來比實際大(規格:新對話接手舊資料夾 AC-2)', 'P1');
+{
+  const s = scene({ danger: true });                                        // s1 改了危險檔
+  const at = (t) => ({ ...process.env, GIT_AUTHOR_DATE: t, GIT_COMMITTER_DATE: t });
+  execFileSync('git', ['commit', '-qam', 's1 存檔'], { cwd: s.root, stdio: 'ignore', env: at(T(-8 * MIN)) });
+  execFileSync('git', ['checkout', '-q', '-b', 'feat'], { cwd: s.root, stdio: 'ignore', env: at(T(-6 * MIN)) });   // 用 Bash 開新分支繼續做
+  writeFileSync(join(s.root, 'src/a.js'), 'feat 上的改動\n');
+  s.write([
+    { ts: T(-10 * MIN), hook: 'UserPromptSubmit', prompt: '改匯出' },
+    { ts: T(-9 * MIN), hook: 'PostToolUse', tool: 'Edit', file: join(s.root, 'src/danger.js') },
+    { ts: T(-6 * MIN + 1), hook: 'PostToolUse', tool: 'Bash' },            // 開分支那一個 Bash 動作的收尾:換分支之後 s1 還在
+    { ts: T(-5 * MIN), hook: 'PostToolUse', tool: 'Edit', file: join(s.root, 'src/a.js') },
+  ]);
+  const d = decide({ payload: s.payload, monitorDir: s.monitorDir, skillHome: s.home });
+  eq('還是 T2:換分支之前改的危險檔照算(當成換人的話會掉成 T1——危險的那一邊)', d?.level, 'T2');
+  check('缺的照 T2 要(A、C 都在)', ['A', 'C'].every((k) => (d?.missing ?? []).includes(k)), JSON.stringify(d?.missing));
   s.cleanup();
 }
 

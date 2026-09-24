@@ -580,7 +580,7 @@ function sessionList(p) {
       <a class="sname" href="#/p/${encodeURIComponent(p.name)}/s/${encodeURIComponent(s.id)}">
         ${esc(s.title ?? '（還沒有標題）')}</a>
       <span class="smeta">${s.prompts} 則訊息 · 最後動作 ${ago(s.lastTs)}
-        · ${esc(where)}${s.sharesCwd ? ' · ⚠️ 與其他對話共用工作區' : ''}${
+        · ${esc(where)}${s.sharesCwd ? ' · ⚠️ 與其他對話共用工作區' : ''}${s.movedOn ? ' · 資料夾已換給別的對話' : ''}${
         s.reopenedByActivity ? ` · 結案後又有動作（${ago(s.reopenedByActivity)}）,算回進行中` : ''}</span>
       ${s.deletedAt
         ? `<span class="muted">已在 app 裡刪除</span>`
@@ -743,6 +743,22 @@ function sessionPage(name, sid) {
     <div class="block">
       <h2 class="section serif">My Agent work flow</h2>
       ${workflow({ ...c, sensor: { state: 'ok' }, stages: s.stages })}
+    </div>`;
+  }
+  // 資料夾換人了(規格:新對話接手舊資料夾 AC-5):app 把這個對話留下的資料夾換一條新分支給別的對話用。
+  // 資料夾現在的分支、還原點、改動、分級都是那個對話的——畫在這裡就是把別人的進度講成這個對話的。跟「資料夾不在了」同一個樣子:只畫五關。
+  // ⚠️ 五關那裡把 path 拿掉:E 那一格的「你說驗收過了」是按資料夾記的——在這一頁按,記到的是現在在這個資料夾做事的那個對話(R2)
+  if (s.movedOn) {
+    return `
+    <div class="block">
+      <h2 class="section serif">${esc(s.title ?? '（還沒有標題）')}</h2>
+      <p class="section-note">${s.prompts} 則訊息 · 最後動作 ${ago(s.lastTs)}${s.closedAt ? ` · 已於 ${ago(s.closedAt)}結案` : ''}</p>
+      <p class="section-note">⚠️ 這個資料夾 ${ago(s.movedOn.at)}換到另一條分支、給別的對話用了——
+        分支、還原點、改動、分級是那個對話的，這裡不畫。下面五關是這個對話當時的紀錄。</p>
+    </div>
+    <div class="block">
+      <h2 class="section serif">My Agent work flow</h2>
+      ${workflow({ ...c, path: null, sensor: { state: 'ok' }, stages: s.stages })}
     </div>`;
   }
 

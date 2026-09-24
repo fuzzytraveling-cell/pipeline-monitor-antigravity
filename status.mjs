@@ -25,7 +25,8 @@ import { readEvents, loadStages, lastRunPerStage, runsPerStage, roundView, edits
 import { eLines, parseWalk, walkSummary, summaryLine } from './lib/verify.mjs';
 import { readChecklist, locateSpec } from './lib/checklist.mjs';
 import { buildTier, readTierConfig, writeTierConfig, proposeCodeArea, codeFileFn, computeTier, changeTimeOf, fileTimeOf } from './lib/tier.mjs';
-import { changeFacts } from './lib/origin.mjs';
+import { changeFacts, reflogOf, takeoverOf, tenureEvents } from './lib/origin.mjs';
+import { checkpointFor, writeCheckpoint } from './lib/checkpoint.mjs';
 import { changeScope } from './lib/scope.mjs';
 import { monitorHome } from './lib/paths.mjs';
 import { skillAvailable, commandFor, pluginName } from './lib/skills.mjs';
@@ -42,28 +43,19 @@ const CHECKPOINT_DIR = join(HOME_DIR, 'checkpoints');
 // 寫的跟讀的必須看同一個地方,否則感測器記在 A、畫面去 B 找(老毛病 P2)。
 const LOG_DIR = process.env.PIPELINE_MONITOR_LOG_DIR ?? join(HOME_DIR, 'logs');
 
-/* ────────────────────────── 章（AC-1 / AC-4 / AC-6） ────────────────────────── */
+/* ────────────────────────── 章（AC-1 / AC-4 / AC-6） ──────────────────────────
+ * 章住哪、認哪一顆:lib/checkpoint.mjs(儀表板、收工 hook 同一個函式)。以前這裡照「專案__分支.json」找、儀表板照檔案裡的 worktree 找,
+ * 各算一次——app 把舊資料夾換新分支給新對話用之後,兩邊講不同的話(規格:新對話接手舊資料夾 AC-3,老毛病 P2)。
+ * 找不到 = 還不知道(AC-4),不是「沒綠過」;寫不進去要大聲(AC-6),跟感測器刻意相反。 */
 
-function checkpointPath(ctx) {
-  // 跟紀錄檔同一條規則(safeName)。網頁拿紀錄檔名跟章檔名對專案——規則不同,中文名的專案就變兩張卡(誠實修補 C3)
-  return join(CHECKPOINT_DIR, `${safeName(ctx.project)}__${safeName(ctx.branch)}.json`);
-}
-
-function readCheckpoint(ctx) {
-  const p = checkpointPath(ctx);
-  if (!existsSync(p)) return null;              // AC-4：不存在 = 還不知道，不是「沒綠過」
-  try {
-    return JSON.parse(readFileSync(p, 'utf8'));
-  } catch {
-    return null;
-  }
-}
-
-/** ⚠️ AC-6：這裡跟感測器**刻意相反**——寫不進去要大聲。
- *  「我以為我有退路，其實沒有」會在最需要的時候害到人。 */
-function writeCheckpoint(ctx, data) {
-  mkdirSync(CHECKPOINT_DIR, { recursive: true });
-  writeFileSync(checkpointPath(ctx), JSON.stringify(data, null, 2));
+/**
+ * 這個資料夾這一手的事實(規格:新對話接手舊資料夾):最近一次換人、這一手的紀錄。gatherChange 跟 --spec 都從這裡拿,不各算一次。
+ * 「感測器活著嗎、從什麼時候開始記」講的是整個資料夾,照舊看 ev.events(全部)。
+ */
+function tenureOfCtx(ctx, ev) {
+  const reflog = ctx.hasCommits ? reflogOf(ctx.root) : null;
+  const takeover = takeoverOf({ reflog, events: ev.events, cwd: ctx.root });
+  return { reflog, takeover, events: tenureEvents(ev.events, ctx.root, takeover) };
 }
 
 /* ────────────────────────── 要跑哪幾項檢查 ──────────────────────────
@@ -287,7 +279,7 @@ function doCheckpoint(ctx) {
   }
 
   try {
-    writeCheckpoint(ctx, {
+    writeCheckpoint(CHECKPOINT_DIR, ctx, {
       commit: ctx.head, branch: ctx.branch, worktree: ctx.root,
       at: new Date().toISOString(), checks: passed,
     });
@@ -323,13 +315,15 @@ function renderSensor(ctx, ev) {
  * 還原點的事實。「這次改動」(h)與它的基準(base)在 stageFacts 裡跟五關一起算——起點是五關那一輪的起點(lib/origin.mjs),
  * 算完由 main() 放回這裡。畫面(render)與分級(--tier)都吃這一份,兩邊才不會各算各的(老毛病 P2)。
  */
-function gatherChange(ctx) {
-  const cp = readCheckpoint(ctx);
+function gatherChange(ctx, ev) {
+  // 這一手(規格:新對話接手舊資料夾):資料夾換過人的話,上一手蓋的章、跑的關都不算這一輪的
+  const tn = tenureOfCtx(ctx, ev);
+  const cp = checkpointFor({ dir: CHECKPOINT_DIR, project: ctx.project, root: ctx.root, branch: ctx.branch, takeover: tn.takeover });
   const dirty = uncommitted(ctx.root);
   // ⚠️ L14:章只有在它指的版本還在這條分支的歷史上時才算數,詳見 checkpointRelation()。
   const rel = cp ? checkpointRelation(ctx.root, cp.commit) : null;
   const cpUsable = rel?.state === 'ok';
-  return { cp, dirty, rel, cpUsable, h: null, base: null };
+  return { cp, dirty, rel, cpUsable, tenure: tn, h: null, base: null };
 }
 
 function render(ctx, ev, info) {
@@ -389,51 +383,58 @@ function render(ctx, ev, info) {
 /** 五關的事實,一次算好:關卡清單、每關最後一次紀錄、人蓋的結案。五關那段與分級那段共用。 */
 function stageFacts(ctx, ev, info = {}) {
   const { stages } = loadStages(HERE, ctx.root, ctx.mainRoot);
+  // 「有沒有任何一筆來自這裡」講的是感測器,看整個資料夾的紀錄;下面算這一輪的全部只看這一手的(規格:新對話接手舊資料夾)——
+  // 資料夾換過人的話,上一手的 A、C、D、結論、你說處理完了、規格連結都不在 events 裡
   const { sawAnyEventHere } = lastRunPerStage(ev.events, stages, ctx.root);
+  const tn = info.tenure ?? tenureOfCtx(ctx, ev);
+  const events = tn.events;
   // 人蓋的「結案」事件(AC-9)。source:'human' 是刻意標的——
   // 它跟感測器觀察到的事實不同級,永遠不要混在一起。
   const cleared = new Map();
-  for (const e of ev.events) {
+  for (const e of events) {
     if (e.event === 'stage_cleared' && e.cwd === ctx.root) cleared.set(e.stage, e);
   }
   // Claude 記的結論(stage_report,source:claude)也按工作區記;「程式檔」的判斷跟分級同一份
-  const reports = reportsIn(ev.events, (e) => e.cwd === ctx.root);
+  const reports = reportsIn(events, (e) => e.cwd === ctx.root);
   const cfg = readTierConfig(ctx.root, ctx.mainRoot, HERE);
   const isCode = codeFileFn(ctx.root, cfg.state === 'ok' ? cfg.config : null);
-  const edits = editsOf(ev.events, (e) => e.cwd === ctx.root);
+  const edits = editsOf(events, (e) => e.cwd === ctx.root);
   // 這一輪跑到哪:五關、分級的「需要」、收工 hook 都吃這一份(老毛病 P2)。B 的證據除了感測器,還有 git 說改了的檔案的修改時間(L8)
-  const runs = runsPerStage(ev.events, stages, (e) => e.cwd === ctx.root);
+  const runs = runsPerStage(events, stages, (e) => e.cwd === ctx.root);
   const cpAt = info.cpUsable ? info.cp?.at ?? null : null;
   // 規格連結(施工對話認規格):Claude 跑的(拿得到對話代號,而且這個對話在這裡動過)→ 用這個對話的連結,跟 --spec、收工 hook 同一個代號來源;
   // 人自己在終端機跑拿不到 → 工作區層級,這個工作區只有一個對話在動時等於它(lib/events.mjs 的 specContext)。
   // ⚠️ 以前一律用工作區層級:worktree 只要來過別的對話,剛記了連結的 Claude 自己一看就是「A 沒有紀錄」(魔鬼教官 2026-09-21,老毛病 P2)
   const sid = sessionFromEnv();
-  const mine = sid && ev.events.some((e) => e.session === sid && inWorkspace(ctx, e.cwd)) ? sid : null;
-  // 「這次改動」的基準(lib/origin.mjs):roundView 算出這一輪的起點就照它問 git,改動體檢、分級、五關的 B 拿同一份(規格:這一輪的起點)
+  const mine = sid && events.some((e) => e.session === sid && inWorkspace(ctx, e.cwd)) ? sid : null;
+  // 「這次改動」的基準(lib/origin.mjs):roundView 算出這一輪的起點就照它問 git,改動體檢、分級、五關的 B 拿同一份(規格:這一輪的起點)。
+  // 起點最早就是這個資料夾換人那一刻換過去的版本(規格:新對話接手舊資料夾)
   const change = changeFacts({ root: ctx.root, cpCommit: info.cpUsable ? info.cp?.commit ?? null : null, cpCommits: info.rel?.commitsAfter ?? null,
                                hasCommits: ctx.hasCommits, isCode,
-                               relationOf: (c) => checkpointRelation(ctx.root, c), healthOf: (s) => changeHealth(ctx.root, s) });
+                               relationOf: (c) => checkpointRelation(ctx.root, c), healthOf: (s) => changeHealth(ctx.root, s),
+                               takeover: tn.takeover, reflog: tn.reflog });
   // 起點跟儀表板那張卡同一個(工作區層級:共用資料夾時是最早開口的那個)——分級一個資料夾一份,「調高」也是按資料夾記的。
   // ⚠️ 以前拿這個對話的第一句話配整個資料夾的 A:共用資料夾時終端機跟收工 hook 講不同的等級(魔鬼教官 2026-09-22,P2)。規格連結照舊按這個對話
-  const spec = specContext(ev.events, { cwd: ctx.root, cpAt, session: mine });
+  const spec = specContext(events, { cwd: ctx.root, cpAt, session: mine });
   const here = (e) => e.cwd === ctx.root;
   const view = roundView({
     runs, stages, cleared, reports, edits, isCode, cpAt,
     gitChanges: change.gitChanges,
-    spec: { ...spec, startHere: specContext(ev.events, { cwd: ctx.root, cpAt }).startHere }, root: ctx.root, mainRoot: ctx.mainRoot,
+    spec: { ...spec, startHere: specContext(events, { cwd: ctx.root, cpAt }).startHere }, root: ctx.root, mainRoot: ctx.mainRoot,
     // 結論會過期的關(D):每一筆結論與決定,配得出「叫 → 結論」、對得回你說的話(D 多輪先問人;跟卡片同一種取法)
-    reportLog: reportLogIn(ev.events, here), decisions: decisionsIn(ev.events, here), events: ev.events,
-    clearLog: clearLogIn(ev.events, here), mtimeOf: fileTimeOf(ctx.root),
+    reportLog: reportLogIn(events, here), decisions: decisionsIn(events, here), events,
+    clearLog: clearLogIn(events, here), mtimeOf: fileTimeOf(ctx.root),
   });
   // 結論會過期的關(D):Claude 跑的時候按這個對話算——叫了幾次、你說了什麼看這個對話,改檔看整個資料夾——跟收工 hook、--round、對話頁同一份
   // (D 多輪先問人 AC-9)。以前這裡按整個資料夾數叫了幾次:共用資料夾時終端機說「要不要再跑由你決定」、--round 說「這是第一次」、
   // 收工 hook 說「去跑」(魔鬼教官第一輪,老毛病 P2)
   if (mine) {
-    const sv = sessionView(ev.events, stages, mine, cpAt, ctx.root, { isCode, gitChanges: [], mainRoot: ctx.mainRoot, folderEdit: view.lastEdit });
+    const sv = sessionView(events, stages, mine, cpAt, ctx.root, { isCode, gitChanges: [], mainRoot: ctx.mainRoot, folderEdit: view.lastEdit });
     view.stages = view.stages.map((st) => (st.rerunAfterChange ? sv.view.stages.find((x) => x.id === st.id) ?? st : st));
   }
   const { base, health } = change.facts();
-  return { stages, perStage: perStageOfRound(view), cleared, reports, view, sawAnyEventHere, base, health };
+  // events:這一手的紀錄——分級(調高的等級)與共用與否也只看它,跟五關同一份
+  return { stages, perStage: perStageOfRound(view), cleared, reports, view, sawAnyEventHere, base, health, events };
 }
 
 /** 這一筆紀錄的資料夾在不在這個工作區裡(就是工作區的根,或它底下的子資料夾——對話可以開在專案的子資料夾)。 */
@@ -785,8 +786,9 @@ function doSpec(ctx, ev, args) {
     }
     if (!acs.includes(id)) acs.push(id);
   }
-  // 這個對話自己寫的規格不收(AC-4):那是寫規格那一關的工作,跑那一關它會自己連上寫的檔
-  const self = writtenHere(ctx, ev, loc, sid, stages);
+  // 這個對話自己寫的規格不收(AC-4):那是寫規格那一關的工作,跑那一關它會自己連上寫的檔。
+  // 只看這一手的紀錄(規格:新對話接手舊資料夾):上一手不算「這個工作區還有別的對話」
+  const self = writtenHere(ctx, { ...ev, events: tenureOfCtx(ctx, ev).events }, loc, sid, stages);
   if (self) {
     const cmd = first ? commandFor(first.skill, ctx.root, ctx.mainRoot, pluginName(HERE)) : null;
     console.log(`${loc.rel} 看起來是這個對話自己寫的（${self}）——那是 ${stageName} 的工作，${cmd ? `跑 ${cmd}` : `跑 ${stageName}`}（它會自己連上寫的那份）。`);
@@ -952,11 +954,12 @@ async function rerunFacts(ctx, ev) {
     const t = sessionTier({ card: got.card, events: got.events, stages: got.stages, session: mine, cwd: ctx.root, shared, monitorDir: HERE });
     return { view: t.view, tier: t.tier, health: got.card.health, sid: mine, shared, events: got.events };
   }
-  const info = gatherChange(ctx);
+  const info = gatherChange(ctx, ev);
   const facts = stageFacts(ctx, ev, info);
   info.h = facts.health; info.base = facts.base;
-  const shared = new Set(ev.events.filter((e) => e.cwd === ctx.root && e.hook && e.session).map((e) => e.session)).size > 1;
-  return { view: facts.view, tier: tierOf(ctx, ev, info, facts), health: facts.health, sid: null, shared, events: ev.events };
+  // 共用與否只算這一手的對話(規格:新對話接手舊資料夾 AC-4):上一手已經撤場,不算跟它共用
+  const shared = new Set(facts.events.filter((e) => e.cwd === ctx.root && e.hook && e.session).map((e) => e.session)).size > 1;
+  return { view: facts.view, tier: tierOf(ctx, ev, info, facts), health: facts.health, sid: null, shared, events: facts.events };
 }
 
 /** 分不了級的原因,一句白話(給 runMode)。分得了就是 null。 */
@@ -1283,7 +1286,8 @@ function tierOf(ctx, ev, info, facts) {
   return buildTier({
     root: ctx.root, mainRoot: ctx.mainRoot, monitorDir: HERE, health: info.h,
     stages: facts.stages, perStage: facts.perStage, cleared: facts.cleared,
-    events: ev.events, cwd: ctx.root, cpUsable: info.cpUsable, cpAt: info.cp?.at ?? null,
+    // 調高的等級也只認這一手的(上一手調的 T2 不跟著新對話走;規格:新對話接手舊資料夾 AC-1)
+    events: facts.events ?? ev.events, cwd: ctx.root, cpUsable: info.cpUsable, cpAt: info.cp?.at ?? null,
     head: ctx.head?.slice(0, 7) ?? null, reports: facts.reports, spec: facts.view.spec, rerun: rerunMapOf(facts.view), ago,
     basis: facts.base ? { kind: facts.base.kind, why: facts.base.why ?? null, origin: facts.base.origin ?? null,
                           moved: facts.base.moved === true, commits: facts.base.commits ?? null } : null,
@@ -1547,7 +1551,7 @@ async function main() {
   if (at('--checkpoint') !== -1) return doCheckpoint(ctx);
 
   // 事實各算一次,三段畫面共用。「這次改動」從五關那一輪的起點算,所以跟五關一起算完才放回 info
-  const info = gatherChange(ctx);
+  const info = gatherChange(ctx, ev);
   const facts = stageFacts(ctx, ev, info);
   info.h = facts.health; info.base = facts.base;
   if (at('--tier-retract') !== -1) return doTierRetract(ctx, ev, info, facts);
