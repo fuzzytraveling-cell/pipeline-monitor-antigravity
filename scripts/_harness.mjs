@@ -1,4 +1,4 @@
-/** 零相依的測試小工具。刻意不裝測試框架——見 CLAUDE.md「不加任何 npm 相依」。 */
+/** 零相依的測試小工具。刻意不裝測試框架——見規格 pipeline-ui 的「不加任何 npm 相依」(路徑看 CLAUDE.md 的表)。 */
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';

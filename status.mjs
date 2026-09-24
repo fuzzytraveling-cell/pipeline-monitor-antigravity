@@ -8,17 +8,18 @@
  * 「確定能動」「應該沒問題」「太多了」——只有數字、時間戳，以及查不到時的「不知道」。
  *
  * ⚠️ 三個最容易犯的錯，都寫成註解釘在對應的地方了：
- *   1. 查不到 ≠ 沒有（A1）——`git()` 回 null 代表「沒問到」，呼叫端不准折成 false
+ *   1. 查不到 ≠ 沒有（A1）——`git()`（lib/git.mjs）回 null 代表「沒問到」，呼叫端不准折成 false
  *   2. 檢查全綠 ≠ 功能正確（A2, AC-5）——文案永遠寫「檢查全綠」不寫「能動」
  *   3. 自己編門檻會讓工具變成狼來了（AC-7）——比例尺一律從這個專案自己的歷史算
  */
 
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync, mkdirSync, existsSync, realpathSync, statSync } from 'node:fs';
+import { readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync, realpathSync, statSync } from 'node:fs';
 import { join, dirname, basename, resolve, relative, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
-import { appendFileSync } from 'node:fs';
+import { git, gitExit, real, gitContext, changeScale, changeHealth, TEST_FILE, ago, uncommitted, checkpointRelation, backupBranchName } from './lib/git.mjs';
+import { cardFor, sessionTier } from './lib/collect.mjs';
 import { readEvents, loadStages, lastRunPerStage, runsPerStage, roundView, editsOf, reportsIn, reportLogIn, decisionsIn, clearLogIn, perStageOfRound, gateHeartbeat, safeName, logFileOf, specContext,
          sessionsOf, sessionView, rerunLine, tookLine, rerunMapOf, runMode, afterCall } from './lib/events.mjs';
 import { eLines, parseWalk, walkSummary, summaryLine } from './lib/verify.mjs';
@@ -40,58 +41,6 @@ const CHECKPOINT_DIR = join(HOME_DIR, 'checkpoints');
 // 紀錄位置可以用環境變數換掉——跟 hook.sh 的 PIPELINE_MONITOR_LOG_DIR 是**同一個**變數。
 // 寫的跟讀的必須看同一個地方,否則感測器記在 A、畫面去 B 找(老毛病 P2)。
 const LOG_DIR = process.env.PIPELINE_MONITOR_LOG_DIR ?? join(HOME_DIR, 'logs');
-
-/* ────────────────────────── git：查不到就回 null ──────────────────────────
- * ⚠️ A1。回 null 的唯一意思是「這次沒問到」，**不是**「答案是沒有」。
- * 呼叫端必須自己決定「沒問到」要怎麼講，不准預設折成 0／false／空陣列。 */
-function git(args, cwd) {
-  try {
-    // ⚠️ core.quotepath=false:git 預設會把非 ASCII 檔名轉義成 "\350\246\217..." 這種東西。
-    // 這個專案的資料夾叫「規劃中」「進行中」——不關掉的話,畫面上會出現一串八進位碼,
-    // 而讀的人不是工程師。這跟 L7(null 漏到畫面上)是同一族:程式的內部表示不該外流。
-    return execFileSync('git', ['-c', 'core.quotepath=false', ...args],
-      { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-  } catch {
-    return null;
-  }
-}
-
-/** 真實路徑;解析不了(不存在)就原樣回去。 */
-function real(p) {
-  try { return realpathSync(p); } catch { return p; }
-}
-
-/** 這是不是一個 git 專案（AC-10：不是也不准當機） */
-function gitContext(cwd) {
-  const commonDir = git(['rev-parse', '--git-common-dir'], cwd);
-  if (commonDir === null) return { isGit: false };
-
-  // 專案身分用 --git-common-dir：worktree 會解析到主 repo 的 .git，
-  // 所以三個 worktree 算同一個專案（它們本來就是）。
-  const root = git(['rev-parse', '--show-toplevel'], cwd) ?? cwd;
-  // ⚠️ 一般 repo 的 --git-common-dir 回的是**相對路徑**,而且是相對於**執行的位置**,不是專案根目錄:
-  // 在根目錄跑是 '.git',在 src/ 裡跑是 '../.git'。第一版把它接在 root 後面,從子資料夾跑就變成
-  // 上一層的名字(「TutorPod AI v4」,2026-09-11 實測,誠實修補 C2)。只有 worktree 才回絕對路徑。
-  // 解析完再走一次 realpath:root 是 git 給的真實路徑,兩邊拼法要一致,mountState 才分得出「這裡」跟「主資料夾」。
-  const absCommon = real(resolve(cwd, commonDir));
-  const head = git(['rev-parse', 'HEAD'], cwd);          // null = 一個 commit 都還沒有
-  // ⚠️ 一個 commit 都沒有時 `rev-parse --abbrev-ref HEAD` 會失敗 → 我們回 null,
-  // 而 null 直接印到畫面上就是「━━ empty · null ━━」。實測踩到。
-  // symbolic-ref 在零 commit 時仍答得出 HEAD 指向哪條分支,拿它當備援。
-  const branch = git(['rev-parse', '--abbrev-ref', 'HEAD'], cwd)
-    ?? git(['symbolic-ref', '--short', 'HEAD'], cwd)
-    ?? '(還沒有分支)';
-  return {
-    isGit: true,
-    root,
-    mainRoot: dirname(absCommon),   // worktree 所屬的主資料夾;不是 worktree 的話就是 root 自己
-    project: basename(dirname(absCommon)) || basename(root),
-    head,
-    // detached HEAD 時 branch 會是 'HEAD'——那是狀態不是名字，照實說
-    branch: branch === 'HEAD' ? '(detached HEAD)' : branch,
-    hasCommits: head !== null,
-  };
-}
 
 /* ────────────────────────── 章（AC-1 / AC-4 / AC-6） ────────────────────────── */
 
@@ -132,162 +81,6 @@ function detectChecks(root) {
   } catch {
     return null;
   }
-}
-
-/* ────────────────────────── 改動體檢（AC-7 / AC-8） ────────────────────────── */
-
-/** 這個專案「平常改幾個檔案」——比例尺從自己的歷史算，不自己編門檻（AC-7）。 */
-function changeScale(cwd, sample = 30) {
-  const out = git(['log', '-n', String(sample), '--format=%h', '--name-only'], cwd);
-  if (out === null) return null;
-  const counts = [];
-  let n = 0;
-  for (const line of out.split('\n')) {
-    if (/^[0-9a-f]{7,}$/.test(line.trim())) { if (n) counts.push(n); n = 0; }
-    else if (line.trim()) n++;
-  }
-  if (n) counts.push(n);
-  // ⚠️ 兩三個 commit 算出來的「平常」是雜訊不是基準。
-  // 寧可不給比例尺,也不要給一個看起來有依據的假數字（AC-7 的精神）。
-  if (counts.length < 5) return null;
-  counts.sort((a, b) => a - b);
-  return { median: counts[Math.floor(counts.length / 2)], max: counts[counts.length - 1], sample: counts.length };
-}
-
-const TEST_FILE = /(^|\/)(tests?|__tests__)\/|\.(test|spec)\./;
-
-/** package.json 的相依名稱集合。讀不到就回空集合——呼叫端只拿它做「新增了什麼」的差集,
- *  讀不到時差集是空的,不會憑空報出新相依（A1:沒問到不要變成一個答案）。 */
-function readDeps(text) {
-  if (!text) return new Set();
-  try {
-    const j = JSON.parse(text);
-    return new Set([...Object.keys(j.dependencies ?? {}), ...Object.keys(j.devDependencies ?? {})]);
-  } catch {
-    return new Set();
-  }
-}
-
-function changeHealth(cwd, since) {
-  // ⚠️ 基準(since)不在這裡決定,在 lib/origin.mjs 的 changeBase():有章比章,沒章比這一輪起點那一刻的版本,
-  //    起點問不到才是 null——只看還沒存檔的(HEAD)。以前沒章一律比 HEAD,Claude 一存檔「這次改動」就歸零(規格:這一輪的起點)。
-  // 沒帶 HEAD 的 `git diff` 只看得到「還沒 git add」的改動——add 過的整個消失,
-  // 畫面會同時寫「2 個檔案還沒存進保險箱」和「沒有改動」(2026-09-11 實測,老毛病 P1)。
-  const base = since ?? 'HEAD';
-  // ⚠️ --no-renames:git 預設會把「刪一個、加一個」配成搬家,--name-only 只印新路徑——搬走危險清單上的檔,分級就看不到它,
-  //    T2 掉成 T1(老毛病 P1,魔鬼教官 2026-09-22)。三個問法都關掉配對,行數、檔名、測試檔才是同一種算法
-  const stat = git(['diff', '--shortstat', '--no-renames', base], cwd);
-  const names = git(['diff', '--name-only', '--no-renames', base], cwd);
-  // ⚠️ AC-8：只認「被修改」的既有測試（M），不認新增（A）。
-  // 寫新功能順便補新測試是好事,天天為它跳警告會讓人關掉這個工具。
-  const modifiedTests = git(['diff', '--diff-filter=M', '--name-only', '--no-renames', base], cwd);
-  // ⚠️ 不要用 diff 的 `+"lodash": "^4"` 去比對——那**假設 package.json 是一行一個相依**。
-  // 壓成一行的 package.json 就完全認不到,而且是安靜地認不到。直接解析兩邊的鍵。
-  // ⚠️ 這裡本來寫成 `since ? ... : depsNow`——沒有還原點的時候拿自己跟自己比,
-  // 差集永遠是空的,**新增的相依一輩子不會被報出來**。測試抓到的。
-  // 基準一律是呼叫端給的那個版本(沒給才是 HEAD),不是工作區自己。
-  const pkgPath = join(cwd, 'package.json');
-  const depsNow = readDeps(existsSync(pkgPath) ? readFileSync(pkgPath, 'utf8') : null);
-  const depsBefore = readDeps(git(['show', `${since ?? 'HEAD'}:package.json`], cwd));
-
-  // ⚠️ `git diff` **看不到還沒被 git 追蹤的新檔案**。
-  // AI 生成最常見的產物就是新檔案,漏掉它們會讓改動看起來比實際小——
-  // 而「看起來比較安全」正是最危險的錯誤方向。實測抓到:4 個檔案被報成 2 個。
-  const untracked = git(['ls-files', '--others', '--exclude-standard'], cwd);
-  const newDeps = [...depsNow].filter((d) => !depsBefore.has(d));   // 只算新增的,移除不算債務
-  const tests = modifiedTests ? modifiedTests.split('\n').filter((f) => f && TEST_FILE.test(f)) : [];
-  // ⚠️ 問不到就是 null,不是 0(R1)。呼叫端要說「問不到改動」,不准印成「沒有改動」。
-  if (names === null || untracked === null) {
-    return { files: null, newFiles: null, list: null, touchedTests: null, added: null, removed: null, modifiedTests: tests, newDeps };
-  }
-  const newList = untracked.split('\n').filter(Boolean);
-  // 這次動到的每一個檔案(已追蹤的 diff ＋ 新檔案)。分級只看這份清單落在哪裡(lib/tier.mjs)。
-  const list = [...new Set([...names.split('\n').filter(Boolean), ...newList])];
-  const newFiles = newList.length;
-  const files = names.split('\n').filter(Boolean).length + newFiles;
-  // 「補測試」要的是這次有沒有**新增或修改**任何測試檔(A 或 M,含還沒追蹤的)——跟只認 M 的 modifiedTests 不同
-  const touchedTests = list.filter((f) => TEST_FILE.test(f)).length;
-  // ⚠️ 加減分開讀。只刪不加時 shortstat 沒有「insertion」字樣,
-  // 兩個塞在同一條規則裡就整個對不上,印成 +0 −0(2026-09-11 實測)。
-  const added = stat === null ? null : Number(stat.match(/(\d+) insertion/)?.[1] ?? 0);
-  const removed = stat === null ? null : Number(stat.match(/(\d+) deletion/)?.[1] ?? 0);
-  return { files, newFiles, list, touchedTests, added, removed, modifiedTests: tests, newDeps };
-}
-
-/* ────────────────────────── 小工具 ────────────────────────── */
-
-function ago(iso) {
-  const ms = Date.now() - new Date(iso).getTime();
-  if (!Number.isFinite(ms) || ms < 0) return '時間對不上';
-  const m = Math.round(ms / 60000);
-  if (m < 60) return `${m} 分鐘前`;
-  const h = Math.round(m / 60);
-  if (h < 48) return `${h} 小時前`;
-  return `${Math.round(h / 24)} 天前`;
-}
-
-/** 還沒存進保險箱(commit)的檔案有幾個。**這是唯一的一份算法**,網頁那層也用它(老毛病 P2)。
- *  ⚠️ `-uall`:少了它,一個新資料夾不管裡面有幾個檔案都只算 1 行——
- *  「回去會丟掉 1 個檔案」實際是 3 個(2026-09-11 實測),而同畫面另一個數字用 ls-files 算會說 3。 */
-function uncommitted(cwd) {
-  const out = git(['status', '--porcelain', '-uall'], cwd);
-  if (out === null) return null;                 // 沒問到
-  return out.split('\n').filter(Boolean).length;
-}
-
-/** 還沒存進保險箱的**是哪些檔案**(路徑)。問不到回 null。
- *  ⚠️ 不能走 git():它會 trim(),而 porcelain 第一行的開頭就是一個空白（" M a.js"）——
- *     trim 掉之後路徑就切錯位,第一個檔案永遠標不到(2026-09-15 測試抓到)。 */
-function dirtyPaths(cwd) {
-  let raw;
-  try {
-    raw = execFileSync('git', ['-c', 'core.quotepath=false', 'status', '--porcelain', '-uall'],
-      { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-  } catch { return null; }
-  return new Set(raw.split('\n').filter((l) => l.length > 3).map((l) => {
-    const p = l.slice(3);
-    // 改名的一行長 "R  舊 -> 新",要的是新的那個
-    return p.includes(' -> ') ? p.split(' -> ').pop() : p;
-  }));
-}
-
-/** 跟 git() 一樣,但回的是**離開碼**——有些問題 git 是用離開碼回答的
- *  (`merge-base --is-ancestor`:0 是、1 不是、其他是「問不到」)。回 null = 跑不起來。 */
-function gitExit(args, cwd) {
-  try {
-    execFileSync('git', ['-c', 'core.quotepath=false', ...args], { cwd, stdio: ['ignore', 'ignore', 'ignore'] });
-    return 0;
-  } catch (e) {
-    return typeof e.status === 'number' ? e.status : null;
-  }
-}
-
-/**
- * 章指的版本,跟現在的 HEAD 是什麼關係(L14)。
- * ⚠️ 章只有在「它指的版本還在目前這條分支的歷史上」才算數。
- *    歷史被改寫過(2026-09-10 清掉被 commit 的紀錄時就發生了)之後,舊的 SHA 還在倉庫裡,
- *    `git diff <章>` 照樣算得出數字——畫面看起來完全正常,回去的指令卻會把人帶到另一條歷史。
- *    整整一天都這樣顯示,沒有任何徵兆。
- * @returns {{state:'ok', commitsAfter:number} | {state:'off-branch'|'gone'|'unknown'}}
- *   四種刻意分開,呼叫端不准折成布林;**只有 'ok' 才准給回去的指令**。
- */
-function checkpointRelation(cwd, commit) {
-  const exists = gitExit(['rev-parse', '--verify', '-q', `${commit}^{commit}`], cwd);
-  if (exists === 1) return { state: 'gone' };
-  if (exists !== 0) return { state: 'unknown' };
-  const anc = gitExit(['merge-base', '--is-ancestor', commit, 'HEAD'], cwd);
-  if (anc === 1) return { state: 'off-branch' };
-  if (anc !== 0) return { state: 'unknown' };
-  // ⚠️ 先看 null 再轉數字:Number(null) 是 0,會把「問不到」變成「之後 0 次存檔」。
-  const out = git(['rev-list', '--count', `${commit}..HEAD`], cwd);
-  if (out === null || !/^\d+$/.test(out)) return { state: 'unknown' };
-  return { state: 'ok', commitsAfter: Number(out) };
-}
-
-/** 備份分支的名字。只求看得懂、同一分鐘內不重複;git 對中文分支名沒意見。 */
-function backupBranchName(now = new Date()) {
-  const p = (n) => String(n).padStart(2, '0');
-  return `備份-${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}-${p(now.getHours())}${p(now.getMinutes())}`;
 }
 
 /** 怎麼回去(AC-3):先講會失去什麼、想留著先打什麼,**指令一定放最後**。 */
@@ -430,10 +223,9 @@ function describeCheckFailure(script, fail) {
   return L;
 }
 
+// 只給測試釘文案用。問 git 的小工具住 lib/git.mjs——別的檔案要用就 import 那支,不要回頭 import 這支指令(以前這樣做,collect.mjs 跟這支繞成一圈)
 export {
-  git, gitContext, changeScale, changeHealth, detectChecks, ago, TEST_FILE,
-  uncommitted, dirtyPaths, checkpointRelation, backupBranchName, restoreAdvice, describeCheckpoint,
-  describeSensor, describeCheckFailure, describeTier,
+  detectChecks, describeCheckpoint, describeSensor, describeCheckFailure, describeTier,
 };
 
 /* ══════════════════════════ 蓋章：--checkpoint（AC-1） ══════════════════════════ */
@@ -511,7 +303,6 @@ function doCheckpoint(ctx) {
 
 /* ══════════════════════════ 畫面 ══════════════════════════ */
 
-/** 標題＋感測器那一行。零 commit 的路徑跟正常路徑都要它——以前抄了兩份,各自過期(老毛病 P2)。 */
 /** 收工 hook 活著沒:看心跳檔,不看設定(L13:「掛著」不等於「活著」)。 */
 function describeGate(logDir = LOG_DIR) {
   const hb = gateHeartbeat(logDir);
@@ -519,6 +310,7 @@ function describeGate(logDir = LOG_DIR) {
   return `收工 hook：最後一次跑 ${ago(hb.ts)}`;
 }
 
+/** 標題＋感測器那一行。零 commit 的路徑跟正常路徑都要它——以前抄了兩份,各自過期(老毛病 P2)。 */
 function renderSensor(ctx, ev) {
   console.log(`━━ ${ctx.project} · ${ctx.branch} ━━`);
   const mine = ev.events.filter((e) => e.cwd === ctx.root).map((e) => e.ts).filter(Boolean).sort();
@@ -687,7 +479,6 @@ function renderStages(ctx, ev, facts, info = {}) {
     return;
   }
 
-  // 這一輪跑到哪(lib/events.mjs 的 roundView):分界是最近一次第一關、或蓋章,取較晚的
   // 這一輪跑到哪:stageFacts 算好的那一份(五關、分級、收工 hook 共用)
   const view = facts.view;
   if (view.roundStart) console.log(`   （這一輪從 ${ago(view.roundStart)}開始算：最近一次第一關、或蓋章）`);
@@ -1148,14 +939,13 @@ async function doReport(ctx, stageId, verdict, note) {
  * 這個資料夾(或這個對話)這一輪的五關與分級——--round、--decide 從這裡拿,跟收工 hook 走同一條路(老毛病 P2):
  *   Claude 跑的(拿得到對話代號,而且這個對話在這裡動過)→ lib/collect.mjs 的 cardFor → sessionTier,跟收工 hook、對話頁同一個函式;
  *   人自己在終端機跑 → 這個工作區那一份(跟終端機的五關、儀表板那張卡同一份)。
- * collect.mjs 會回頭 import 這支,所以用到才載入(放在最上面會繞圈)。回 null = 這個資料夾讀不到。
+ * 回 null = 這個資料夾讀不到。
  */
 async function rerunFacts(ctx, ev) {
   const sid = sessionFromEnv();
   // 對話開在子資料夾也算在這裡動過(魔鬼教官第一輪:以前只認 cwd 剛好等於根,子資料夾的對話永遠「這一輪還沒有 D 的紀錄」)
   const mine = sid && ev.events.some((e) => e.session === sid && inWorkspace(ctx, e.cwd)) ? sid : null;
   if (mine) {
-    const { cardFor, sessionTier } = await import('./lib/collect.mjs');
     const got = cardFor({ monitorDir: HERE, path: ctx.root });
     if (!got || got.card.gone || got.card.notGit) return null;
     const shared = sessionsOf(got.events).find((s) => s.id === mine)?.sharesCwd === true;

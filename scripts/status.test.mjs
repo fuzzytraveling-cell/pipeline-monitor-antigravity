@@ -11,10 +11,8 @@ import { tmpdir } from 'node:os';
 import { join, basename, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
-import {
-  gitContext, changeScale, changeHealth, detectChecks, ago,
-  uncommitted, checkpointRelation, describeCheckpoint, describeSensor, describeCheckFailure,
-} from '../status.mjs';
+import { detectChecks, describeCheckpoint, describeSensor, describeCheckFailure } from '../status.mjs';
+import { gitContext, changeScale, changeHealth, ago, uncommitted, checkpointRelation } from '../lib/git.mjs';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');

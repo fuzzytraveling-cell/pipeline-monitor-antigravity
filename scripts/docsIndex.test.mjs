@@ -79,6 +79,41 @@ for (const d of docs) {
   }
 }
 
+console.log('\n■ 版本號：結案一件升一碼，每份結案的規格寫得出它在哪一版上線');
+// 號碼只住 package.json 一個地方(儀表板的還原點直接讀它);規則在 CLAUDE.md「工作項的狀態就是路徑」。
+// ⚠️ 2026-09-24 之前,version 從第一次存檔起就停在 0.1.0:97 次存檔、結案 15 件沒人動過,還原點的大字一直寫 v0.1.0——
+//    沒人維護、看起來卻有意義的數字。靠記得升版遲早又停住,所以由這裡檢查:結案了沒寫上線版本、寫了卻沒升 package.json、
+//    兩個對話同時結案搶到同一個號碼,都會紅。
+const SEMVER = /^(\d+)\.(\d+)\.(\d+)$/;
+const cmpVersion = (a, b) => {
+  const [x, y] = [a, b].map((v) => v.match(SEMVER).slice(1).map(Number));
+  return x[0] - y[0] || x[1] - y[1] || x[2] - y[2];
+};
+const VERSION_START = '0.15.0';   // 開始編號時的版本(當時已結案 15 件);之後結案的第一份是 0.16.0
+// 開始編號之前結案的不回頭補號——當時沒有版本,補了就是編的(R3)。這份清單只會變短,不會變長
+const BEFORE_VERSIONING = new Set([
+  'D多輪先問人.md', 'E自動驗收.md', 'app建議卡.md', 'pipeline-sensor.md', 'pipeline-status.md', 'pipeline-ui.md', 'plugin.md',
+  'sensor-install.md', '五關自動結案.md', '分級.md', '施工對話認規格.md', '規格搬家.md', '誠實修補.md', '這一輪的起點.md', '通用三關.md',
+]);
+const pkgVersion = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version;
+const pkgOk = typeof pkgVersion === 'string' && SEMVER.test(pkgVersion);
+check(`package.json 的 version 是 X.Y.Z（目前 ${pkgVersion}）`, pkgOk);
+if (pkgOk) check(`package.json 的 version 沒有比開始編號時（${VERSION_START}）舊`, cmpVersion(pkgVersion, VERSION_START) >= 0);
+const shipped = new Map();
+for (const d of docs.filter((x) => x.startsWith('docs/升級摘要/'))) {
+  const m = readFileSync(join(ROOT, d), 'utf8').match(/上線版本[：:]\s*v(\d+\.\d+\.\d+)/);
+  if (!m) {
+    if (BEFORE_VERSIONING.has(d.split('/').pop())) continue;   // 開始編號之前結案的,不補號
+    check(`${d} 寫了上線版本`, false, '結案時在施作紀錄最後加一行「上線版本：vX.Y.Z」，並把 package.json 升到那一版');
+    continue;
+  }
+  const v = m[1];
+  check(`${d} 的 v${v} 比開始編號時（${VERSION_START}）新`, cmpVersion(v, VERSION_START) > 0, '開始編號之後結案的第一份是 v0.16.0');
+  check(`${d} 的 v${v} 沒有比 package.json（${pkgVersion}）新`, pkgOk && cmpVersion(v, pkgVersion) <= 0, '寫了上線版本，package.json 卻沒升上去');
+  check(`v${v} 只有一份規格在用`, !shipped.has(v), `${shipped.get(v)} 也寫 v${v}——兩個對話同時結案搶到同一個號碼，改掉其中一份（package.json 跟著升）`);
+  shipped.set(v, d);
+}
+
 console.log(
   failed
     ? `\n────────────────────────\n❌ ${failed} 項失敗\n`

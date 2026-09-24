@@ -6,6 +6,7 @@
  */
 import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync, copyFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import { request as httpRequest } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -94,6 +95,52 @@ section('AC-7：伺服器只綁 127.0.0.1');
   const src = readFileSync(join(ROOT, 'server.mjs'), 'utf8');
   check("HOST 寫死 127.0.0.1", /const HOST = '127\.0\.0\.1'/.test(src));
   check('沒有對外綁定的開關(不准有 0.0.0.0)', !src.includes('0.0.0.0'));
+}
+
+section('只綁 127.0.0.1 不夠(L28):網址不是 127.0.0.1／localhost 的不理(擋 DNS 重新綁定);按鈕只收這一頁自己送的;不准被別的網頁框起來', 'P3');
+{
+  const monitorDir = mkdtempSync(join(tmpdir(), 'pm-monitor-'));
+  mkdirSync(join(monitorDir, 'logs'));
+  const server = createApp({ monitorDir });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const { port } = server.address();
+  // fetch 不准自己改 Host(瀏覽器也不准)——假冒別的網址只能用 node:http 直接送,跟 DNS 重新綁定之後瀏覽器送出來的一樣
+  const send = (method, path, headers, body = null) => new Promise((resolve, reject) => {
+    const rq = httpRequest({ host: '127.0.0.1', port, method, path, headers }, (res) => {
+      let b = '';
+      res.on('data', (c) => { b += c; });
+      res.on('end', () => resolve({ code: res.statusCode, headers: res.headers, body: b }));
+    });
+    rq.on('error', reject);
+    if (body) rq.write(body);
+    rq.end();
+  });
+  const evil = await send('GET', '/api/status', { host: `evil.example:${port}` });
+  eq('別的網址(Host: evil.example)要資料 → 403', evil.code, 403);
+  check('……而且一個字的資料都沒給', !evil.body.includes('projects'), evil.body.slice(0, 80));
+  eq('別的網址要首頁 → 403', (await send('GET', '/', { host: `evil.example:${port}` })).code, 403);
+  eq('用 127.0.0.1 打開 → 200', (await send('GET', '/api/status', { host: `127.0.0.1:${port}` })).code, 200);
+  eq('用 localhost 打開 → 200', (await send('GET', '/', { host: `localhost:${port}` })).code, 200);
+
+  const close = (origin, host = `127.0.0.1:${port}`) => send('POST', '/api/close',
+    { host, 'content-type': 'application/json', ...(origin ? { origin } : {}) }, JSON.stringify({ project: 'p', session: 's1' }));
+  const logged = () => existsSync(join(monitorDir, 'logs', 'p.jsonl'));
+  eq('同一台電腦別的埠(localhost:5173,像開發伺服器)送來的按鈕 → 403', (await close('http://localhost:5173')).code, 403);
+  eq('外部網站送來的按鈕 → 403', (await close('https://evil.example')).code, 403);
+  eq('沙盒裡的網頁(Origin: null)送來的 → 403', (await close('null')).code, 403);
+  check('被擋下的一筆都沒寫進紀錄', !logged());
+  const own = await close(`http://127.0.0.1:${port}`);
+  eq('這一頁自己送的 → 200', own.code, 200);
+  check('……真的記下了', logged());
+  eq('用 localhost 打開的這一頁送的也算自己 → 200', (await close(`http://localhost:${port}`, `localhost:${port}`)).code, 200);
+  eq('按鈕的回覆有標 JSON(以前 content-type 被 Node 當成狀態列的字)', own.headers['content-type'], 'application/json; charset=utf-8');
+
+  const home = await send('GET', '/', { host: `127.0.0.1:${port}` });
+  eq('不准被別的網頁框起來(X-Frame-Options)', home.headers['x-frame-options'], 'DENY');
+  check("……新的瀏覽器看的那一條也有(frame-ancestors 'none')", /frame-ancestors 'none'/.test(home.headers['content-security-policy'] ?? ''), home.headers['content-security-policy']);
+  eq('不准瀏覽器自己猜檔案類型', home.headers['x-content-type-options'], 'nosniff');
+  server.close();
+  rmSync(monitorDir, { recursive: true, force: true });
 }
 
 section('API 回的東西一定要帶伺服器產生的時間戳(AC-1 的來源)');

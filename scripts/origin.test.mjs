@@ -16,7 +16,7 @@ import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 import { reflogOf, versionAt, changeBase, changeFacts } from '../lib/origin.mjs';
 import { changeTimeOf } from '../lib/tier.mjs';
 import { changeScope } from '../lib/scope.mjs';
-import { changeHealth, checkpointRelation } from '../status.mjs';
+import { changeHealth, checkpointRelation } from '../lib/git.mjs';
 
 const out = (dir, ...a) => execFileSync('git', a, { cwd: dir, encoding: 'utf8' }).trim();
 const NOW = Date.now();                                   // 「現在」只取一次(L18)

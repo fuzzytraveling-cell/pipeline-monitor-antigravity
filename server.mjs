@@ -6,13 +6,13 @@
  * ⚠️ AC-7:只綁 127.0.0.1,而且**刻意不提供對外的開關**。
  *    這個畫面看得到你所有專案的路徑、分支、你打過的字。
  *    CCAM 出過一次「預設對整個區網開放」的漏洞——我們連那個選項都不做。
+ * ⚠️ 但只綁 127.0.0.1 擋不住「你電腦上的瀏覽器替別的網站連進來」——網址、按鈕、框架另外擋,見下面的 hostOk／sameOrigin(L28)。
  */
 import { createServer } from 'node:http';
-import { readFileSync, existsSync, realpathSync, statSync } from 'node:fs';
+import { readFileSync, appendFileSync, existsSync, mkdirSync, realpathSync, statSync } from 'node:fs';
 import { join, dirname, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
-import { appendFileSync, mkdirSync } from 'node:fs';
 import { collectAll } from './lib/collect.mjs';
 import { logFileOf } from './lib/events.mjs';
 import { optIn, optOut } from './lib/mount.mjs';
@@ -38,10 +38,23 @@ const SERVE = {
   '/agent.svg': join(HERE, 'public', 'agent.svg'),
 };
 
-/** 同源檢查:別的網站不准叫會寫東西的端點 */
+/**
+ * 只理「這個儀表板自己」(2026-09-24,L28)。只綁 127.0.0.1 只擋得住別台電腦,擋不住你電腦上的瀏覽器替別的網站連進來:
+ *   ① 網址:惡意網頁把自己的網址暫時指到 127.0.0.1(DNS 重新綁定),瀏覽器就當它是同一個網站,讀得到 /api/status——
+ *      你所有專案的路徑、你打過的字(實測:帶著假的網址連進來,以前照樣回 200)。所以連進來用的網址(Host)不是
+ *      127.0.0.1／localhost 就不理。埠號不用看:對方的網址名字不會是這兩個。
+ *   ② 按鈕:以前只看是不是 localhost、不看埠——同一台電腦上別的本機網頁(例如開發伺服器)也按得到「你說驗收過了」。
+ *      現在 Origin 要一字不差是這一頁自己(http://<Host>)。沒帶 Origin 的(終端機、測試)照舊放行:瀏覽器送 POST 一定帶,
+ *      而本機的程式本來就能直接寫紀錄檔。
+ *   ③ 框架:不准被別的網頁框起來騙你點——每個回覆都帶 X-Frame-Options 與 frame-ancestors(在 createApp 裡)。
+ */
+const LOCAL_HOST = /^(127\.0\.0\.1|localhost)(:\d+)?$/i;
+function hostOk(req) {
+  return LOCAL_HOST.test(String(req.headers.host ?? ''));
+}
 function sameOrigin(req) {
   const origin = req.headers.origin;
-  return !origin || /^http:\/\/(127\.0\.0\.1|localhost):/.test(origin);
+  return !origin || origin.toLowerCase() === `http://${String(req.headers.host ?? '').toLowerCase()}`;
 }
 
 /** 讀 POST 的內容,超過 4KB 就切斷——這裡收的都是幾十個字的 JSON */
@@ -51,7 +64,6 @@ function readBody(req, cb) {
   req.on('end', () => cb(body));
 }
 
-/** monitorDir 可以注入,測試才能在自己的暫存資料夾裡跑;預設就是這個資料夾。 */
 /** 畫面程式的版本:兩個檔的修改時間。讀不到就是 null——畫面不會因為問不到版本就一直重新載入。 */
 function appVersion() {
   try { return [SERVE['/app.js'], SERVE['/ui.css']].map((f) => statSync(f).mtimeMs).join('-'); } catch { return null; }
@@ -64,6 +76,7 @@ function appVersion() {
  */
 const STATUS_SHARE_MS = 4000;
 
+/** monitorDir 可以注入,測試才能在自己的暫存資料夾裡跑;預設就是這個資料夾。 */
 export function createApp({ monitorDir = HERE, statusShareMs = STATUS_SHARE_MS } = {}) {
   // 跟 hook.sh／status.mjs／collect.mjs 看同一個地方(同一個環境變數),寫的跟讀的才是同一份(老毛病 P2)。
   // 跟著 monitorDir 走,測試才能在自己的暫存資料夾裡寫,不會碰到真的紀錄。
@@ -73,12 +86,22 @@ export function createApp({ monitorDir = HERE, statusShareMs = STATUS_SHARE_MS }
   // 給出去的是那一次算好的原樣,generatedAt 也是那一次的——畫面照樣講得出資料是什麼時候的(AC-1),不會把舊的講成新的。
   let shared = null;   // { at, body }
   return createServer((req, res) => {
+    // ③ 每個回覆都帶:不准被別的網頁框起來、不准瀏覽器自己猜檔案類型
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Content-Security-Policy', "frame-ancestors 'none'");
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    // ① 網址不是 127.0.0.1／localhost 的一律不理,連首頁都不給
+    if (!hostOk(req)) {
+      res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' });
+      return res.end('這個儀表板只接受用 http://127.0.0.1 或 http://localhost 打開。');
+    }
     const url = new URL(req.url, `http://${HOST}`);
     const json = (code, obj) => {
       // 按鈕寫入成功(POST 回 200)就作廢共用的那份:按了馬上看得到。
       // ⚠️ 要在寫完、回覆的這一刻作廢,不能在收到請求時——內容是分段讀進來的,中間插進來的一次讀取會把「寫之前」的樣子存起來
       if (req.method === 'POST' && code === 200) shared = null;
-      res.writeHead(code, TYPES['.json']); res.end(JSON.stringify(obj));
+      // ⚠️ 第二個參數要是物件:以前直接給字串,Node 把它當成狀態列的說明文字,回覆就沒有 content-type
+      res.writeHead(code, { 'content-type': TYPES['.json'] }); res.end(JSON.stringify(obj));
     };
 
     if (url.pathname === '/api/status') {

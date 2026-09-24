@@ -20,14 +20,13 @@
  * 擋不擋、缺什麼,都從儀表板同一份事實算(lib/collect.mjs 的 cardFor → sessionTier,跟對話頁同一個函式),不另外算一份(老毛病 P2)。
  * 「這次改了什麼」從這一輪的起點算(規格:這一輪的起點):Claude 收工前先存檔,該擋的照樣擋——以前沒章時比的是上一次存檔,一存就全部放行。
  */
-import { readFileSync, appendFileSync, existsSync, mkdirSync, realpathSync } from 'node:fs';
+import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { cardFor, sessionTier } from './lib/collect.mjs';
 import { sessionsOf, logFileOf, GATE_FILE, saidByHuman, rerunLine, runMode, SKEW_MS } from './lib/events.mjs';
-import { writeFileSync } from 'node:fs';
-import { ago } from './status.mjs';
+import { ago } from './lib/git.mjs';
 import { readTierConfig, codeFileFn, changeTimeOf } from './lib/tier.mjs';
 import { changeScope } from './lib/scope.mjs';
 import { commandFor as findCommand, pluginName } from './lib/skills.mjs';
