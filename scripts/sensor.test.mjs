@@ -3,16 +3,21 @@
  *   ① 絕不影響 Claude(AC-2)   ② 只記「跑過」(AC-3)   ③ 三種空狀態要分得開(AC-1/AC-7)
  */
 import { execFileSync } from 'node:child_process';
-import { writeFileSync, mkdtempSync, readFileSync, rmSync, mkdirSync, readdirSync, existsSync } from 'node:fs';
+import { writeFileSync, mkdtempSync, readFileSync, rmSync, mkdirSync, readdirSync, existsSync, appendFileSync, chmodSync, utimesSync, statSync, openSync, writeSync, readSync, closeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, dirname } from 'node:path';
+import { join, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
-import { readEvents, loadStages, safeName, sessionsOf, lastRunPerStage, runsPerStage, roundView, stagesOfSession, suggestionsOf, firstPromptsOf, perStageOfRound, SUGGEST_TOOL, WITHDRAW_TOOL } from '../lib/events.mjs';
+import { readEvents, loadStages, safeName, sessionsOf, lastRunPerStage, runsPerStage, roundView, sessionView, suggestionsOf, firstPromptsOf, perStageOfRound, prepareSweep, finishSweep, drainSweep, SUGGEST_TOOL, WITHDRAW_TOOL } from '../lib/events.mjs';
+import { collectAll } from '../lib/collect.mjs';
 import { parseChecklist } from '../lib/checklist.mjs';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+
+/** 某個對話這一輪五關的樣子——就是 sessionView 回的 view.stages。以前住在 lib/events.mjs,只剩這支測試在用,
+ *  2026-09-24 搬過來(規格:90 天清理不丟紀錄 AC-6,Oscar 點頭);用到它的斷言一個字沒動。 */
+const stagesOfSession = (...a) => sessionView(...a).view.stages;
 
 /** 把 payload 餵給 hook.sh,在自己的暫存 logs 資料夾裡跑,回傳 {stdout, code, lines, logDir}。
  *  keep=true 時不刪暫存資料夾(呼叫端要自己看檔名),用完自己 rm。 */
@@ -111,6 +116,209 @@ section('AC-5：超過保留期限的丟掉,但看不懂的時間要留著');
   check('200 天前的被丟掉', !kept.includes('太舊'), kept.join(','));
   check('新的留著', kept.includes('新的'));
   check('⚠️ 時間看不懂的**留著**(不要因為看不懂就刪人家的資料)', kept.includes('時間壞掉'));
+  rmSync(d, { recursive: true, force: true });
+}
+
+// ── 90 天清理不丟紀錄(規格同名,路徑看 CLAUDE.md 的表)。以前是「整份讀出來、拿掉舊的、整份寫回去」,
+//    讀完到寫回之間別人寫的那一行會被蓋掉、寫到一半被砍只剩半份——兩種都沒有徵兆。「現在」一律只取一次(L18)。
+const DAY = 86400_000;
+
+section('90 天清理(AC-1):讀完之後、換上去之前別人寫進來的,一行都不准不見（真的跑 hook.sh）');
+{
+  const r = makeRepo({ files: { 'a.js': '1\n' } });
+  const logDir = mkdtempSync(join(tmpdir(), 'pm-sweep1-'));
+  const name = basename(r.dir);                       // hook.sh 認的專案名 = repo 的資料夾名
+  const file = join(logDir, `${safeName(name)}.jsonl`);
+  const now = Date.now();
+  const ago = (days) => new Date(now - days * DAY).toISOString();
+  writeFileSync(file, `${JSON.stringify({ ts: ago(100), hook: '太舊' })}\n${JSON.stringify({ ts: ago(1), hook: '留著' })}\n`);
+  const p = prepareSweep(file, now);
+  check('有過期的 → 暫存檔寫好了,原檔還沒動', p !== null && readFileSync(file, 'utf8').includes('太舊'));
+  // 中間:感測器寫一行(真的跑 hook.sh:shell 先打開檔案、jq 算完才寫),再用按鈕與 --clear 那種寫法(appendFileSync)寫一行
+  execFileSync('sh', [join(ROOT, 'hook.sh')], {
+    input: JSON.stringify({ hook_event_name: 'UserPromptSubmit', session_id: '中間寫的-感測器', prompt: 'hi', cwd: r.dir }),
+    env: { ...process.env, PIPELINE_MONITOR_LOG_DIR: logDir },
+  });
+  appendFileSync(file, `${JSON.stringify({ ts: new Date(now).toISOString(), event: 'stage_cleared', stage: 'E', source: 'human', session: '中間寫的-按鈕' })}\n`);
+  eq('換上去之前再看一眼:檔案變長了 → 這次不清', finishSweep(p), false);
+  const mid = readFileSync(file, 'utf8');
+  check('感測器中間寫的那一行還在', mid.includes('中間寫的-感測器'), mid);
+  check('「你說驗收過了」那一行還在', mid.includes('中間寫的-按鈕'), mid);
+  eq('暫存檔收掉了(資料夾裡只剩紀錄檔)', readdirSync(logDir).join(','), `${safeName(name)}.jsonl`);
+  const back = readEvents(logDir, name);
+  const after = readFileSync(file, 'utf8');
+  check('沒人再寫 → 下一次讀照樣清掉過期的,中間寫的兩行都還在',
+    !after.includes('太舊') && after.includes('中間寫的-感測器') && after.includes('中間寫的-按鈕') && after.includes('留著'), after);
+  eq('讀出來三筆(留著的、感測器的、按鈕的)', back.events.length, 3);
+  rmSync(logDir, { recursive: true, force: true }); r.cleanup();
+}
+
+section('90 天清理(AC-4):兩個地方同時清,後換的要停手——長度剛好一樣也認得出來');
+{
+  const d = mkdtempSync(join(tmpdir(), 'pm-sweep4-'));
+  const file = join(d, 'p.jsonl');
+  const now = Date.now();
+  const old = JSON.stringify({ ts: new Date(now - 100 * DAY).toISOString(), hook: '太舊', pad: 'y'.repeat(200) });
+  writeFileSync(file, `${old}\n${JSON.stringify({ ts: new Date(now - DAY).toISOString(), hook: '留著' })}\n`);
+  const size0 = statSync(file).size;
+  const p1 = prepareSweep(file, now);
+  const p2 = prepareSweep(file, now);                   // 儀表板跟收工 hook 同時讀完、同時發現要清
+  eq('第一個換上去', finishSweep(p1), true);
+  // 換上去之後有人寫一行,長度(位元組)故意湊成跟原檔一模一樣:只比長度的話,第二個會以為沒人動過
+  const later = (pad) => JSON.stringify({ ts: new Date(now).toISOString(), event: 'stage_cleared', session: '後來寫的', pad });
+  appendFileSync(file, `${later('z'.repeat(Buffer.byteLength(old) - Buffer.byteLength(later(''))))}\n`);
+  eq('(前提)檔案長度跟第二個讀的時候一樣', statSync(file).size, size0);
+  eq('第二個停手:檔案已經被換過了', finishSweep(p2), false);
+  drainSweep(p1, { last: true });                        // 第一個收尾(讀的人會做的最後一步)
+  const after = readFileSync(file, 'utf8');
+  check('後來寫的那一行還在', after.includes('後來寫的'), after);
+  eq('暫存檔都收掉了', readdirSync(d).join(','), 'p.jsonl');
+  rmSync(d, { recursive: true, force: true });
+}
+
+section('90 天清理(AC-2):過期的累積滿一週才真的清;沒滿只在記憶體裡濾,畫面照樣只到 90 天前');
+{
+  const d = mkdtempSync(join(tmpdir(), 'pm-sweep2-'));
+  const file = join(d, 'p.jsonl');
+  const now = Date.now();
+  const ago = (days) => new Date(now - days * DAY).toISOString();
+  const body = `${JSON.stringify({ ts: ago(93), hook: '過期三天' })}\n${JSON.stringify({ ts: ago(1), hook: '新的' })}\n`;
+  writeFileSync(file, body);
+  const r1 = readEvents(d, 'p');
+  eq('過期不滿一週 → 檔案一個位元組都沒動', readFileSync(file, 'utf8'), body);
+  check('但讀出來看不到過期的那筆', !r1.events.some((e) => e.hook === '過期三天') && r1.events.some((e) => e.hook === '新的'),
+    r1.events.map((e) => e.hook).join(','));
+  writeFileSync(file, `${JSON.stringify({ ts: ago(98), hook: '過期八天' })}\n${body}`);
+  readEvents(d, 'p');
+  const after = readFileSync(file, 'utf8');
+  check('過期滿一週 → 清掉,而且一次清到 90 天(過期三天的一起走)', !after.includes('過期八天') && !after.includes('過期三天') && after.includes('新的'), after);
+  rmSync(d, { recursive: true, force: true });
+}
+
+section('90 天清理(AC-3):清到一半被打斷,原本的檔案一個字都不准少;半成品不會變成一個專案');
+{
+  const mon = mkdtempSync(join(tmpdir(), 'pm-sweep3-'));
+  const d = join(mon, 'logs');
+  mkdirSync(d);
+  const file = join(d, 'p.jsonl');
+  const now = Date.now();
+  const body = `${JSON.stringify({ ts: new Date(now - 100 * DAY).toISOString(), hook: '太舊' })}\n${JSON.stringify({ ts: new Date(now - DAY).toISOString(), hook: '新的' })}\n`;
+  writeFileSync(file, body);
+  // 暫存檔寫不進去(資料夾不能寫):以前是直接寫回原檔,這裡會被改掉
+  chmodSync(d, 0o555);
+  let blocked = false;
+  try { writeFileSync(join(d, 'probe'), ''); } catch { blocked = true; }
+  if (blocked) {
+    eq('資料夾不能寫 → 這次不清', prepareSweep(file, now), null);
+    const r = readEvents(d, 'p');
+    eq('原檔位元組不變', readFileSync(file, 'utf8'), body);
+    check('照樣讀得到,不出錯、不擋讀', r.state === 'ok' && r.events.some((e) => e.hook === '新的'));
+  } else {
+    console.log('  （這台機器擋不住寫入唯讀資料夾(用 root 跑?),「寫不進去」這一條驗不了）');
+  }
+  chmodSync(d, 0o755);
+  // 清到一半被砍:暫存檔寫好了、還沒換上去行程就沒了(只做了 prepareSweep)。兩次:一個是兩小時前被砍的,一個是剛剛的(可能是別人正在清)
+  const killed = prepareSweep(file, now);
+  const busy = prepareSweep(file, now);
+  eq('清到一半被砍:原檔一個字都沒少', readFileSync(file, 'utf8'), body);
+  utimesSync(killed.tmp, (now - 2 * 3600_000) / 1000, (now - 2 * 3600_000) / 1000);
+  // 儀表板照常讀(它讀的時候也會清):數專案時兩個暫存檔都還在
+  const prev = { home: process.env.PIPELINE_MONITOR_HOME, log: process.env.PIPELINE_MONITOR_LOG_DIR };
+  Object.assign(process.env, { PIPELINE_MONITOR_HOME: mon, PIPELINE_MONITOR_LOG_DIR: d });
+  const names = collectAll({ monitorDir: mon, appTitles: new Map() }).projects.map((x) => x.name);
+  for (const [k, v] of [['PIPELINE_MONITOR_HOME', prev.home], ['PIPELINE_MONITOR_LOG_DIR', prev.log]]) {
+    if (v === undefined) delete process.env[k]; else process.env[k] = v;
+  }
+  eq('儀表板數專案:半成品不會變成一個專案', names.join(','), 'p');
+  check('下一次清理:兩小時前被砍留下的收掉', !existsSync(killed.tmp));
+  check('剛寫的暫存檔不動(可能是別人正在清)', existsSync(busy.tmp));
+  check('而且這次清成功了', !readFileSync(file, 'utf8').includes('太舊'));
+  for (const x of [killed, busy]) closeSync(x.fd);       // 被砍的行程,開著的檔案由系統收;測試自己收
+  rmSync(mon, { recursive: true, force: true });
+}
+
+section('90 天清理(AC-5):只丟看得懂時間、而且過期的;其他每一行原封不動、順序不變');
+{
+  const d = mkdtempSync(join(tmpdir(), 'pm-sweep5-'));
+  const file = join(d, 'p.jsonl');
+  const now = Date.now();
+  const ago = (days) => new Date(now - days * DAY).toISOString();
+  const kept = [
+    `{"ts":"${ago(1)}" ,  "hook":"排版跟 JSON.stringify 不一樣"}`,   // 重新 stringify 就會變
+    `{"ts":"${ago(1)}","hook":"\\u4e2d"}`,                          // 跳脫字元也是
+    '{這行是壞的',                                                   // 兩個對話同時寫、交錯壞掉的那種:以前清理會順手丟掉
+    JSON.stringify({ ts: '看不懂', hook: '時間壞掉' }),
+    '',
+    JSON.stringify({ ts: ago(2), event: 'session_reopened' }),       // 時間比下一行晚、檔案裡卻在前面:順序照檔案,不照時間排
+    JSON.stringify({ ts: ago(3), event: 'session_closed' }),
+  ];
+  const last = JSON.stringify({ ts: ago(1), hook: '最後一行沒換行' });
+  writeFileSync(file, [JSON.stringify({ ts: ago(100), hook: '過期' }), ...kept].join('\n') + `\n${last}`);
+  readEvents(d, 'p');
+  eq('留下的每一行一個字都沒變、順序沒變,只少了過期那一行;最後一行補上換行', readFileSync(file, 'utf8'), `${kept.join('\n')}\n${last}\n`);
+  rmSync(d, { recursive: true, force: true });
+}
+
+section('90 天清理(魔鬼教官第一輪):換上去之後才寫進舊的那一份的,補到新檔;換檔是整份換掉,不是在原檔上改', 'P6');
+{
+  // 「換之前看一眼」擋不住的兩種,都是先打開了舊檔、看完那一眼才寫進去:hook.sh(shell 先打開、jq 算完才寫);
+  // 暫存檔 fsync 那幾毫秒被磁碟擋住的 append(按鈕、--report 這種一口氣寫完的也會中)。這裡用「換之前就打開、換之後才寫」代表兩種。
+  const d = mkdtempSync(join(tmpdir(), 'pm-sweep6-'));
+  const file = join(d, 'p.jsonl');
+  const now = Date.now();
+  const body = `${JSON.stringify({ ts: new Date(now - 100 * DAY).toISOString(), hook: '太舊' })}\n${JSON.stringify({ ts: new Date(now - DAY).toISOString(), hook: '留著' })}\n`;
+  writeFileSync(file, body);
+  const ino0 = statSync(file).ino;
+  const before = openSync(file, 'r');                    // 用來確認換檔沒有在原檔上改
+  const late = openSync(file, 'a');                      // 換之前就打開了、還沒寫的人
+  const p = prepareSweep(file, now);
+  eq('換上去', finishSweep(p), true);
+  const cleared = `${JSON.stringify({ ts: new Date(now).toISOString(), event: 'stage_cleared', stage: 'E', source: 'human', session: '換檔之後才寫進舊的那一份' })}\n`;
+  writeSync(late, cleared);
+  writeSync(late, '{"ts":"寫到一半');
+  drainSweep(p);
+  let got = readFileSync(file, 'utf8');
+  check('換檔之後才寫進舊的那一份的,補到新檔了', got.includes('換檔之後才寫進舊的那一份'), got);
+  check('寫到一半的先不補(補了會跟下一筆黏在一起)', !got.includes('寫到一半'), got);
+  writeSync(late, '","hook":"寫完了"}\n');
+  closeSync(late);
+  drainSweep(p, { last: true });
+  got = readFileSync(file, 'utf8');
+  const count = (s) => got.split('\n').filter((l) => l.includes(s)).length;
+  check('寫完了才補;每一行只補一次', count('寫完了') === 1 && count('換檔之後才寫進舊的那一份') === 1, got);
+  check('過期的照樣清掉', !got.includes('太舊'));
+  const old = Buffer.alloc(Buffer.byteLength(body));
+  readSync(before, old, 0, old.length, 0);
+  closeSync(before);
+  eq('換之前打開的那一份,原本的內容一個字沒動(整份換掉,不是在原檔上改——改到一半被砍會只剩半份)', old.toString('utf8'), body);
+  check('檔案換成新的一份了', statSync(file).ino !== ino0);
+  // 讀紀錄的人真的會走的那條路(readEvents):換上去之後停一下,停的那一刻有人寫進舊的那一份,停完要補到新檔
+  writeFileSync(file, body);
+  const late2 = openSync(file, 'a');
+  let waited = false;
+  const back = readEvents(d, 'p', { wait: () => { waited = true; writeSync(late2, `${JSON.stringify({ ts: new Date(now).toISOString(), event: 'stage_report', session: '停的那一刻寫的' })}\n`); } });
+  closeSync(late2);
+  got = readFileSync(file, 'utf8');
+  check('讀紀錄時清檔:換上去之後停了一下', waited);
+  check('停的那一刻寫進舊的那一份的,補到新檔了;過期的清掉了', got.includes('停的那一刻寫的') && !got.includes('太舊'), got);
+  check('這一次讀出來的照樣是 90 天內的', back.state === 'ok' && back.events.some((e) => e.hook === '留著') && !back.events.some((e) => e.hook === '太舊'));
+  rmSync(d, { recursive: true, force: true });
+}
+
+section('90 天清理(魔鬼教官第一輪):一筆都不剩了就不等一週——不准連著幾天把「過期了」講成「這一輪還沒跑」', 'P5');
+{
+  // 停了三個月的專案:最新一筆 91 天前、最舊的 92 天前(還不到「滿一週才清」的 97 天)。
+  // 留著不清的話,每次讀都是「有紀錄、但一筆都沒有」,終端機說「沒有一筆來自這個 worktree」、儀表板說「這一輪還沒跑」——
+  // 以前只有清的那一次會這樣,清完就照「紀錄檔裡沒有東西」講。
+  const d = mkdtempSync(join(tmpdir(), 'pm-sweep7-'));
+  const file = join(d, 'p.jsonl');
+  const now = Date.now();
+  const ago = (days) => new Date(now - days * DAY).toISOString();
+  writeFileSync(file, `${JSON.stringify({ ts: ago(92), hook: '最舊' })}\n${JSON.stringify({ ts: ago(91), hook: '最新' })}\n`);
+  const r1 = readEvents(d, 'p');
+  eq('這一次讀:90 天內一筆都沒有', r1.events.length, 0);
+  check('而且這次就清了,不等一週', !readFileSync(file, 'utf8').includes('最舊'), readFileSync(file, 'utf8'));
+  eq('下一次讀:跟以前清完之後一樣(紀錄檔在、裡面沒有東西)', readEvents(d, 'p').state, 'no-events');
   rmSync(d, { recursive: true, force: true });
 }
 

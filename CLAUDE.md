@@ -95,6 +95,7 @@
 | 想知道整體要往哪走、六個死法是什麼 | [`docs/ROADMAP.md`](docs/ROADMAP.md) |
 | 改 `status.mjs`（還原點／改動體檢） | [`docs/升級摘要/pipeline-status.md`](docs/升級摘要/pipeline-status.md) 的 AC |
 | 改 `hook.sh`／`lib/events.mjs`（感測器） | [`docs/升級摘要/pipeline-sensor.md`](docs/升級摘要/pipeline-sensor.md) 的 AC；改 `gate.mjs`（收工 hook）或五關的結案邏輯 → 上面那份五關自動結案的 AC |
+| 90 天清理不准丟紀錄：清理時別人剛寫進來的、清到一半被打斷的、兩個地方同時清的都不准不見；順便收掉危險清單裡沒人用的四段 | [`docs/升級摘要/90天清理不丟紀錄.md`](docs/升級摘要/90天清理不丟紀錄.md)——2026-09-24 結案（Oscar 決定）；真的清的實況還沒看過一次（新程式第一次清在 12/15～12/16），等真的碰到再看 |
 | 「為什麼要寫成這樣？」 | [`docs/LESSONS.md`](docs/LESSONS.md) —— 先搜關鍵字再問 |
 | 要動使用者看得到的文案 | 上面三條紅線，逐條套過一次 |
 | ③ 畫面要做什麼、不做什麼 | [`docs/升級摘要/pipeline-ui.md`](docs/升級摘要/pipeline-ui.md)——2026-09-21 搬出進行中；三條 AC 待你決定改字還是改畫面 |

@@ -1,6 +1,6 @@
 {
   "name": "pipeline-monitor",
-  "version": "0.16.1",
+  "version": "0.17.0",
   "private": true,
   "type": "module",
   "description": "把「我在哪、我回得去哪、這次動了多少」變成一個指令。規格見專案的 CLAUDE.md",
