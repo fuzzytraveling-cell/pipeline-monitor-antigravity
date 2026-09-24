@@ -166,8 +166,9 @@ section('退出按鈕只准對儀表板列得出來的專案動手（root 是瀏
   const root = out('rev-parse', '--show-toplevel');
   const monitorDir = mkdtempSync(join(tmpdir(), 'pm-monitor-'));
   mkdirSync(join(monitorDir, 'checkpoints'));
-  writeFileSync(join(monitorDir, 'checkpoints', `${basename(root)}__main.json`), JSON.stringify({
-    commit: out('rev-parse', 'HEAD'), branch: 'main', worktree: root, at: new Date().toISOString(), checks: ['test'],
+  const branch = out('rev-parse', '--abbrev-ref', 'HEAD');   // 章照真的分支名寫,不寫死 main(GitHub 的機器預設 master,L24 的第二次)
+  writeFileSync(join(monitorDir, 'checkpoints', `${basename(root)}__${branch}.json`), JSON.stringify({
+    commit: out('rev-parse', 'HEAD'), branch, worktree: root, at: new Date().toISOString(), checks: ['test'],
   }));
   const server = createApp({ monitorDir });
   await new Promise((res) => server.listen(0, '127.0.0.1', res));
@@ -198,8 +199,9 @@ section('調高分級的按鈕:只准對認識的工作區、只准往上、理�
   const monitorDir = mkdtempSync(join(tmpdir(), 'pm-monitor-'));
   mkdirSync(join(monitorDir, 'checkpoints')); mkdirSync(join(monitorDir, 'logs'));
   copyFileSync(join(ROOT, 'stages.json'), join(monitorDir, 'stages.json'));   // 三級的預設值住在這裡
-  writeFileSync(join(monitorDir, 'checkpoints', `${name}__main.json`), JSON.stringify({
-    commit: out('rev-parse', 'HEAD'), branch: 'main', worktree: root, at: new Date().toISOString(), checks: ['test'],
+  const branch = out('rev-parse', '--abbrev-ref', 'HEAD');   // 章照真的分支名寫,不寫死 main(GitHub 的機器預設 master,L24 的第二次)
+  writeFileSync(join(monitorDir, 'checkpoints', `${name}__${branch}.json`), JSON.stringify({
+    commit: out('rev-parse', 'HEAD'), branch, worktree: root, at: new Date().toISOString(), checks: ['test'],
   }));
   const server = createApp({ monitorDir });
   await new Promise((res) => server.listen(0, '127.0.0.1', res));

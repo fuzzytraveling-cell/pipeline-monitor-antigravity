@@ -19,16 +19,28 @@ import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-/** 造一個只有一個章的假 monitor 資料夾,章指向 repo 的某個 commit */
+/**
+ * 造一個只有一個章的假 monitor 資料夾,章指向 repo 的某個 commit。
+ * 章記的是蓋章時那條分支:照這個 repo 真的分支名寫,不寫死 main——章要資料夾、分支都對得上才算(規格:新對話接手舊資料夾 AC-3),
+ * 寫死 main 的話,在預設分支叫 master 的機器(GitHub)上它是別條分支的章(2026-09-24,LESSONS L24 的第二次)
+ */
 function monitorWith(root, commit) {
   const dir = mkdtempSync(join(tmpdir(), 'pm-monitor-'));
   mkdirSync(join(dir, 'checkpoints'));
-  writeFileSync(join(dir, 'checkpoints', `${basename(root)}__main.json`), JSON.stringify({
-    commit, branch: 'main', worktree: root, at: new Date().toISOString(), checks: ['test'],
+  const branch = out(root, 'rev-parse', '--abbrev-ref', 'HEAD');
+  writeFileSync(join(dir, 'checkpoints', `${basename(root)}__${branch}.json`), JSON.stringify({
+    commit, branch, worktree: root, at: new Date().toISOString(), checks: ['test'],
   }));
   return dir;
 }
 const out = (cwd, ...a) => execFileSync('git', a, { cwd, encoding: 'utf8' }).trim();
+
+section('測試裡新開的 git 專案,分支名跟 GitHub 上的機器一樣(master)——這台電腦的系統設定是 main,假章寫死 main 會本機綠、推上去紅', 'P8');
+{
+  const r = makeRepo({ files: { 'a.js': '1\n' } });
+  eq('makeRepo 開的專案在 master 上(_harness.mjs 給 git 的預設分支名)', out(r.dir, 'rev-parse', '--abbrev-ref', 'HEAD'), 'master');
+  r.cleanup();
+}
 
 section('L14：網頁的還原點卡也要知道章失效了');
 {
@@ -173,8 +185,9 @@ section('L17：程式從 worktree 跑,資料還是主資料夾的那一份', 'P3
   const troot = out(target.dir, 'rev-parse', '--show-toplevel');
   mkdirSync(join(main, 'checkpoints'));
   copyFileSync(join(ROOT, 'stages.json'), join(wt, 'stages.json'));
-  writeFileSync(join(main, 'checkpoints', `${basename(troot)}__main.json`), JSON.stringify({
-    commit: out(target.dir, 'rev-parse', 'HEAD'), branch: 'main', worktree: troot, at: new Date().toISOString(), checks: ['test'],
+  const tbranch = out(target.dir, 'rev-parse', '--abbrev-ref', 'HEAD');   // 照真的分支名寫,不寫死 main(見 monitorWith)
+  writeFileSync(join(main, 'checkpoints', `${basename(troot)}__${tbranch}.json`), JSON.stringify({
+    commit: out(target.dir, 'rev-parse', 'HEAD'), branch: tbranch, worktree: troot, at: new Date().toISOString(), checks: ['test'],
   }));
   const seen = collectAll({ monitorDir: wt }).projects.map((p) => p.name);
   check('從 worktree 跑,看得到主資料夾的案件', seen.includes(basename(troot)), JSON.stringify(seen));
@@ -276,8 +289,9 @@ section('這一輪跑到哪:最近一次第一關或蓋章是分界;現在這一
   eq('列表上「這一輪走到」= A', p.sessions[0].stages.find((x) => x.state === 'current')?.id, 'A');
 
   // 蓋章也是分界:章在 6 時,A(5 時)在章之前 → 這一輪空的;D 在 7 時跑 → 現在這一關
-  writeFileSync(join(monitorDir, 'checkpoints', `${basename(root)}__main.json`), JSON.stringify({
-    commit: out(r.dir, 'rev-parse', 'HEAD'), branch: 'main', worktree: root, at: T(6), checks: ['test'],
+  const branch = out(r.dir, 'rev-parse', '--abbrev-ref', 'HEAD');   // 照真的分支名寫,不寫死 main(見 monitorWith)
+  writeFileSync(join(monitorDir, 'checkpoints', `${basename(root)}__${branch}.json`), JSON.stringify({
+    commit: out(r.dir, 'rev-parse', 'HEAD'), branch, worktree: root, at: T(6), checks: ['test'],
   }));
   writeFileSync(log, readFileSync(log, 'utf8') + ev(7, { skill: 'chaos-check' }) + '\n');
   p = collectAll({ monitorDir, skillHome: home }).projects[0];

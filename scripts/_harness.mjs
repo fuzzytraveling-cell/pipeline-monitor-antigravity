@@ -7,6 +7,13 @@ import { fileURLToPath } from 'node:url';
 
 const PATTERNS = join(dirname(fileURLToPath(import.meta.url)), '..', 'docs', 'FAILURE-PATTERNS.md');
 
+// ⚠️ 測試裡的 git 一律用 GitHub 機器上的預設分支名(master)。這台 Mac 的系統設定(Command Line Tools 的 gitconfig)是 main——
+//    假的章把分支寫死成 main,本機全綠(連 L24 那種乾淨家目錄的模擬也綠:設定在系統層,不在家目錄),推上去就紅(2026-09-24,老毛病 P8)。
+//    用環境變數給 git(比任何設定檔都優先),之後叫的 git、status.mjs、gate.sh 都吃得到;已經有人用 GIT_CONFIG_COUNT 給設定就不蓋掉。
+if (!process.env.GIT_CONFIG_COUNT) {
+  Object.assign(process.env, { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'init.defaultBranch', GIT_CONFIG_VALUE_0: 'master' });
+}
+
 let failed = 0, passed = 0;
 // 這一段測試釘的是哪一個老毛病(docs/FAILURE-PATTERNS.md 的代號)。
 // ⚠️ 那份文件自己不會被打開,所以接在這裡:紅的時候把對應那一行印在 ✗ 底下。
