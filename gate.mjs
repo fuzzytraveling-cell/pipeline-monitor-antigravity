@@ -13,7 +13,7 @@
  *      種類是有限的幾種,不會迴圈。stop_hook_active(擋過之後的收工)而這一回合找不到擋過的紀錄 → 放行;記不了紀錄就不擋——防迴圈的底線。
  *      (以前是 stop_hook_active 就放行、同一句話最多擋一次:擋完「D 還沒跑」,D 跑了沒記結論也管不到。)
  *   3. 只在**這一回合**有改到程式區的檔案時才擋,回答問題的回合安靜——例外只有「叫了 D 還沒記結論」(AC-6)。
- *      「這一回合」= 這個對話你說的最後一句話之後(背景工作的通知不算,AC-8);「改了沒」看三種證據,取較新者:感測器的改檔事件、
+ *      「這一回合」= 這個對話你說的最後一句話之後(背景工作的通知、子 agent 的回報不算;沒見過的格式取會擋的那邊——見 decide 裡);「改了沒」看三種證據,取較新者:感測器的改檔事件、
  *      git 說有改動的檔案的修改時間(用 Bash 寫檔會繞過感測器,L8)、五關算的最後一次改檔(感測器記過的檔現在的修改時間:用 Bash 還原也看得到)。
  *      感測器沒記到這個對話的任何一句話 → 不知道回合從哪開始 → 放行(R1:沒問到不當沒有)。
  *
@@ -25,7 +25,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { cardFor, sessionTier } from './lib/collect.mjs';
-import { sessionsOf, logFileOf, GATE_FILE, saidByHuman, rerunLine, runMode, SKEW_MS } from './lib/events.mjs';
+import { sessionsOf, logFileOf, GATE_FILE, SENSOR_FILE, saidByHuman, promptKind, rerunLine, runMode, SKEW_MS } from './lib/events.mjs';
 import { ago } from './lib/git.mjs';
 import { readTierConfig, codeFileFn, changeTimeOf } from './lib/tier.mjs';
 import { changeScope } from './lib/scope.mjs';
@@ -39,10 +39,16 @@ const MONITOR_DIR = monitorHome(HERE);
 const LOG_DIR = process.env.PIPELINE_MONITOR_LOG_DIR ?? join(MONITOR_DIR, 'logs');
 const PLUGIN = pluginName(HERE);
 
-function noteBroken(why, logDir = LOG_DIR) {
+/**
+ * 記一筆「收工 hook 自己壞了」。帶那次的資料夾:心跳只留最後一次、全機一份,沒有資料夾就分不出
+ * 「出錯的那個資料夾之後又跑過了」還是「只是別的資料夾跑過」(規格:agent回報與故障記號 AC-5)。
+ * why 是程式的錯誤原文——只給 Claude 查,畫面不印(lib/faults.mjs)。
+ */
+function noteBroken(why, logDir = LOG_DIR, cwd = null) {
   try {
     mkdirSync(logDir, { recursive: true });
-    appendFileSync(join(logDir, '_sensor.jsonl'), JSON.stringify({ ts: new Date().toISOString(), event: 'gate_broken', why: String(why).slice(0, 200) }) + '\n');
+    appendFileSync(join(logDir, SENSOR_FILE), JSON.stringify({ ts: new Date().toISOString(), event: 'gate_broken', why: String(why).slice(0, 200),
+      ...(typeof cwd === 'string' ? { cwd } : {}) }) + '\n');
   } catch { /* 連記都記不了,就真的算了 */ }
 }
 
@@ -81,17 +87,26 @@ export function decide({ payload, monitorDir = MONITOR_DIR, skillHome = undefine
   const cfg = readTierConfig(ctx.root, ctx.mainRoot, monitorDir);
   if (cfg.state !== 'ok') return null;
 
-  // 這一回合從哪開始:這個對話你說的最後一句話——背景工作的通知不算(D 多輪先問人 AC-8)。沒記到 → 放行(契約 3)
+  // 這一回合從哪開始:這個對話你說的最後一句話——背景工作的通知、子 agent 的回報不算(D 多輪先問人 AC-8;規格:agent回報與故障記號 AC-1)。
+  // 沒見過的格式(同一份規格 AC-2)分不出是不是你說的,兩種讀法各算一次,任何一種要擋就擋(取會擋的那一邊):
+  //   系統的讀法 → 回合從你最後一句開始(turnStart);你說的讀法 → 回合從最後那則沒見過的開始(oddStart)。
+  //   每一種讀法自己算「擋過哪幾種」與「之後改了沒」——以前一欄取一邊(改了沒從你最後一句、擋過哪幾種從沒見過的那則),
+  //   湊出兩種讀法都不成立的第三種回合:每來一則沒見過的,就把擋過的整張清單再擋一次,連沒改程式的回合也擋(魔鬼教官第一輪,P7、P2)。
+  //   整個對話只有沒見過的 → 回合從第一則沒見過的算,不當成「沒記到你說的話」放行。
+  // 一句都沒記到 → 放行(契約 3)
   const mine = events.filter((e) => e.session === sid);
-  const turnStart = mine.filter(saidByHuman).map((e) => Date.parse(e.ts))
-    .filter(Number.isFinite).sort((a, b) => a - b).at(-1) ?? null;
+  const timesOf = (pick) => mine.filter(pick).map((e) => Date.parse(e.ts)).filter(Number.isFinite).sort((a, b) => a - b);
+  const said = timesOf(saidByHuman), odd = timesOf((e) => promptKind(e) === 'unknown');
+  const turnStart = said.at(-1) ?? odd[0] ?? null;
   if (turnStart === null) return null;
+  const oddStart = Math.max(turnStart, odd.at(-1) ?? -Infinity);
   // 這一回合已經擋過哪幾種(AC-7):同一件事不重複擋,新的種類照擋——種類是有限的幾種,不會迴圈
-  const blocked = new Set(mine.filter((e) => e.event === 'gate_blocked' && Date.parse(e.ts) >= turnStart)
+  const blockedFrom = (from) => new Set(mine.filter((e) => e.event === 'gate_blocked' && Date.parse(e.ts) >= from)
     .flatMap((e) => (Array.isArray(e.missing) ? e.missing : [])));
+  const blocked = blockedFrom(turnStart), blockedOdd = blockedFrom(oddStart);
   // Claude Code 說「這是擋過之後的收工」,這一回合卻找不到我們擋過的紀錄(別的 hook 擋的、或我們沒記成)——
-  // 不知道擋過什麼,照舊放行:防迴圈的底線(契約 2)
-  if (again && !blocked.size) return null;
+  // 不知道擋過什麼,照舊放行:防迴圈的底線(契約 2)。看比較晚的那個起點:兩種讀法都找得到才算擋過
+  if (again && !blockedOdd.size) return null;
 
   // 這一輪改到程式區／危險清單的檔案(git 說的,跟儀表板同一份;存檔過的也在),與它們最後一次變動的時間——存檔不是改檔,時間看檔案本身;
   // 刪掉的檔看它所在資料夾的時間(lib/tier.mjs 的 changeTimeOf,五關的 B 與 D 也用它)。以前刪掉的就沒有時間,只刪檔的回合安靜放行
@@ -103,7 +118,9 @@ export function decide({ payload, monitorDir = MONITOR_DIR, skillHome = undefine
   // 第三種證據:roundView 算的「最後一次改檔」——感測器記過的程式檔現在的修改時間也在裡面,用 Bash 還原(git 說跟起點沒差)看得到。
   // 不吃它的話,儀表板說 D、E「要不要再跑／再走由你決定」,這裡卻當成這一回合沒改程式、不叫 Claude 先問(魔鬼教官第二輪,老毛病 P2)
   const viewEdit = Date.parse(mineNow.view?.lastEdit);
-  const changedThisTurn = [...mtimes, ...editTs, ...(Number.isFinite(viewEdit) ? [viewEdit] : [])].some((t) => t >= turnStart - SKEW_MS);
+  const changeTimes = [...mtimes, ...editTs, ...(Number.isFinite(viewEdit) ? [viewEdit] : [])];
+  const changedSince = (from) => changeTimes.some((t) => t >= from - SKEW_MS);
+  const changedThisTurn = changedSince(turnStart), changedOdd = changedSince(oddStart);
 
   // 規格連結只認這個對話記的(施工對話認規格 AC-2):五關、分級卡、這裡都從同一份 specContext 算(sessionTier 裡的 sessionView)
   const view = mineNow.view.stages;
@@ -204,8 +221,10 @@ export function decide({ payload, monitorDir = MONITOR_DIR, skillHome = undefine
     }
     missing.push({ key, line: `- ${name}：${why} → 跑 ${cmd}` });
   }
-  // 只在這一回合改到程式時才擋(契約 3);例外只有「叫了還沒記結論」(AC-6)。這一回合擋過的種類不再擋(AC-7)
-  const due = missing.filter((m) => !blocked.has(m.key) && (changedThisTurn || m.anyTurn));
+  // 只在這一回合改到程式時才擋(契約 3);例外只有「叫了還沒記結論」(AC-6)。這一回合擋過的種類不再擋(AC-7)。
+  // 兩種讀法(上面)任何一種要擋就擋;沒有沒見過的訊息時兩種一樣
+  const dueBy = (seen, changed) => (m) => !seen.has(m.key) && (changed || m.anyTurn);
+  const due = missing.filter((m) => dueBy(blocked, changedThisTurn)(m) || dueBy(blockedOdd, changedOdd)(m));
   if (!due.length) return null;
 
   const level = tier.final.id;
@@ -235,7 +254,7 @@ function main() {
   // 心跳:每次跑都留時間(不是紀錄,是一個會被蓋掉的小檔)。沒有它,「hook 掛著但從沒被觸發」跟「一切正常」長得一模一樣(L13、老毛病 P3)
   try { mkdirSync(LOG_DIR, { recursive: true }); writeFileSync(join(LOG_DIR, GATE_FILE), JSON.stringify({ ts: new Date().toISOString(), cwd: payload?.cwd ?? null }) + '\n'); } catch { /* 留不了就算了,不影響判斷 */ }
   let d = null;
-  try { d = decide({ payload }); } catch (e) { noteBroken(e?.message ?? e); return 0; }
+  try { d = decide({ payload }); } catch (e) { noteBroken(e?.message ?? e, LOG_DIR, payload?.cwd); return 0; }
   if (!d) return 0;
   // 擋了就留一筆:儀表板才講得出「工頭擋過一次,缺 C、D」,驗證也靠這筆(source:gate,不是人也不是感測器)。
   // 這一筆也是防迴圈的依據(AC-7:這一回合擋過的種類不再擋)——擋過之後的收工(stop_hook_active)卻記不了,就不擋:
@@ -245,7 +264,7 @@ function main() {
       ts: new Date().toISOString(), event: 'gate_blocked', session: d.session, cwd: d.cwd, level: d.level, missing: d.missing, source: 'gate',
     }) + '\n');
   } catch (e) {
-    noteBroken(`記不了 gate_blocked：${e?.message ?? e}`, d.logDir);
+    noteBroken(`記不了 gate_blocked：${e?.message ?? e}`, d.logDir, d.cwd);
     if (d.again) return 0;
   }
   process.stdout.write(JSON.stringify({ decision: 'block', reason: d.reason }) + '\n');

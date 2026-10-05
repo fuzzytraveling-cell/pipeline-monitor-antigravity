@@ -217,6 +217,12 @@ section('AC-9:Claude 代記「你說驗收過了」要對得回你在 E 之後�
   check('E 之後沒有你說的話 → 不算數,講得出為什麼', a.valid === false && a.rejected?.why === 'no-words', JSON.stringify(a));
   const note = { session: 's1', cwd: '/x', ts: T(-5 * MIN), hook: 'UserPromptSubmit', prompt: '<task-notification>\n<task-id>x</task-id>' };
   eq('背景工作的通知不是你說的話(P7)', acceptOf({ clears: [byClaude(-2 * MIN)], since, events: [evs[0], note] }).valid, false);
+  // 規格:agent回報與故障記號 AC-1、AC-2——子 agent 的回報、沒見過的格式、9/11 以前只剩系統那一段的,都不准當成「你說驗收過了」的原話
+  const say = (prompt) => ({ session: 's1', cwd: '/x', ts: T(-5 * MIN), hook: 'UserPromptSubmit', prompt });
+  eq('子 agent 的回報不是你說的話', acceptOf({ clears: [byClaude(-2 * MIN)], since, events: [evs[0], say('<agent-message from="verify">[Subagent hand-back] 看過了，可以')] }).valid, false);
+  eq('沒見過的格式不猜成你說的', acceptOf({ clears: [byClaude(-2 * MIN)], since, events: [evs[0], say('<new-system-thing>看過了，可以')] }).valid, false);
+  eq('開頭被系統加了一段、截掉之後只剩系統的字(9/11 以前記的)→ 不當原話', acceptOf({ clears: [byClaude(-2 * MIN)], since, events: [evs[0], say('<system-reminder>\nAs you answer the user')] }).valid, false);
+  eq('你貼的一段(<pasted_content>)照舊是你說的', acceptOf({ clears: [byClaude(-2 * MIN)], since, events: [evs[0], say('<pasted_content id="x">截圖說明</pasted_content> 看過了，可以')] }).valid, true);
   eq('分不出是哪個對話記的 → 不算數', acceptOf({ clears: [byClaude(-2 * MIN, { by_session: undefined })], since, events: evs }).rejected?.why, 'owner');
   a = acceptOf({ clears: [clear(-4 * MIN), byClaude(-2 * MIN)], since, events: evs.slice(0, 1) });
   check('你按了按鈕、之後 Claude 又記一筆不算數的 → 你的照樣算,另外講那一筆不算', a.valid && a.by === 'human' && a.rejected?.why === 'no-words', JSON.stringify(a));

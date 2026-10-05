@@ -19,7 +19,7 @@ import process from 'node:process';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 import { decide } from '../gate.mjs';
 import { collectAll } from '../lib/collect.mjs';
-import { safeName, sessionsOf, firstPromptsOf, saidByHuman, rerunOf, rerunLine, tookLine, pairRuns } from '../lib/events.mjs';
+import { safeName, sessionsOf, firstPromptsOf, saidByHuman, promptKind, rerunOf, rerunLine, tookLine, pairRuns } from '../lib/events.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const PLUGIN = JSON.parse(readFileSync(join(ROOT, '.claude-plugin', 'plugin.json'), 'utf8')).name;
@@ -203,6 +203,9 @@ section('AC-6、AC-7:收工 hook——同一回合同一件事只擋一次,新�
   const silent = run({ session_id: 's1', cwd: s.root, hook_event_name: 'Stop', stop_hook_active: true });
   eq('紀錄寫不進去、又是擋過之後的收工 → 一個字都不印(放行)', silent, '');
   check('寫不進去的事實記進 _sensor.jsonl(gate_broken)', /記不了 gate_blocked/.test(existsSync(join(s.logDir, '_sensor.jsonl')) ? readFileSync(join(s.logDir, '_sensor.jsonl'), 'utf8') : ''));
+  // 帶那次的資料夾:心跳只留最後一次,沒有資料夾就分不出「出錯的那個之後又跑過了」還是「只是別的資料夾跑過」(規格:agent回報與故障記號 AC-5)
+  const gb = existsSync(join(s.logDir, '_sensor.jsonl')) ? readFileSync(join(s.logDir, '_sensor.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).at(-1) : null;
+  eq('故障記號帶著那次的資料夾', gb?.cwd, s.root);
   chmodSync(s.log, 0o644);
   s.cleanup();
 }
@@ -427,6 +430,88 @@ section('第一輪:用量上限重置後 app 送進來的那句英文不是你�
   const r = s.cli(['--decide', 'D', 'skip', '不用跑了']);
   check('D 之後只有那一句 → 你說不用再跑不算數', /這筆不算數/.test(r.out), r.out);
   eq('「N 則訊息」不數它', sessionsOf([said(-10 * MIN, '修一下'), { ts: T(-3 * MIN), hook: 'UserPromptSubmit', prompt: RESUMED }].map((e) => ({ session: 's1', cwd: '/x', ...e })))[0].prompts, 1);
+  s.cleanup();
+}
+
+// 真的紀錄裡的形狀(2026-10-05 bd87046e 那個對話,三筆):子 agent 做完時 Claude Code 送進對話的回報。只取開頭的形狀,不抄內容
+const AGENT = '<agent-message from="general-purpose">\n[Subagent hand-back] 第一輪查完了';
+
+section('子 agent 的回報不是你說的話——收工 hook 不為它重擋、不算訊息數、不當成你說不用再跑(規格:agent回報與故障記號 AC-1;bd87046e 那一段)', 'P7');
+{
+  eq('子 agent 的回報 → 認得的系統訊息', promptKind({ hook: 'UserPromptSubmit', prompt: AGENT }), 'system');
+  check('不是人說的', saidByHuman({ hook: 'UserPromptSubmit', prompt: AGENT }) === false);
+  // bd87046e:你說話 → 收工 hook 擋一次 D → 子 agent 回報進來 → Claude 收工。以前回合的開始被挪到回報上,「這一回合擋過 D」看不到了,又擋一次
+  const s = scene({ danger: false });                                     // T1:只要 D
+  const h = s.head();
+  s.touch('src/a.js', -9 * MIN);
+  const blocked = (sec, missing) => ({ ts: T(sec), event: 'gate_blocked', level: 'T1', missing, source: 'gate' });
+  const turn = [said(-10 * MIN, '修完跑第二輪 D'), { ts: T(-9 * MIN), hook: 'PostToolUse', tool: 'Edit', file: join(s.root, 'src/a.js') }];
+  s.write([...turn, blocked(-8 * MIN, ['D'])]);
+  eq('擋過 D 之後、還沒有 agent 回報 → 這一回合同一件事不再擋', s.gate({ again: true }), null);
+  s.write([...turn, blocked(-8 * MIN, ['D']), { ts: T(-5 * MIN), hook: 'UserPromptSubmit', prompt: AGENT, prompt_id: 'pa1' }]);
+  eq('子 agent 回報進來之後收工 → 還是同一個回合,不為同一件事重擋', s.gate(), null);
+  s.append([{ ts: T(-3 * MIN), hook: 'UserPromptSubmit', prompt: AGENT, prompt_id: 'pa2' }]);
+  eq('回報進來兩次也一樣', s.gate(), null);
+  // bd87046e 真正的那一段:回報之後 Claude 又改了程式才收工。回報算你說的話時,回合從它重算、改檔落在新回合 → 又擋一次 D(以前就是這樣擋三次)
+  s.append([{ ts: T(-2 * MIN), hook: 'PostToolUse', tool: 'Edit', file: join(s.root, 'src/a.js') }]);
+  s.touch('src/a.js', -2 * MIN);
+  eq('回報之後又改了程式 → 還是同一個回合,擋過的 D 不再擋', s.gate(), null);
+  eq('「N 則訊息」不數它', sessionsOf(s.events())[0].prompts, 1);
+  // D 跑完、記了結論、之後又修了程式;D 之後只有 agent 的回報 → Claude 記「你說不用再跑」不算數
+  s.write([said(-10 * MIN, '修一下'), callD(-9 * MIN, h), report(-8 * MIN), { ts: T(-4 * MIN), hook: 'UserPromptSubmit', prompt: AGENT, prompt_id: 'pa3' }]);
+  s.touch('src/danger.js', -7 * MIN);
+  const r = s.cli(['--decide', 'D', 'skip', '不用跑了']);
+  check('D 之後只有 agent 的回報 → 你說不用再跑不算數', /這筆不算數/.test(r.out), r.out);
+  s.cleanup();
+}
+
+section('沒見過的格式不猜成你說的,而且要講出來;收工 hook 取會擋的那一邊(規格:agent回報與故障記號 AC-2)', 'P7');
+{
+  const ODD = '<brand-new-notice id="1">某種新的系統訊息';
+  eq('沒見過的 <標籤 → unknown', promptKind({ hook: 'UserPromptSubmit', prompt: ODD }), 'unknown');
+  check('不算你說的', saidByHuman({ hook: 'UserPromptSubmit', prompt: ODD }) === false);
+  // 你自己的動作照舊算你的(畫面、訊息數跟以前一樣)
+  for (const [what, p] of [['你貼的', '<pasted_content id="a">一段</pasted_content> 這是什麼'], ['用 ! 跑的', '<bash-input>ls</bash-input>'],
+                            ['! 跑完的輸出', '<bash-stdout>a</bash-stdout>'], ['9/11 以前前面被加了一段的', '<system-reminder>\nAs you answer']]) {
+    eq(`${what} → 算你開口`, promptKind({ hook: 'UserPromptSubmit', prompt: p }), 'human');
+  }
+  check('不是 < 開頭、也不是一個標籤(<= 3)→ 照舊是你說的', saidByHuman({ hook: 'UserPromptSubmit', prompt: '< 3 秒就好' }) === true);
+
+  const s = scene({ danger: false });
+  s.touch('src/a.js', -9 * MIN);
+  const blocked = (sec, missing) => ({ ts: T(sec), event: 'gate_blocked', level: 'T1', missing, source: 'gate' });
+  const turn = [said(-10 * MIN, '改一下標籤'), { ts: T(-9 * MIN), hook: 'PostToolUse', tool: 'Edit', file: join(s.root, 'src/a.js') }];
+  // 「這一回合改了沒」從最後一句認得是你的算:改檔在沒見過的那則之前,照樣看得到(不會因為它安靜放行)
+  s.write([...turn, { ts: T(-5 * MIN), hook: 'UserPromptSubmit', prompt: ODD, prompt_id: 'po1' }]);
+  eq('沒見過的那則之前改的程式 → 照樣擋(回合不從它開始算)', s.gate()?.missing?.join(','), 'D');
+  // 兩種讀法各算一次,任何一種要擋就擋:當成系統的 → 同一個回合、擋過的不再擋;當成你說的 → 新的回合、之後沒改程式就不擋
+  // (魔鬼教官第一輪:以前一欄取一邊,每來一則就把擋過的整張再擋一次,連沒改程式的回合也擋)
+  s.write([...turn, blocked(-8 * MIN, ['D']), { ts: T(-5 * MIN), hook: 'UserPromptSubmit', prompt: ODD, prompt_id: 'po2' }]);
+  eq('擋過 D、之後來了一則沒見過的、之後沒改程式 → 兩種讀法都不擋,放行', s.gate(), null);
+  s.append([{ ts: T(-4 * MIN), hook: 'PostToolUse', tool: 'Edit', file: join(s.root, 'src/a.js') }]);
+  s.touch('src/a.js', -4 * MIN);
+  eq('那則之後又改了程式 → 當成你說的那種讀法是新的回合,再擋一次(不漏擋)', s.gate()?.missing?.join(','), 'D');
+  // 整個對話只有沒見過的:不當成「沒記到你說的話」放行
+  s.write([{ ts: T(-10 * MIN), hook: 'UserPromptSubmit', prompt: ODD, prompt_id: 'po3' }, { ts: T(-9 * MIN), hook: 'PostToolUse', tool: 'Edit', file: join(s.root, 'src/a.js') }]);
+  eq('整個對話只有沒見過的格式 → 照樣擋', s.gate()?.missing?.join(','), 'D');
+  // 講出來:對話頁與終端機同一句,先講白話、附開頭、給動作
+  s.write([...turn, { ts: T(-5 * MIN), hook: 'UserPromptSubmit', prompt: ODD, prompt_id: 'po4' }]);
+  const note = s.sessionOf()?.unknownNote ?? '';
+  check('對話頁:講「1 則開頭是 <x> 的訊息、認不出是誰送的」、不講成「不是你打的」(可能就是你打的)、叫你給 Claude 看',
+    /1 則開頭是 <brand-new-notice> 的訊息，我認不出是誰送的/.test(note) && /也可能是你打的字/.test(note) && !/不是你打的/.test(note) && /給 Claude 看/.test(note), note);
+  eq('「N 則訊息」不數它', s.sessionOf()?.prompts, 1);
+  const out = s.cli([]).out;
+  check('終端機:同一句', out.includes(note), out);
+  // 代記不算數時:那段時間只有認不出的訊息 → 講「只有 N 則認不出的」,不講「紀錄裡沒有你說的話」(R1)
+  const h0 = s.head();
+  s.write([said(-10 * MIN, '修一下'), callD(-9 * MIN, h0), report(-8 * MIN), { ts: T(-4 * MIN), hook: 'UserPromptSubmit', prompt: '<button class="red">這顆還是灰的，D 不用再跑了', prompt_id: 'po9' }]);
+  s.touch('src/danger.js', -7 * MIN);
+  const r9 = s.cli(['--decide', 'D', 'skip', 'D 不用再跑了']);
+  check('--decide:講「只有 1 則認不出是誰送的訊息，沒當成你的原話」,不講「紀錄裡沒有你說的話」', /只有 1 則認不出是誰送的訊息，沒當成你的原話/.test(r9.out) && !/紀錄裡沒有你說的話/.test(r9.out), r9.out);
+  check('D 那格同一句', /只有 1 則認不出是誰送的訊息/.test(s.dOf()?.rerun?.line ?? ''), s.dOf()?.rerun?.line);
+  // 認得的系統訊息不出聲
+  s.write([...turn, { ts: T(-5 * MIN), hook: 'UserPromptSubmit', prompt: AGENT, prompt_id: 'pa9' }]);
+  eq('子 agent 的回報是認得的 → 對話頁不多講一句', s.sessionOf()?.unknownNote ?? null, null);
   s.cleanup();
 }
 

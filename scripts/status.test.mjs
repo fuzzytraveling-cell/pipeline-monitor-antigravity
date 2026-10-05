@@ -240,21 +240,24 @@ section('D2：整支 CLI 跑一次——故障記號不蓋掉紀錄;設定找不
   const r = makeRepo({ files: { 'a.js': '1\n' } });
   const root = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: r.dir, encoding: 'utf8' }).trim();
   const logDir = mkdtempSync(join(tmpdir(), 'pm-cli-'));
-  const ts = new Date().toISOString();
+  const ts = new Date(Date.now() - 120_000).toISOString();
   writeFileSync(join(logDir, `${basename(root)}.jsonl`), [
     JSON.stringify({ ts, hook: 'UserPromptSubmit', session: 's1', cwd: root, prompt: 'hi' }),
     JSON.stringify({ ts, hook: 'PreToolUse', session: 's1', cwd: root, tool: 'Skill', skill: 'chaos-check', args: '看一下' }),
   ].join('\n') + '\n');
-  writeFileSync(join(logDir, '_sensor.jsonl'), JSON.stringify({ ts, event: 'sensor_broken', why: 'jq 不存在' }) + '\n');
+  // 故障比紀錄晚一分鐘:那之後一筆都沒記到(同一秒的話分不出先後,照「之後沒記到」講)
+  writeFileSync(join(logDir, '_sensor.jsonl'), JSON.stringify({ ts: new Date(Date.parse(ts) + 60_000).toISOString(), event: 'sensor_broken', why: 'jq 不存在' }) + '\n');
   // HOME 換成空的:mountState 會退而找 ~/.claude,不能讓這台機器的設定影響結果
   const home = mkdtempSync(join(tmpdir(), 'pm-home-'));
   const out = execFileSync('node', [join(ROOT, 'status.mjs')], {
     cwd: root, encoding: 'utf8',
     env: { ...process.env, PIPELINE_MONITOR_LOG_DIR: logDir, HOME: home },
   });
-  check('故障記號 → 一行警告,五關照畫(D 有「⏸ 跑過」)', out.includes('回報過 1 次故障') && out.includes('⏸'), out);
+  // 故障在最後一筆紀錄之後(之後一筆都沒記到)= 還在壞:最上面講「記不到東西」,從最後一筆正常紀錄算起(規格:agent回報與故障記號 AC-5)
+  check('故障記號 → 最上面一行講感測器記不到,五關照畫(D 有「⏸ 跑過」)',
+    out.includes('這台電腦的感測器記不到東西') && out.includes('最後一筆正常紀錄是') && out.includes('⏸'), out);
   check('不再把整區蓋成「紀錄檔存在,但裡面沒有東西」', !out.includes('裡面沒有東西'), out);
-  check('設定裡沒掛、紀錄裡有 → 感測器那行說「它在記」', out.includes('它在記'), out);
+  check('設定裡沒掛、紀錄裡有 → 感測器那行說那時候它在記,不說它現在在記(現在記不到)', out.includes('那時候它在記') && out.includes('之後這台電腦的感測器記不到東西'), out);
   for (const d of [logDir, home]) rmSync(d, { recursive: true, force: true });
   r.cleanup();
 }

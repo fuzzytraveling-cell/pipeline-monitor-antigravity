@@ -42,6 +42,10 @@ h2.section { font-size: var(--text-subheading); letter-spacing: var(--tracking-s
   margin: 0 0 4px; }
 .section-note { color: var(--color-smoke); font-size: var(--text-caption); margin: 0 0 var(--spacing-16); }
 .block { margin-bottom: var(--spacing-40); }
+/* 故障橫條(規格:agent回報與故障記號 AC-3):每一頁最上面。還在壞是珊瑚色、時好時壞／看不到好了沒是金色;字是伺服器算好的,跟終端機同一句 */
+.fault { margin: 0 0 var(--spacing-16); padding: var(--spacing-8) var(--spacing-16); border-left: 3px solid var(--color-coral);
+  font-size: var(--text-caption); }
+.fault[data-tone="amber"] { border-left-color: var(--color-gold); }
 
 /* ───────── 第一層:案件列表 ───────── */
 .projects { display: grid; gap: var(--spacing-16); grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); }

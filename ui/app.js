@@ -427,8 +427,11 @@ function sensorLine(c) {
   const last = seen ? `最後一筆來自這裡的紀錄：${ago(seen)}` : '還沒有來自這裡的紀錄';
   if (m?.state === 'broken') {
     // ⚠️ 最危險的一種:設定看起來好好的,紀錄卻安靜地停了(LESSONS L13)。終端機講了,網頁以前沒講。
+    // 修法是伺服器給的那一句(lib/mount.mjs 的 mountFix,跟終端機、--on 同一句;規格:agent回報與故障記號 AC-6)——
+    // 以前這裡一律寫「跑 --on」,plugin 的捷徑壞了時照做,回你「本來就在記錄中」。舊的服務沒給 → 叫你看終端機,不猜
+    const fix = c.sensor?.fix ?? '修法：跑 pipeline-status 看終端機的感測器那一行（儀表板的服務還在跑舊的程式）';
     return `<p class="section-note">🔴 感測器掛著,但它指向的檔案不存在——<b>紀錄已經停了,而且不會有任何徵兆</b>${
-      seen ? `（${esc(last)}）` : ''}。修法：在那個資料夾跑 <code>pipeline-status --on</code>。</p>`;
+      seen ? `（${esc(last)}）` : ''}。${esc(fix)}</p>`;
   }
   if (m?.state === 'ok') {
     const where = m.where === 'main' ? '（用的是主資料夾的設定）' : m.where === 'user' ? '（用的是帳號層級的設定）' : '';
@@ -437,7 +440,12 @@ function sensorLine(c) {
     return `<p class="section-note">感測器：已掛上${esc(where)} · ${esc(last)} · ${esc(gate)}</p>`;
   }
   // 設定裡找不到、紀錄裡卻有 → 它在記。證據在手上時不准說「沒掛上」(R1)。
-  if (seen) return `<p class="section-note">感測器：設定裡找不到,但 ${esc(ago(seen))}還有來自這裡的紀錄——它在記,只是不知道是哪份設定在做。</p>`;
+  // 這台電腦的感測器現在記不到東西(上面的故障橫條)時,「它在記」只到最後那一筆為止(規格:agent回報與故障記號 AC-3)
+  // 時好時壞(flaky)時它真的還在記,只是有些對話記不到——不講「之後記不到」(魔鬼教官第一輪)
+  const now = latest?.faults?.sensor ?? null;
+  if (seen) return `<p class="section-note">感測器：設定裡找不到,但 ${esc(ago(seen))}還有來自這裡的紀錄——${now === 'broken'
+    ? '那時候它在記,只是不知道是哪份設定在做；之後這台電腦的感測器記不到東西（見最上面那一條）'
+    : `它在記,只是不知道是哪份設定在做${now === 'flaky' ? '（這台電腦的感測器時好時壞，見最上面那一條）' : ''}`}。</p>`;
   return `<p class="section-note">感測器：沒掛上。在那個資料夾跑 <code>pipeline-status --on</code>。</p>`;
 }
 
@@ -762,6 +770,9 @@ function sessionPage(name, sid) {
   const p = latest?.projects?.find((x) => x.name === name);
   const s = p?.sessions.find((x) => x.id === sid);
   if (!s) return `<p class="muted">找不到這個對話。<a href="#/p/${encodeURIComponent(name)}">回對話清單</a></p>`;
+  // 伺服器算好的兩種旁白(規格:agent回報與故障記號 AC-2、AC-5),跟終端機同一句,這裡只畫:
+  // 沒算成你說的話的訊息(沒見過的格式)、這一輪碰到的那段「感測器或收工 hook 壞過」
+  const notes = [s.unknownNote, ...(s.faultNotes ?? [])].filter(Boolean).map((t) => `<p class="section-note">${esc(t)}</p>`).join('');
   const c = s.card;
   if (!c) return `<p class="muted">這個對話的工作區找不到了（${esc(s.cwd ?? '?')}）。</p>`;
   // 工作區的資料夾已經不在了(worktree 被刪):git 那三張卡沒有東西可講,五關的紀錄還在,照畫。
@@ -770,7 +781,7 @@ function sessionPage(name, sid) {
     return `
     <div class="block">
       <h2 class="section serif">${esc(s.title ?? '（還沒有標題）')}</h2>
-      <p class="section-note">${s.prompts} 則訊息 · 最後動作 ${ago(s.lastTs)}</p>
+      <p class="section-note">${s.prompts} 則訊息 · 最後動作 ${ago(s.lastTs)}</p>${notes}
       <p class="section-note">⚠️ 這個對話的工作區資料夾已經不在了（${esc(s.cwd ?? '')}）——
         還原點、三階梯、改動都沒有東西可講。下面五關的紀錄還在。</p>
     </div>
@@ -786,7 +797,7 @@ function sessionPage(name, sid) {
     return `
     <div class="block">
       <h2 class="section serif">${esc(s.title ?? '（還沒有標題）')}</h2>
-      <p class="section-note">${s.prompts} 則訊息 · 最後動作 ${ago(s.lastTs)}${s.closedAt ? ` · 已於 ${ago(s.closedAt)}結案` : ''}</p>
+      <p class="section-note">${s.prompts} 則訊息 · 最後動作 ${ago(s.lastTs)}${s.closedAt ? ` · 已於 ${ago(s.closedAt)}結案` : ''}</p>${notes}
       <p class="section-note">⚠️ 這個資料夾 ${ago(s.movedOn.at)}換到另一條分支、給別的對話用了——
         分支、還原點、改動、分級是那個對話的，這裡不畫。下面五關是這個對話當時的紀錄。</p>
     </div>
@@ -806,7 +817,7 @@ function sessionPage(name, sid) {
       <h2 class="section serif">${esc(s.title ?? '（還沒有標題）')}</h2>
       <p class="section-note">${esc(c.branch ?? '沒有分支')} · ${s.prompts} 則訊息 ·
         最後動作 ${ago(s.lastTs)}${s.closedAt ? ` · 已於 ${ago(s.closedAt)}結案` : ''}</p>
-      ${warn}
+      ${notes}${warn}
       <div class="stats">${statRestore(c)}${statLadder(c)}${statChanges(c)}${statTier({ ...c, tier: s.tier ?? c.tier }, p)}</div>
     </div>
     <div class="block">
@@ -816,6 +827,17 @@ function sessionPage(name, sid) {
       ${sensorLine(c)}
       ${workflow({ ...c, stages: s.stages })}
     </div>`;
+}
+
+/**
+ * 故障橫條(規格:agent回報與故障記號 AC-3):還在壞(紅)、時好時壞／看不到好了沒(黃)的才上,每一頁最上面都有。
+ * 句子是伺服器算好的(lib/faults.mjs,跟終端機最上面那一行一字不差),這裡只畫。
+ * 舊的服務不給這一欄 → 講出來,不當成沒有故障(L20:合併之後還沒 --serve-restart,新畫面拿到的是舊伺服器的資料)。
+ */
+function faultBanner() {
+  if (!latest) return '';
+  if (!latest.faults) return '<p class="fault" data-tone="amber">🟡 儀表板的服務還在跑舊的程式，感測器跟收工 hook 有沒有壞這裡看不到——跑 <code>pipeline-status --serve-restart</code></p>';
+  return (latest.faults.banner ?? []).map((b) => `<p class="fault" data-tone="${b.tone === 'red' ? 'red' : 'amber'}">${esc(b.text)}</p>`).join('');
 }
 
 /* ═══ 路由 ═══ */
@@ -831,19 +853,19 @@ function render() {
   const link = (href, t) => `<a href="${href}">${esc(t)}</a><span class="sep">/</span>`;
   if (r.view === 'projects') {
     $crumb.innerHTML = '<span>案件</span>';
-    $app.innerHTML = projectList();
+    $app.innerHTML = faultBanner() + projectList();
   } else if (r.view === 'project') {
     // 路由用的是檔名(safeName 過的);麵包屑給人看,要用真的資料夾名
     const p = latest?.projects?.find((x) => x.name === r.project);
     $crumb.innerHTML = link('#/', '案件') + `<span>${esc(p?.displayName ?? r.project)}</span>`;
-    $app.innerHTML = projectPage(r.project);
+    $app.innerHTML = faultBanner() + projectPage(r.project);
   } else {
     const p = latest?.projects?.find((x) => x.name === r.project);
     const s = p?.sessions.find((x) => x.id === r.session);
     $crumb.innerHTML = link('#/', '案件')
       + link(`#/p/${encodeURIComponent(r.project)}`, p?.displayName ?? r.project)
       + `<span>${esc((s?.title ?? '對話').slice(0, 20))}</span>`;
-    $app.innerHTML = sessionPage(r.project, r.session);
+    $app.innerHTML = faultBanner() + sessionPage(r.project, r.session);
   }
 }
 

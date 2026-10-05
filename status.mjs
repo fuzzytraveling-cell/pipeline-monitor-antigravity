@@ -21,7 +21,8 @@ import process from 'node:process';
 import { git, gitExit, real, gitContext, changeScale, changeHealth, TEST_FILE, ago, uncommitted, checkpointRelation, backupBranchName } from './lib/git.mjs';
 import { cardFor, sessionTier } from './lib/collect.mjs';
 import { readEvents, loadStages, lastRunPerStage, runsPerStage, roundView, editsOf, reportsIn, reportLogIn, decisionsIn, clearLogIn, perStageOfRound, gateHeartbeat, safeName, logFileOf, specContext,
-         sessionsOf, sessionView, rerunLine, tookLine, rerunMapOf, runMode, afterCall, reportText } from './lib/events.mjs';
+         sessionsOf, sessionView, rerunLine, tookLine, rerunMapOf, runMode, afterCall, reportText, unknownPromptsOf, unknownPromptLine, noWords, RETAIN_DAYS } from './lib/events.mjs';
+import { faultsNow, faultBanner, faultNotes, sensorNow, unreadableLine, roundStartFor } from './lib/faults.mjs';
 import { eLines, parseWalk, walkSummary, summaryLine } from './lib/verify.mjs';
 import { readChecklist, locateSpec, specPathsInNote } from './lib/checklist.mjs';
 import { buildTier, readTierConfig, writeTierConfig, proposeCodeArea, codeFileFn, computeTier, changeTimeOf, fileTimeOf } from './lib/tier.mjs';
@@ -32,7 +33,7 @@ import { monitorHome } from './lib/paths.mjs';
 import { skillAvailable, commandFor, pluginName } from './lib/skills.mjs';
 import { installService, uninstallService, restartService, describeService, openDashboard } from './lib/service.mjs';
 import {
-  mount, unmount, mountState, pluginState, installPlugin, uninstallPlugin, optIn, optOut, hookPathsIn,
+  mount, unmount, mountState, mountFix, pluginState, installPlugin, uninstallPlugin, optIn, optOut, hookPathsIn,
 } from './lib/mount.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -154,9 +155,11 @@ function describeCheckpoint({ cp, rel, dirty, files, now = new Date() }) {
  *   「掛在哪」看設定檔(mountState),「活著嗎」看紀錄(lastSeen = 最後一筆來自這個工作區的事件)。
  * ⚠️ 設定裡找不到、紀錄裡卻有——那就是在記(2026-09-11 這個 worktree 就是這樣)。
  *    證據在手上的時候,不准說「沒掛上」(R1)。證據跟設定打架時,證據贏。
- * @param lastSeen ISO 時間,或 null
+ * @param lastSeen ISO 時間,或 null(只算感測器自己寫的紀錄——--report、按鈕寫的不算,見 renderSensor)
+ * @param now      這台電腦的感測器現在怎樣(lib/faults.mjs 的 sensorNow):'broken' 時「掛上之後要開新的對話才會開始記」不是真的,
+ *                 照做永遠等不到(規格:agent回報與故障記號 AC-3);'flaky' 時那句照舊,另外講時好時壞(魔鬼教官第一輪)
  */
-function describeSensor({ mount, lastSeen }) {
+function describeSensor({ mount, lastSeen, now = null }) {
   const L = [];
   const seen = lastSeen ? `最後一筆來自這裡的紀錄：${ago(lastSeen)}` : null;
   if (mount.state === 'off' && mount.optedOut) {
@@ -169,18 +172,21 @@ function describeSensor({ mount, lastSeen }) {
     L.push('感測器：🔴 掛著,但它指向的檔案不存在——**紀錄已經停了,而且不會有任何徵兆**');
     for (const p of mount.paths) L.push(`         找不到：${p}`);
     if (seen) L.push(`         ${seen}——從那之後就沒有了`);
-    L.push(mount.where === 'plugin'
-      ? '         修法：把 pipeline-monitor 資料夾放回去,或在它現在的位置跑 pipeline-status --install'
-      : '         修法：pipeline-status --on（會重新指到正確的位置）');
+    // 修法跟儀表板、--on 同一句(lib/mount.mjs;規格:agent回報與故障記號 AC-6)
+    L.push(`         ${mountFix(mount)}`);
   } else if (mount.state === 'ok') {
     const where = mount.where === 'plugin' ? '（plugin,每個專案都會記）'
       : mount.where === 'main' ? '（用的是主資料夾的設定）'
       : mount.where === 'user' ? '（用的是你帳號層級的設定）' : '';
     L.push(`感測器：已掛上${where}`);
-    L.push(`         ${seen ?? '還沒有來自這裡的紀錄（設定是對話開始時讀的,掛上之後要開新的對話才會開始記）'}`);
+    L.push(`         ${seen ?? (now === 'broken' ? '還沒有來自這裡的紀錄——這台電腦的感測器現在記不到東西（原因與修法見上面那一行），開新的對話也不會開始記'
+      : `還沒有來自這裡的紀錄（設定是對話開始時讀的,掛上之後要開新的對話才會開始記${now === 'flaky' ? '；這台電腦的感測器時好時壞，開了也不一定記得到，見上面那一行' : ''}）`)}`);
     if (mount.alsoLegacy) L.push('         ⚠️ 這個專案的設定檔裡還有舊的接法,會記兩次。拆掉：pipeline-status --on');
   } else if (seen) {
-    L.push(`感測器：設定裡找不到,但 ${ago(lastSeen)}還有來自這裡的紀錄——它在記,只是我不知道是哪份設定在做。`);
+    // 感測器現在記不到東西的話,「它在記」只到最後那一筆為止——不准講成現在還在記(R1)
+    L.push(now === 'broken'
+      ? `感測器：設定裡找不到,但 ${ago(lastSeen)}還有來自這裡的紀錄——那時候它在記,只是我不知道是哪份設定在做；之後這台電腦的感測器記不到東西（見上面那一行）。`
+      : `感測器：設定裡找不到,但 ${ago(lastSeen)}還有來自這裡的紀錄——它在記,只是我不知道是哪份設定在做${now === 'flaky' ? '（這台電腦的感測器時好時壞，見上面那一行）' : ''}。`);
   } else {
     L.push('感測器：沒掛上（打 pipeline-status --on 掛上）');
   }
@@ -302,11 +308,18 @@ function describeGate(logDir = LOG_DIR) {
   return `收工 hook：最後一次跑 ${ago(hb.ts)}`;
 }
 
-/** 標題＋感測器那一行。零 commit 的路徑跟正常路徑都要它——以前抄了兩份,各自過期(老毛病 P2)。 */
-function renderSensor(ctx, ev) {
+/**
+ * 標題＋故障橫條＋感測器那一行。零 commit 的路徑跟正常路徑都要它——以前抄了兩份,各自過期(老毛病 P2)。
+ * 故障橫條跟儀表板每一頁上方那條同一句(lib/faults.mjs;規格:agent回報與故障記號 AC-3):還在壞的才印。
+ */
+function renderSensor(ctx, ev, faults) {
   console.log(`━━ ${ctx.project} · ${ctx.branch} ━━`);
-  const mine = ev.events.filter((e) => e.cwd === ctx.root).map((e) => e.ts).filter(Boolean).sort();
-  const lines = describeSensor({ mount: mountState(ctx.root, ctx.mainRoot), lastSeen: mine.at(-1) ?? null });
+  for (const b of faultBanner(faults)) console.log(b.text);
+  const odd = unreadableLine(faults);
+  if (odd) console.log(odd);
+  // 「最後一筆來自這裡的紀錄」只算感測器自己寫的(有 hook 欄位):--report、按鈕寫的紀錄,感測器壞了照樣寫得進去(AC-5)
+  const mine = ev.events.filter((e) => e.cwd === ctx.root && e.hook).map((e) => e.ts).filter(Boolean).sort();
+  const lines = describeSensor({ mount: mountState(ctx.root, ctx.mainRoot), lastSeen: mine.at(-1) ?? null, now: sensorNow(faults) });
   for (const line of lines) console.log(line);
   console.log(`         ${describeGate()}`);
 }
@@ -327,7 +340,7 @@ function gatherChange(ctx, ev) {
 }
 
 function render(ctx, ev, info) {
-  renderSensor(ctx, ev);
+  renderSensor(ctx, ev, info.faults);
   const { cp, dirty, rel, cpUsable, h, base } = info;
 
   /* ── 還原點（AC-2 / AC-3 / AC-4 / AC-5 / L14） ── */
@@ -446,34 +459,50 @@ function renderStages(ctx, ev, facts, info = {}) {
   const { stages, perStage, cleared, sawAnyEventHere } = facts;
   if (!stages.length) return;
 
-  const { state, events, broken } = ev;
+  const { state, events } = ev;
+  const faults = info.faults ?? null;
   console.log('\n━━ 五關 ━━');
 
   // ⚠️ AC-1／AC-7:三種「看起來一樣」的情況必須分開講。
+  // 感測器在這台電腦上記不到東西(故障記號,最上面那一行)的時候,「分不出來」不是真的——分得出來:是壞了
+  // (規格:agent回報與故障記號 AC-3)。只有收工 hook 的故障、或感測器已經好了的,照舊講分不出來
+  // 時好時壞(flaky)時「現在記不到」不是真的(最後一筆故障之後又記到了):「分不出來」照舊,另外講時好時壞(魔鬼教官第一輪)
+  const now = sensorNow(faults);
+  const shaky = now === 'flaky' ? '      這台電腦的感測器時好時壞（見最上面那一行），也可能是這個原因。' : null;
   if (state === 'no-file') {
+    if (now === 'broken') {
+      console.log('   🔍 這個專案還沒有任何感測器紀錄——這台電腦的感測器現在記不到東西（見最上面那一行）,');
+      console.log('      所以不會說「五關都沒跑」。');
+      return;
+    }
     console.log('   🔍 這個專案還沒有任何感測器紀錄。');
     console.log('      可能是還沒裝感測器,也可能是裝了還沒跑過任何指令——**這兩種我分不出來**,');
+    if (shaky) console.log(shaky);
     console.log('      所以不會說「五關都沒跑」。');
     return;
   }
   if (state === 'no-events') {
     console.log('   ⚠️ 感測器可能沒在運作:紀錄檔存在,但裡面沒有東西。');
-    if (broken.length) console.log(`      感測器自己回報過 ${broken.length} 次故障。`);
+    if (now === 'broken') console.log('      這台電腦的感測器現在記不到東西（見最上面那一行）。');
+    if (shaky) console.log(shaky);
     console.log('      ⚠️ 這**不是**「五關都沒跑」——是我沒問到。');
     return;
   }
-  // ⚠️ D2:故障記號是全機一份,而且只代表「那幾次沒記到」。以前它一出現就把整區蓋成
-  //    「紀錄檔裡沒有東西」,幾千筆紀錄也一樣。現在降成一行警告,紀錄照畫。
-  if (broken.length) {
-    const last = broken.map((b) => b.ts).filter(Boolean).sort().at(-1);
-    console.log(`   ⚠️ 感測器回報過 ${broken.length} 次故障${last ? `（最近一次 ${ago(last)}）` : ''},那段期間可能有漏記。`);
-  }
+  // ⚠️ D2:故障記號是全機一份,而且只代表「那幾次沒記到」,不准把整區蓋成「紀錄檔裡沒有東西」——紀錄照畫。
+  //    還在壞的已經在最上面那一行;這裡只講「已經好了、但這一輪碰到那段期間」的(AC-5),跟對話頁同一句。
+  //    這一輪的起點是 A／章 才是真的起點;從感測器第一筆紀錄算的(prompt／arrival),真正的開始可能被故障吃掉了(魔鬼教官第一輪)
+  const origin = facts.view?.origin ?? null;
+  // 起點跟對話頁同一個算法(roundStartFor):這一輪在這裡動過的對話,看它們的轉錄檔建立的時間(魔鬼教官第二輪,P2)
+  const active = sessionsOf(events).filter((x) => x.cwd === ctx.root && (!origin?.at || x.lastTs >= origin.at)).map((x) => ({ id: x.id, cwd: x.cwd }));
+  const start = roundStartFor({ since: origin?.at ?? null, how: origin?.from ?? null, sessions: active });
+  for (const note of faultNotes(faults, { ...start, cwd: ctx.root })) console.log(`   ${note}`);
 
   // ⚠️ 感測器**有一個開始的日期**。在那之前跑過的事情它一輩子都不會知道。
   // 把那段期間講成「沒跑過」就是 A1:把「沒問到」編碼成「答案是沒有」。
   // 實測就是這樣抓到的:/spec 今天稍早真的跑過,但感測器是之後才裝的,
   // 畫面卻理直氣壯寫著「A 沒跑過」。
-  const firstTs = events.filter((e) => e.cwd === ctx.root).map((e) => e.ts).sort()[0];
+  // 只算感測器自己寫的(有 hook 欄位):--report、按鈕記的那一筆不代表感測器從那時候就在記
+  const firstTs = events.filter((e) => e.cwd === ctx.root && e.hook).map((e) => e.ts).sort()[0];
   if (!sawAnyEventHere) {
     console.log('   🔍 有紀錄,但沒有一筆來自這個 worktree。');
     console.log(`      （目前在 ${ctx.branch}）`);
@@ -583,6 +612,13 @@ function renderStages(ctx, ev, facts, info = {}) {
     //    (2026-09-21 實測,main 上 9/16 起就有;網頁同一個洞 9/16 修過,L20)
     if (st.checklist && Array.isArray(st.checklist.items)) printChecklist(st.checklist);
   }
+
+  // 沒見過的格式(規格:agent回報與故障記號 AC-2):這一輪在這裡動過的對話,有沒算成你說的話的訊息就講出來——跟對話頁同一句。
+  // 好幾個對話都有才各標一句是哪個對話(只有一個的時候「這個對話」就夠清楚)
+  const since = facts.view?.origin?.at ?? null;
+  const here = sessionsOf(events).filter((s) => s.cwd === ctx.root && (!since || s.lastTs >= since));
+  const odd = here.map((s) => ({ s, line: unknownPromptLine(unknownPromptsOf(events, s.id)) })).filter((x) => x.line);
+  for (const { s, line } of odd) console.log(`\n   ${odd.length > 1 ? `（${s.title ?? s.id.slice(0, 8)}）` : ''}${line}`);
 
   if (firstTs) {
     console.log(`\n   ⚠️ 「沒有紀錄」不等於「沒跑過」——感測器從 ${ago(firstTs)}才開始記,`);
@@ -752,7 +788,7 @@ async function doClear(ctx, args) {
   console.log(`✅ 記下了：使用者說 ${st.id} ${st.name}過了（Claude 代記）。`);
   if (a?.valid && a.by === 'claude') console.log(`   儀表板附的是 ${st.id} 之後使用者說的最後一句：「${String(a.said.text).replace(/\s+/g, ' ').slice(0, 60)}${a.said.text.length > 60 || a.said.cut ? '…' : ''}」——對得上就是他說的。`);
   else if (a?.valid) console.log(`   （這一輪 ${st.id} 已經有使用者自己說的驗收，照舊算那一筆。）`);
-  else if (a?.rejected) console.log(`   ⚠️ 這筆不算數：${st.id} 之後，紀錄裡沒有使用者說的話——分不出是不是他說的。儀表板照實這樣講。`);
+  else if (a?.rejected) console.log(`   ⚠️ 這筆不算數：${st.id} 之後，${noWords(a.rejected.odd)}——分不出是不是使用者說的。儀表板照實這樣講。`);
   else console.log(`   ⚠️ 找不到這一輪從哪開始——這筆分不出是不是這一輪的，儀表板不會算它。`);
   console.log('   ⚠️ 這是「使用者說的、Claude 代記的」，不是系統驗證的——畫面上會照實這樣寫。');
   return 0;
@@ -1313,7 +1349,7 @@ async function doDecide(ctx, ev, args) {
   console.log(`✅ 記下了：你說 ${name} 這一輪不用再${vb}（Claude 代記）。`);
   const d = r2?.decision;
   if (r2?.state === 'skipped') console.log(`   儀表板附的是你在 ${onAccept ? '說驗收過了' : `${st.id} 被叫`}之後說的最後一句：「${String(d.said.text).replace(/\s+/g, ' ').slice(0, 60)}${d.said.text.length > 60 || d.said.cut ? '…' : ''}」——對得上就是你說的。`);
-  else if (d?.why === 'no-words') console.log(`   ⚠️ 這筆不算數：${onAccept ? '你說驗收過了' : `${st.id} 被叫`}之後，紀錄裡沒有你說的話——分不出是不是你說的。儀表板照實這樣講，收工 hook 也不認。`);
+  else if (d?.why === 'no-words') console.log(`   ⚠️ 這筆不算數：${onAccept ? '你說驗收過了' : `${st.id} 被叫`}之後，${noWords(d.odd)}——分不出是不是你說的。儀表板照實這樣講，收工 hook 也不認。`);
   else if (d?.why === 'owner') console.log('   ⚠️ 這筆不算數：分不出是哪個對話記的（拿不到對話代號，而這個工作區有別的對話；或不是叫這一次的那個對話）。');
   else if (r2?.state === 'ask') console.log(`   ⚠️ 你那句話之後又改了程式檔——那次改動不算在這個決定裡，儀表板還是「要不要再${vb}由你決定」。`);
   else console.log(`   （${name} 已經有結論、之後沒再改程式檔——這個決定只在「之後又改了程式檔」時才用得上。）`);
@@ -1552,6 +1588,22 @@ function doMount(ctx, on) {
     console.log('\n💡 裝成 plugin 就不用每個專案掛：pipeline-status --install');
     return r.ok ? 0 : 1;
   }
+  if (on) {
+    // plugin 的捷徑壞了(資料夾搬走了):拿掉退出記號也記不到——不准回「本來就在記錄中」(規格:agent回報與故障記號 AC-6)。
+    // 以前網頁叫你跑 --on,照做就收到這句假的安心話。
+    // ⚠️ 這時不拆舊接法:捷徑壞了,設定檔裡的舊接法可能是唯一還在記的那一條——以前先拆了、一個字都沒印(魔鬼教官第一輪,R1)
+    const m = mountState(ctx.root, ctx.mainRoot);
+    if (m.state === 'broken') {
+      const removed = optIn(ctx.root, ctx.mainRoot);
+      if (removed.length) console.log(`拿掉了退出記號：${removed.join(', ')}`);
+      console.log(m.dangling ? '🔴 感測器是壞的：它掛著,但指向的資料夾不在了——紀錄已經停了,拿掉退出記號也不會開始記。'
+        : '🔴 感測器是壞的：它掛著,但指向的資料夾不是完整的 pipeline-monitor——紀錄已經停了,拿掉退出記號也不會開始記。');
+      console.log(`   捷徑：${m.paths.join(', ')}`);
+      console.log(`   ${mountFix(m)}`);
+      if (hookPathsIn(ctx.root).length) console.log('   這個專案設定檔裡的舊接法沒拆：捷徑修好之前,它可能是唯一還在記的那一條。');
+      return 1;
+    }
+  }
   const legacy = hookPathsIn(ctx.root).length ? unmount(ctx.root) : null;
   if (on) {
     const removed = optIn(ctx.root, ctx.mainRoot);
@@ -1611,8 +1663,10 @@ async function main() {
 
   // 紀錄只讀一次:感測器那行(活著嗎)、五關那段(跑過什麼)、分級(人調的)共用同一份
   const ev = readEvents(LOG_DIR, ctx.project);
+  // 這台電腦的故障(全機一份,儀表板同一個函式):最上面那一行、感測器那一行、五關那段共用
+  const faults = faultsNow(LOG_DIR, { retainDays: RETAIN_DAYS });
   if (!ctx.hasCommits && at('--checkpoint') === -1) {
-    renderSensor(ctx, ev);
+    renderSensor(ctx, ev, faults);
     console.log('這個專案還沒有任何 commit,所以還沒有版本可以回去。');
     return 0;
   }
@@ -1639,6 +1693,7 @@ async function main() {
     return doTierSet(ctx, ev, info, facts, id, why.join(' '));
   }
 
+  info.faults = faults;
   render(ctx, ev, info);
   renderStages(ctx, ev, facts, info);
   renderTier(ctx, ev, info, facts);
