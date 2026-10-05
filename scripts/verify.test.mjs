@@ -401,7 +401,7 @@ section('畫面:E 那一格畫三句話與逐條的清單;Claude 走完沒有打
   const src = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8');
   const fn = (name) => src.match(new RegExp(`^function ${name}\\([^)]*\\) \\{\\n[\\s\\S]*?\\n\\}\\n`, 'm'))?.[0] ?? null;
   const one = (name) => src.match(new RegExp(`^const ${name} = .*;$`, 'm'))?.[0] ?? null;
-  const parts = [one('stageState'), one('tookTail'), one('prevSaid'), one('noteHead'), one('clProg'), one('linkLine'), fn('checklistWhy'), fn('specNotes'), fn('workflow')];
+  const parts = [one('stageState'), one('tookTail'), one('prevSaid'), one('noteHead'), one('clProg'), one('clDoneNote'), one('linkLine'), fn('checklistWhy'), fn('specNotes'), fn('workflow')];
   check('從 ui/app.js 拿得出 workflow 與它用到的小函式(拿不出來這一段就什麼都沒測到)', parts.every(Boolean), parts.map((p, i) => (p ? '' : i)).join(','));
   const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const wf = parts.every(Boolean) ? new Function('esc', 'ago', 'ROLE', 'foldOpen', `${parts.join('\n')}; return workflow;`)(esc, ago, {}, () => true) : null;
@@ -603,6 +603,50 @@ section('魔鬼教官第二輪:共用資料夾時,你在另一個對話用 ! 自
   check('另一個對話你自己用 ! 記的 → 這個對話也算你說驗收過了', E1.state === 'done' && E1.accept?.bang === true, JSON.stringify(E1.accept));
   const E2 = sessionView(evs('npx jest --clear-cache'), STAGES.stages, 's1', null, '/x', {}).view.stages.find((x) => x.id === 'E');
   eq('別的指令帶著 --clear 字樣 → 不算', E2.accept?.valid ?? false, false);
+}
+
+section('好幾份規格的 E:兩份都有 AC-1,代號前面加規格名才分得開;只寫 AC-1 的不猜是哪一份(規格:多份規格與新資料夾的起點 AC-4)', 'P2');
+{
+  const expected = ['甲 AC-1', '甲 AC-2', '乙 AC-1'];
+  const w = parseWalk('第 1 趟\n甲 AC-1 看到了：「一」\n- 乙.md AC-1 沒看到：應該是藍色，畫面上是灰色\ndocs/進行中/甲.md AC-02 驗不了：跑不起來\nAC-1 看到了：「這是哪一份？」');
+  eq('規格名、檔名、整個路徑都認成同一個樣子', w.items.map((x) => x.id).join('|'), '甲 AC-1|乙 AC-1|甲 AC-2|AC-1');
+  const sum = walkSummary(w, expected);
+  eq('三種各一條;只寫 AC-1 的不算進任何一份', `${sum.total}|${sum.saw}|${sum.missing}|${sum.blocked}|${sum.unnamed.join(',')}|${sum.extra.join(',')}|${sum.noResult.join(',')}`, '3|1|1|1|AC-1||');
+  const line = summaryLine(sum);
+  check('一句話:三條各一種,只寫 AC-1 的講沒寫是哪一份(不講成不在這一輪的規格裡)', line.startsWith('3 條裡 1 條看到了、1 條沒看到、1 條驗不了') && line.includes('AC-1 沒寫是哪一份規格（不猜是哪一份）') && !line.includes('不在這一輪的規格裡'), line);
+  const rows = walkItems(w, expected, new Map([['甲 AC-1', '第 1 條'], ['甲 AC-2', '第 2 條'], ['乙 AC-1', '第 1 條']]));
+  eq('逐條:照要驗的順序,只寫 AC-1 的排最後、標「沒寫是哪一份規格」', rows.map((r) => `${r.id}:${r.verdict}${r.note}`).join('|'), '甲 AC-1:saw|甲 AC-2:blocked|乙 AC-1:missing|AC-1:saw（沒寫是哪一份規格，不猜）');
+  // 只有一份規格的輪次:照今天的格式,一個字不變
+  const one = walkSummary(parseWalk('第 1 趟\nAC-1 看到了：「一」\n1 看到了：「沒有規格的輪次」'), ['AC-1']);
+  eq('一份規格:AC-1 照舊算看到了;沒有一條講「沒寫是哪一份」', `${one.saw}|${one.unnamed.length}|${one.extra.join(',')}`, '1|0|1');
+  eq('沒有規格的輪次:數字編號照舊', walkSummary(parseWalk('第 1 趟\n1 看到了：「a」\n2 驗不了：b'), null).total, 2);
+}
+
+section('一條都對不上不是「沒有結果」:改格式之前走的那一趟,回報有 15 行、一條都對不上規格名(2026-10-05 實測)', 'P5');
+{
+  // 改格式之前走的那一趟(2026-10-02 TutorPod 實測):一份寫「語音 AC-1」、一份只寫「AC-1」——一條都對不上,但不是沒有結果
+  const old = summaryLine(walkSummary(parseWalk('第 1 趟\n語音 AC-1 看到了：「x」\nAC-1 看到了：「y」'), ['甲 AC-1', '乙 AC-1']));
+  check('一條都對不上、但回報有照格式寫的行 → 講「沒有一條對得上」,不講「沒有一條有結果」(讀起來像什麼都沒驗)', old.startsWith('2 條裡 沒有一條對得上') && !old.includes('沒有一條有結果'), old);
+  eq('回報真的一行都沒有 → 照舊講沒有一條有結果', summaryLine(walkSummary(parseWalk('第 1 趟'), ['甲 AC-1'])).startsWith('1 條裡 沒有一條有結果'), true);
+}
+
+section('E 回報帶了規格名:只有一份規格時,寫的就是那一份的名字 → 照常算;名字對不上(自己取的暱稱)不准講成「不在這一輪的規格裡」,裡面的「沒看到」不准被埋掉(魔鬼教官第一輪)', 'P4');
+{
+  const w1 = parseWalk('第 1 趟\nreport-row-time AC-1 看到了：「x」\nreport-row-time AC-2 沒看到：應該是 y');
+  const one = walkSummary(w1, ['AC-1', 'AC-2'], { single: 'report-row-time' });
+  eq('一份規格、前面寫了那份的名字 → 兩條都對上', `${one.saw}|${one.missing}|${one.extra.length}|${one.misnamed.length}`, '1|1|0|0');
+  check('一句話:2 條裡 1 條看到了、1 條沒看到(不講不在這一輪的規格裡)', summaryLine(one) === '2 條裡 1 條看到了、1 條沒看到', summaryLine(one));
+  const other = walkSummary(parseWalk('第 1 趟\n別份 AC-1 沒看到：z'), ['AC-1'], { single: 'report-row-time' });
+  check('一份規格、前面寫的是別的名字 → 規格名對不上,而且講有一條寫沒看到', summaryLine(other).includes('別份 AC-1 前面的規格名對不上這一輪的規格') && summaryLine(other).includes('對不上的回報裡有 1 條寫「沒看到」'), summaryLine(other));
+  // 兩份規格、Claude 自己取暱稱(10/2 那一趟真的這樣寫)
+  const w2 = parseWalk('第 1 趟\n語音 AC-1 沒看到：應該有紅字\n甲 AC-1 看到了：「一」');
+  const two = walkSummary(w2, ['甲 AC-1', '乙 AC-1'], { names: ['甲', '乙'], unreadable: [] });
+  const line = summaryLine(two);
+  check('暱稱:講前面的規格名對不上(不是「不在這一輪的規格裡」),沒看到那一條要講', line.includes('語音 AC-1 前面的規格名對不上這一輪的規格') && !line.includes('不在這一輪的規格裡') && line.includes('對不上的回報裡有 1 條寫「沒看到」'), line);
+  const rows = walkItems(w2, ['甲 AC-1', '乙 AC-1'], null, { names: ['甲', '乙'], unreadable: [] });
+  eq('逐條:暱稱那一條標規格名對不上', rows.find((r) => r.id === '語音 AC-1')?.note, '（前面的規格名對不上這一輪的規格）');
+  // 好幾份、名字對、但規格裡沒有這一條 → 那才是「不在這一輪的規格裡」
+  eq('名字對、規格裡沒有這一條 → 不在這一輪的規格裡', walkSummary(parseWalk('第 1 趟\n甲 AC-9 看到了：「?」'), ['甲 AC-1'], { names: ['甲'], unreadable: [] }).extra.join(','), '甲 AC-9');
 }
 
 process.exit(summary());

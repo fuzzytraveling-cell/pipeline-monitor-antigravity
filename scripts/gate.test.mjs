@@ -441,4 +441,68 @@ section('同一個對話自己中途換分支:不算換人,之前做的照算—
   s.cleanup();
 }
 
+section('app 新開的資料夾沒有 reflog、Claude 收工前先存檔:收工 hook 照樣要 D——起點的版本看感測器記的版本號(規格:多份規格與新資料夾的起點 AC-9)', 'P1');
+{
+  // 照 app 現在(2026-10-01 起)的做法開工作區:開資料夾那一刻不留 reflog,第一次存檔才有(10/2 TutorPod 實測)
+  const s = scene();
+  const init = out(s.root, 'rev-parse', 'HEAD');
+  execFileSync('git', ['checkout', '-q', '--', '.'], { cwd: s.root });   // 主資料夾不留改動:這一段只看工作區
+  const wt = join(mkdtempSync(join(tmpdir(), 'pm-gate-app-')), 'wt');
+  execFileSync('git', ['worktree', 'add', '-q', '-b', 'claude/app-new', wt], { cwd: s.root, stdio: 'ignore' });
+  rmSync(join(out(wt, 'rev-parse', '--absolute-git-dir'), 'logs'), { recursive: true, force: true });
+  rmSync(join(s.root, '.git', 'logs', 'refs', 'heads', 'claude', 'app-new'), { force: true });
+  const head = init.slice(0, 7);
+  const line = (o) => JSON.stringify({ session: 's1', cwd: wt, head, ...o });
+  writeFileSync(s.log, [
+    { ts: T(-10 * MIN), hook: 'UserPromptSubmit', prompt: '幫我改一下' },
+    { ts: T(-9 * MIN), hook: 'PostToolUse', tool: 'Edit', file: join(wt, 'src/a.js') },
+  ].map(line).join('\n') + '\n');
+  writeFileSync(join(wt, 'src/a.js'), 'changed\n');
+  const past = new Date(Date.now() - 9 * MIN * 1000);
+  utimesSync(join(wt, 'src/a.js'), past, past);
+  const payload = { session_id: 's1', cwd: wt, hook_event_name: 'Stop', stop_hook_active: false };
+  const before = decide({ payload, monitorDir: s.monitorDir, skillHome: s.home });
+  eq('還沒存檔:擋,缺 D(T1)', `${before?.level}|${(before?.missing ?? []).join(',')}`, 'T1|D');
+  // Claude 收工前先存檔——reflog 這時才有第一筆,比這一輪的起點晚
+  execFileSync('git', ['commit', '-qam', '收工前存檔'], { cwd: wt, stdio: 'ignore' });
+  const after = decide({ payload, monitorDir: s.monitorDir, skillHome: s.home });
+  eq('存檔之後:照樣擋、缺的一樣(以前這裡分級變「看不全」,收工 hook 放行)', `${after?.level}|${(after?.missing ?? []).join(',')}`, 'T1|D');
+  check('理由講從這一輪算、含已存檔的,不講「只算還沒存檔的」', /含已存檔的/.test(after?.reason ?? '') && !/只算還沒存檔的/.test(after?.reason ?? ''), after?.reason);
+  const card = cardFor({ monitorDir: s.monitorDir, path: wt, skillHome: s.home })?.card;
+  eq('儀表板那張卡:分級 T1、從這一輪的起點算(不是「看不全」)', `${card?.tier?.state}|${card?.tier?.final?.id}|${card?.base?.kind}`, 'ok|T1|origin');
+  execFileSync('git', ['worktree', 'remove', '--force', wt], { cwd: s.root, stdio: 'ignore' });
+  s.cleanup();
+}
+
+section('app 新開的資料夾、這一輪從「叫 A」開始(真的那個 TutorPod 對話走的路):存檔之後收工 hook 照樣要 D,起點是叫 A 那一刻(魔鬼教官第一輪:這條路以前沒有測試)', 'P1');
+{
+  const s = scene();
+  const init = out(s.root, 'rev-parse', 'HEAD');
+  execFileSync('git', ['checkout', '-q', '--', '.'], { cwd: s.root });
+  const wt = join(mkdtempSync(join(tmpdir(), 'pm-gate-appA-')), 'wt');
+  execFileSync('git', ['worktree', 'add', '-q', '-b', 'claude/app-a', wt], { cwd: s.root, stdio: 'ignore' });
+  rmSync(join(out(wt, 'rev-parse', '--absolute-git-dir'), 'logs'), { recursive: true, force: true });
+  rmSync(join(s.root, '.git', 'logs', 'refs', 'heads', 'claude', 'app-a'), { force: true });
+  const head = init.slice(0, 7);
+  const line = (o) => JSON.stringify({ session: 's1', cwd: wt, head, ...o });
+  // 第一句話的版本號故意記成別的:起點是 A,拿的必須是 A 那一筆的版本號,不是第一句話的
+  writeFileSync(s.log, [
+    { ts: T(-20 * MIN), hook: 'UserPromptSubmit', prompt: '幫我寫規格', head: 'fffffff' },
+    { ts: T(-19 * MIN), hook: 'PreToolUse', tool: 'Skill', skill: `${PLUGIN}:spec` },
+    { ts: T(-10 * MIN), hook: 'UserPromptSubmit', prompt: '開工' },
+    { ts: T(-9 * MIN), hook: 'PostToolUse', tool: 'Edit', file: join(wt, 'src/a.js') },
+  ].map(line).join('\n') + '\n');
+  writeFileSync(join(wt, 'src/a.js'), 'changed\n');
+  const past = new Date(Date.now() - 9 * MIN * 1000);
+  utimesSync(join(wt, 'src/a.js'), past, past);
+  execFileSync('git', ['commit', '-qam', '收工前存檔'], { cwd: wt, stdio: 'ignore' });
+  const payload = { session_id: 's1', cwd: wt, hook_event_name: 'Stop', stop_hook_active: false };
+  const d = decide({ payload, monitorDir: s.monitorDir, skillHome: s.home });
+  eq('存檔之後:照樣擋,T1 缺 D', `${d?.level}|${(d?.missing ?? []).join(',')}`, 'T1|D');
+  const card = cardFor({ monitorDir: s.monitorDir, path: wt, skillHome: s.home })?.card;
+  eq('卡片:從叫 A 那一刻的版本算起(不是「看不全」)', `${card?.tier?.state}|${card?.base?.kind}|${card?.base?.origin?.from}`, 'ok|origin|A');
+  execFileSync('git', ['worktree', 'remove', '--force', wt], { cwd: s.root, stdio: 'ignore' });
+  s.cleanup();
+}
+
 process.exit(summary());

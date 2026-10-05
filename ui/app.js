@@ -116,8 +116,12 @@ document.addEventListener('toggle', (e) => {
 }, true);
 /** 結論說明的第一行(清單放在後面幾行) */
 const noteHead = (st) => String(st.report?.note ?? '').split('\n')[0].trim();
-/** B 的清單進度一句話:「3/5 對過,1 條待討論,1 條還沒對」。沒有清單就空字串。分批做的規格只數這一批(施工對話認規格 AC-8) */
-const clProg = (cl) => cl?.parsed ? `清單${cl.batch ? '這一批' : ''} ${cl.checked}/${cl.total} 對過${cl.pending ? `,${cl.pending} 條待討論` : ''}${cl.unmarked ? `,${cl.unmarked} 條還沒對` : ''}` : '';
+/** B 的清單進度一句話:「3/5 對過,1 條待討論,1 條還沒對」。沒有清單就空字串。分批做的規格只數這一批(施工對話認規格 AC-8)。
+ *  好幾份規格:講幾份、共幾條,讀不到的另外講(規格:多份規格與新資料夾的起點 AC-2、AC-5)——跟終端機(status.mjs 的 clProg)同一句 */
+// ⚠️ 寫成一行:測試(rerun／verify 的 workflow 那段)照「const 名字 = 一整行」從這個檔案拿出來真的跑
+const clProg = (cl) => (!cl?.parsed ? '' : `${cl.multi ? `${cl.specs} 份規格共 ${cl.total} 條：${cl.checked} 條對過` : `清單${cl.batch ? '這一批' : ''} ${cl.checked}/${cl.total} 對過`}${cl.pending ? `,${cl.pending} 條待討論` : ''}${cl.unmarked ? `,${cl.unmarked} 條還沒對` : ''}${cl.multi && cl.unreadable?.length ? `（另有 ${cl.unreadable.length} 份讀不到，條數不在裡面）` : ''}`);
+/** Claude 對完清單之後那一句的括號:好幾份規格才有——跟終端機(status.mjs 的 clDoneNote)同一句 */
+const clDoneNote = (cl) => (cl?.multi ? `（${cl.specs} 份規格共 ${cl.total} 條${cl.unreadable?.length ? `；另有 ${cl.unreadable.length} 份讀不到，條數不在裡面` : ''}）` : '');
 /** 「照別的對話寫的規格 X（Claude 說的）」——跟終端機(status.mjs 的 linkLine)同一句,改一邊要改另一邊 */
 const linkLine = (lk) => `照別的對話寫的規格 ${lk.name}（Claude 說的${lk.how === 'only' ? '；沒記到對話代號，這個工作區只有這個對話' : ''}）`;
 /** B 為什麼還不算寫完——跟終端機(status.mjs 的 checklistWhy)同一句 */
@@ -130,23 +134,42 @@ function checklistWhy(cl) {
 /** 寫規格那一關的旁白(施工對話認規格):規格在哪、另寫了一份、第一句話的提示、分不出是誰記的。都只是講,不算 A、不擋人。跟終端機的 specNotes 同一份文案 */
 function specNotes(st) {
   const L = [];
-  const lk = st.link, at = st.specPlace;
+  const lk = st.link;
   // 規格在哪(規格搬家 AC-3、AC-4):別的對話寫的連結、這個對話 A 寫的,兩條路都讀 specPlace 這一份——同一個地方判斷、同一句話
-  // 資料夾不在了(worktree 清掉了):工作區裡沒辦法找,不准講成「都沒有同名的」(R1,魔鬼教官 2026-09-22)
-  if (at?.gone) L.push(at.found === 'main' ? `這個對話的資料夾已經不在了；規格在主資料夾：${at.rel ?? `${at.name}.md`}` : `這個對話的資料夾已經不在了，找不到記的規格檔（${at.given ?? `${at.name}.md`}）`);
-  // 記在主資料夾的(worktree 的對話把規格寫進了主資料夾):講寫在那裡,不講「可能還沒併進來」
-  else if (at?.found === 'main') L.push(at.recordedIn === 'main' ? `規格寫在主資料夾（${at.rel ?? `${at.name}.md`}），不在這個工作區——不會叫 Claude 去那裡打勾` : '規格在主資料夾，不在這個工作區（可能還沒併進來）——不會叫 Claude 去那裡打勾');
-  else if (at?.found === 'missing') L.push(`找不到規格檔 ${at.name}.md${!at.given ? '' : at.recordedIn === 'main' ? `（記的是主資料夾的 ${at.given}；主資料夾的規劃中／進行中／升級摘要都沒有同名的）` : `（記的是 ${at.given}；規劃中／進行中／升級摘要都沒有同名的）`}`);
-  // 同名的那一份比記的那份還舊:分不出是不是同一份,不拿它的勾(R2,魔鬼教官 2026-09-22);證據只到「比較舊」,不講「是別份」(第二輪)
-  else if (at?.found === 'older') L.push(`記的規格檔 ${at.name}.md 不在記的位置（${at.given}）；工作區裡同名的 ${at.rel} 比記的那份還舊，分不出是不是同一份——不畫它的清單`);
-  // 記的位置不在這個工作區、也不在主資料夾:不拿工作區裡同名的另一份頂替(P6,魔鬼教官 2026-09-22)
-  else if (at?.found === 'outside') L.push(`記的規格檔 ${at.name}.md 不在這個工作區，也不在主資料夾——不會叫 Claude 去那裡打勾`);
-  else if (at?.found === 'ambiguous') L.push(`工作區裡叫 ${at.name}.md 的規格不只一份（${(at.where ?? []).join('、')}），分不出是哪一份`);
-  else if (at?.moved) L.push(`規格搬到了 ${at.rel}（記的是 ${at.given}）`);
-  if (st.side) L.push(st.side.name ? `另寫了一份規格 ${st.side.name}（等你點頭）` : `${ago(st.side.ts)}又叫了寫規格那一關（寫了哪份看不到）；施工清單還是 ${lk?.name ?? '原本那份'}`);
+  const where = (at) => {
+    // 資料夾不在了(worktree 清掉了):工作區裡沒辦法找,不准講成「都沒有同名的」(R1,魔鬼教官 2026-09-22)
+    if (at?.gone) return at.found === 'main' ? `這個對話的資料夾已經不在了；規格在主資料夾：${at.rel ?? `${at.name}.md`}` : `這個對話的資料夾已經不在了，找不到記的規格檔（${at.given ?? `${at.name}.md`}）`;
+    // 記在主資料夾的(worktree 的對話把規格寫進了主資料夾):講寫在那裡,不講「可能還沒併進來」
+    if (at?.found === 'main') return at.recordedIn === 'main' ? `規格寫在主資料夾（${at.rel ?? `${at.name}.md`}），不在這個工作區——不會叫 Claude 去那裡打勾` : '規格在主資料夾，不在這個工作區（可能還沒併進來）——不會叫 Claude 去那裡打勾';
+    if (at?.found === 'missing') return `找不到規格檔 ${at.name}.md${!at.given ? '' : at.recordedIn === 'main' ? `（記的是主資料夾的 ${at.given}；主資料夾的規劃中／進行中／升級摘要都沒有同名的）` : `（記的是 ${at.given}；規劃中／進行中／升級摘要都沒有同名的）`}`;
+    // 同名的那一份比記的那份還舊:分不出是不是同一份,不拿它的勾(R2,魔鬼教官 2026-09-22);證據只到「比較舊」,不講「是別份」(第二輪)
+    if (at?.found === 'older') return `記的規格檔 ${at.name}.md 不在記的位置（${at.given}）；工作區裡同名的 ${at.rel} 比記的那份還舊，分不出是不是同一份——不畫它的清單`;
+    // 記的位置不在這個工作區、也不在主資料夾:不拿工作區裡同名的另一份頂替(P6,魔鬼教官 2026-09-22)
+    if (at?.found === 'outside') return `記的規格檔 ${at.name}.md 不在這個工作區，也不在主資料夾——不會叫 Claude 去那裡打勾`;
+    if (at?.found === 'ambiguous') return `工作區裡叫 ${at.name}.md 的規格不只一份（${(at.where ?? []).join('、')}），分不出是哪一份`;
+    if (at?.moved) return `規格搬到了 ${at.rel}（記的是 ${at.given}）`;
+    return null;
+  };
+  // 一次 A 寫了好幾份(規格:多份規格與新資料夾的起點 AC-5):一份一句,前面標是哪一份——讀不到的那份不准安靜消失
+  const many = Array.isArray(st.specPlaces) && st.specPlaces.length > 1;
+  for (const at of many ? st.specPlaces : [st.specPlace]) {
+    const line = where(at);
+    if (line) L.push(many ? `${at.name}：${line}` : line);
+  }
+  if (st.side) L.push(!st.side.name ? `${ago(st.side.ts)}又叫了寫規格那一關（寫了哪份看不到）；施工清單還是 ${lk?.name ?? '原本那份'}`
+    : st.side.count > 1 ? `另寫了 ${st.side.count} 份規格 ${st.side.name}（等你點頭）` : `另寫了一份規格 ${st.side.name}（等你點頭）`);
+  // 連著一份規格又記了另一份(AC-7):換掉可以,安靜換掉不行。這一輪自己叫 A 寫的被 --spec 換掉也一樣
+  if (st.replaced) L.push(st.replaced.own ? `原本照 ${(st.replaced.fromNames ?? [st.replaced.from]).map((n) => `${n}.md`).join('、')}（這個對話叫 A 寫的），後來換成 ${st.replaced.to}.md`
+    : `原本照 ${st.replaced.from}.md，後來換成 ${st.replaced.to}.md`);
+  // 這一輪之前叫 A 寫的、還有沒對完的(同一個對話叫第二次 A,一輪從後來那次算):收工 hook 不會再要它的清單,講出來
+  for (const e of st.earlierSpecs ?? []) L.push(`${e.name}.md 是這一輪之前叫 A 寫的，還有 ${e.unmarked} 條沒對——這一輪從後來那次 A 算起，收工 hook 不會要它的清單`);
+  // 記過、現在哪裡都找不到的(改名、刪了):不算進這一輪的規格,講一句
+  if (st.ghostSpecs?.length) L.push(`記過 ${st.ghostSpecs.map((n) => `${n}.md`).join('、')}，現在找不到（可能改名或刪了）——不算進這一輪的規格`);
   if (st.hint) L.push(`從你第一句話看，可能是照 ${st.hint.name} 施工（Claude 還沒確認${st.hint.cut ? '；感測器只記第一句話的開頭，後面有沒有提到別份看不到' : ''}）`);
   if (st.unsure) L.push(`有一筆規格連結（${st.unsure.name}）分不出是哪個對話記的——不算數`);
   if (st.shared) L.push('這個工作區這一輪有好幾個對話；規格連結只算記它的那個對話，看各對話的頁面');
+  // 這一輪還動了別的規格檔、沒記到它是不是這一輪的(AC-6):講一句,不擋收工(Oscar 2026-10-05:會多講話,可以)
+  if (st.extraSpecs?.length) L.push(`這一輪還動了 ${st.extraSpecs.map((n) => `${n}.md`).join('、')}，沒記到${st.extraSpecs.length > 1 ? '它們' : '它'}是不是這一輪的規格`);
   return L;
 }
 /** 感測器看得到的關(有 skill 或 tools 的)。B 是你在講話的那個對話、未建的關,都不算分母。 */
@@ -159,7 +182,9 @@ function roundWhere(stages) {
   if (cur) {
     // E 驗收:伺服器照 lib/verify.mjs 算好的那一句(Claude 走過一遍,等你查核……);舊的服務沒給就照舊
     // 已經驗收也照這一句:Claude 代記的要講是 Claude 代記(魔鬼教官第二輪:以前 done 寫死「你說驗收過了」,第一輪那條只修了一半)
-    const tail = cur.type === 'browser' && cur.ewhere ? `（${cur.ewhere}）` : cur.state === 'done' ? (cur.type === 'browser' ? '（你說驗收過了）' : '（處理完了）') : '';
+    // 好幾份規格、有一份讀不到:B 對完的只是讀得到的那幾份,這一句也要講(魔鬼教官第一輪:B 那一行講了,對話列與案件卡沒講)
+    const unread = cur.type === 'main-conversation' && cur.checklist?.unreadable?.length ? `另有 ${cur.checklist.unreadable.length} 份規格讀不到` : '';
+    const tail = cur.type === 'browser' && cur.ewhere ? `（${cur.ewhere}）` : cur.state === 'done' ? (cur.type === 'browser' ? '（你說驗收過了）' : `（處理完了${unread ? `；${unread}` : ''}）`) : unread ? `（${unread}）` : '';
     return `這一輪走到 ${cur.id} ${cur.name}${tail}`;
   }
   // 最後一步是結論會過期的關、而它在「要處理」或「擱著」:不是沒有紀錄(魔鬼教官第一輪,老毛病 P5:這個「找不到」有兩種意思)。
@@ -446,8 +471,8 @@ function workflow(c) {
         ? (s === 'ran' ? `最後一次改程式檔 ${ago(st.ranAt)}${st.via === 'git' ? '（感測器沒看到改檔,是 git 說的——可能是用 Bash 寫的）' : ''}——現在在這一關${clProg(st.checklist) ? `（${clProg(st.checklist)}${st.checklist?.batchMissing?.length || st.checklist?.preMarked ? `；${checklistWhy(st.checklist)}` : ''}）` : ''}`
           // 清單沒對完:不劃掉,用「要處理」的樣子(AC-6)
           : s === 'stale' ? `改過程式檔（最後一次 ${ago(st.ranAt)}）,${clProg(st.checklist)}——${checklistWhy(st.checklist)},不算寫完`
-          : s === 'done' ? `改過程式檔（最後一次 ${ago(st.ranAt)}）,${ago(st.doneAt)}Claude 對完清單`
-          : s === 'passed' ? `改過程式檔（最後一次 ${ago(st.ranAt)}）${st.closedBy === 'checklist' ? ',Claude 對完清單' : ''}——已走過`
+          : s === 'done' ? `改過程式檔（最後一次 ${ago(st.ranAt)}）,${ago(st.doneAt)}Claude 對完清單${clDoneNote(st.checklist)}`
+          : s === 'passed' ? `改過程式檔（最後一次 ${ago(st.ranAt)}）${st.closedBy === 'checklist' ? `,Claude 對完清單${clDoneNote(st.checklist)}` : ''}——已走過`
           : '就是你在講話的那個對話（這一輪還沒改到程式檔）')
       : s === 'notbuilt' ? '這一關還沒建'
       // A 的結案是你點頭開工(之後第一次改到程式檔):講出來,不然像是憑空劃掉的
@@ -476,17 +501,26 @@ function workflow(c) {
     // A 的清單就是規格檔裡的 AC,照檔案畫(AC-5)。解析不了就照原文、找不到就說找不到——不假裝
     // 只有 A 帶完整的清單(有 items);B 只帶進度摘要,進度已經寫在狀態列,這裡不畫——畫下去就是 undefined 的 .map(2026-09-16 實際炸過一次)
     const cl = st.checklist && Array.isArray(st.checklist.items) ? st.checklist : null;
+    const aclItems = (x) => `<ul class="acl">${x.items.map((it) => `<li data-state="${esc(it.state)}"${it.inBatch === false ? ' data-batch="out"' : ''}><span class="mark">${it.state === 'checked' ? '✅' : it.state === 'pending' ? '⏳' : '○'}</span>
+          <span><b>${esc(it.id)}</b> ${esc(it.title)}${it.state === 'pending' && it.note ? `<span class="muted">（待討論：${esc(it.note)}）</span>` : ''}${it.inBatch === false ? '<span class="muted">（不在這一批）</span>' : ''}${
+          it.plain ? `<div class="plain">${esc(it.plain)}</div>` : ''}</span></li>`).join('')}</ul>`;
+    // 可收折、預設收起(Oscar 2026-09-16):摘要一行講進度,展開才看每一條;對過的劃掉
+    // 預設展開;你收起來就記住,資料每幾秒重畫一次也不會蓋掉你的選擇(Oscar 2026-09-16:一重畫就縮回去,很干擾)
+    const aclBox = (key, summary, inner) => `<details class="acl-box" data-fold="${esc(key)}"${foldOpen(key) ? ' open' : ''}><summary>${summary}</summary>
+        ${inner}</details>`;
     const clHtml = !cl ? ''
+      // 一輪寫了好幾份(規格:多份規格與新資料夾的起點 AC-1、AC-2、AC-5):一份一個清單,各寫各的條數;總數只加讀得到的,讀不到的講出來。
+      // 「全部 N 條」只在一份的時候出現——只算一份卻長得像全部,就是 2026-10-02 那個「全部 5 條其實 15 條」。不在這個工作區的那一份,在哪、為什麼,旁白講了
+      : cl.multi ? `<div class="acl">這一輪寫了 ${cl.parts.length} 份規格，共 ${cl.total} 條${cl.unreadable?.length ? `（另有 ${cl.unreadable.length} 份讀不到，條數不在裡面）` : ''}</div>`
+        + cl.parts.map((p) => (!p.checklist ? ''
+          : !p.checklist.parsed ? `<div class="acl muted">${esc(p.name)}：${p.checklist.missing ? '找不到規格檔' : '規格檔裡沒有照格式寫的 AC'}</div>`
+          : aclBox(`${c.path ?? ''}|${st.id}|${p.name}`, `驗收清單 · ${esc(p.name)}：${esc(clProg(p.checklist).replace(/^清單 /, ''))}（這份 ${p.checklist.total} 條）`, aclItems(p.checklist)))).join('')
       : cl.missing ? `<div class="acl muted">清單：找不到這一輪的規格檔${cl.file ? `（${esc(String(cl.file).split('/').slice(-3).join('/'))}）` : ''}</div>`
       : !cl.parsed ? `<div class="acl muted">清單：規格檔裡沒有照格式寫的 AC${cl.head ? `，開頭是：${esc(cl.head.slice(0, 80))}` : ''}</div>`
-      // 可收折、預設收起(Oscar 2026-09-16):摘要一行講進度,展開才看每一條;對過的劃掉
-      // 預設展開;你收起來就記住,資料每幾秒重畫一次也不會蓋掉你的選擇(Oscar 2026-09-16:一重畫就縮回去,很干擾)
       // 分批做的規格(施工對話認規格 AC-8):整份照畫,不在這一批的標出來、淡一點——收工前只要求這一批
-      : `<details class="acl-box" data-fold="${esc(`${c.path ?? ''}|${st.id}`)}"${foldOpen(`${c.path ?? ''}|${st.id}`) ? ' open' : ''}><summary>驗收清單：${clProg(cl).replace(/^清單(這一批)? /, cl.batch ? '這一批 ' : '')}（全部 ${cl.allTotal ?? cl.total} 條${cl.batch ? `，這一批只對 ${esc(cl.batch.join('、'))}` : ''}）</summary>
-        ${cl.batchMissing?.length || cl.preMarked ? `<div class="said">⚠️ ${esc(checklistWhy(cl))}</div>` : ''}
-        <ul class="acl">${cl.items.map((it) => `<li data-state="${esc(it.state)}"${it.inBatch === false ? ' data-batch="out"' : ''}><span class="mark">${it.state === 'checked' ? '✅' : it.state === 'pending' ? '⏳' : '○'}</span>
-          <span><b>${esc(it.id)}</b> ${esc(it.title)}${it.state === 'pending' && it.note ? `<span class="muted">（待討論：${esc(it.note)}）</span>` : ''}${it.inBatch === false ? '<span class="muted">（不在這一批）</span>' : ''}${
-          it.plain ? `<div class="plain">${esc(it.plain)}</div>` : ''}</span></li>`).join('')}</ul></details>`;
+      : aclBox(`${c.path ?? ''}|${st.id}`, `驗收清單：${clProg(cl).replace(/^清單(這一批)? /, cl.batch ? '這一批 ' : '')}（全部 ${cl.allTotal ?? cl.total} 條${cl.batch ? `，這一批只對 ${esc(cl.batch.join('、'))}` : ''}）`,
+        `${cl.batchMissing?.length || cl.preMarked ? `<div class="said">⚠️ ${esc(checklistWhy(cl))}</div>` : ''}
+        ${aclItems(cl)}`);
     // 結論的說明有清單(多行)時,一行一條列在卡上——C 的建議、D 的發現就住在這裡
     const noteLines = String(st.report?.note ?? '').split('\n').map((l) => l.trim()).filter(Boolean);
     // 已走過的關也要列(C 已走過,它的建議還是要看得到——「有幾條就列幾條」)

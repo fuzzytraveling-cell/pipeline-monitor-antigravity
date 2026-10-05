@@ -8,16 +8,18 @@
  *   ④ 找不到起點的版本、版本不在這條分支上、沒有起點:退回只看還沒存檔的,而且文案講「存檔過的看不到」,不講「沒有改動」(老毛病 P5)
  */
 import { execFileSync } from 'node:child_process';
-import { writeFileSync, mkdtempSync, rmSync, mkdirSync, utimesSync, unlinkSync, statSync } from 'node:fs';
+import { writeFileSync, mkdtempSync, rmSync, mkdirSync, utimesSync, unlinkSync, statSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname, basename } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
-import { reflogOf, versionAt, changeBase, changeFacts, takeoverOf, tenureEvents, previousTenant } from '../lib/origin.mjs';
+import { reflogOf, versionAt, changeBase, changeFacts, takeoverOf, tenureEvents, previousTenant, commitOfHead } from '../lib/origin.mjs';
 import { changeTimeOf } from '../lib/tier.mjs';
 import { changeScope } from '../lib/scope.mjs';
 import { changeHealth, checkpointRelation } from '../lib/git.mjs';
-import { sessionsOf } from '../lib/events.mjs';
+import { sessionsOf, safeName } from '../lib/events.mjs';
+import { cardFor } from '../lib/collect.mjs';
 
 const out = (dir, ...a) => execFileSync('git', a, { cwd: dir, encoding: 'utf8' }).trim();
 const NOW = Date.now();                                   // 「現在」只取一次(L18)
@@ -77,7 +79,7 @@ section('reflog 的時間跟起點換成同一個鐘再比:+08:00 的早上九�
   r.cleanup();
 }
 
-section('worktree 有自己的一份 reflog,建好那一刻就有一筆(app 一個對話開一個 worktree)');
+section('git 自己開的 worktree 有自己的一份 reflog,建好那一刻就有一筆(app 10/1 起開的資料夾沒有這一筆,見後面「app 新開的資料夾」那段)');
 {
   const r = makeRepo({ files: { 'src/a.js': '1\n' }, at: T(-60 * MIN) });
   const wt = join(mkdtempSync(join(tmpdir(), 'pm-origin-wt-')), 'wt');
@@ -321,6 +323,117 @@ section('刪掉的檔也有時間:看它所在資料夾的時間(上限,只會�
   eq('連資料夾都刪了:往上找還在的那一層', changeTimeOf(root, 'src/deep/gone.js'), statSync(join(root, 'src')).mtimeMs);
   eq('工作區本身都不在 → 問不到(null)', changeTimeOf(join(root, '沒有這個'), 'a.js'), null);
   rmSync(root, { recursive: true, force: true });
+}
+
+/**
+ * 照 app 現在(2026-10-01 起)的做法開一個工作區:開資料夾那一刻不留 reflog——worktree 自己那份、分支那份都沒有,第一次存檔才有。
+ * 10/2 實測 TutorPod 的兩個資料夾就是這樣(.git/worktrees/<名>/ 底下沒有 logs/)。
+ */
+function appWorktree(r, branch) {
+  const wt = join(mkdtempSync(join(tmpdir(), 'pm-origin-app-')), 'wt');
+  execFileSync('git', ['worktree', 'add', '-q', '-b', branch, wt], { cwd: r.dir, stdio: 'ignore' });
+  rmSync(join(out(wt, 'rev-parse', '--absolute-git-dir'), 'logs'), { recursive: true, force: true });
+  rmSync(join(r.dir, '.git', 'logs', 'refs', 'heads', branch), { force: true });
+  return wt;
+}
+
+section('app 新開的資料夾沒有 reflog(2026-10-01 起實測):起點的版本看感測器在那一筆記的版本號——存檔之後,存過的改動照樣算得到(規格:多份規格與新資料夾的起點 AC-8、AC-9)', 'P1');
+{
+  const r = makeRepo({ files: { 'src/a.js': '1\n' }, at: T(-60 * MIN) });
+  const init = out(r.dir, 'rev-parse', 'HEAD');
+  const wt = appWorktree(r, 'app-branch');
+  eq('reflog 讀得到、但一筆都沒有(跟 10/2 那個資料夾一樣)', JSON.stringify(reflogOf(wt)), '[]');
+  const short = init.slice(0, 7);
+  const origin = { at: T(-5 * MIN), from: 'A', sessions: null, head: short, heads: [short] };
+  const rel = relationOf(wt);
+  const before = changeBase({ root: wt, origin, relationOf: rel });
+  eq('還沒存檔:基準是感測器記的那個版本,不是只看還沒存檔的', `${before.kind}|${before.since}|${before.src}`, `origin|${init}|sensor`);
+  eq('還沒存檔、HEAD 沒動過 → 沒有 moved', before.moved, false);
+  // Claude 收工前先存檔:reflog 這時才有第一筆(存檔那一筆,比起點晚)
+  writeFileSync(join(wt, 'src/a.js'), '2\n');
+  commitAt(wt, T(-2 * MIN), '收工前存檔');
+  const rl = reflogOf(wt);
+  check('存檔之後 reflog 只有存檔那一筆,比起點晚(git 自己查不到起點的版本)', rl?.length === 1 && versionAt(wt, origin.at, { reflog: rl }).state === 'none', JSON.stringify(rl));
+  const after = changeBase({ root: wt, origin, relationOf: rel });
+  eq('存檔之後:基準還是起點那一刻的版本', `${after.kind}|${after.since}|${after.src}`, `origin|${init}|sensor`);
+  check('存檔過的改動還在清單裡(以前這裡只看得到還沒存檔的:0 個,分級變「看不全」、收工 hook 放行)', changeHealth(wt, after.since).list.includes('src/a.js'), JSON.stringify(changeHealth(wt, after.since).list));
+  eq('起點之後存過檔 → 中間動過', after.moved, true);
+  eq('畫面拿到的起點不帶版本號(版本代號不給畫面)', Object.keys(after.origin).sort().join(','), 'at,from,sessions');
+  const noHead = changeBase({ root: wt, origin: { at: origin.at, from: 'A', sessions: null }, relationOf: rel });
+  eq('起點那一筆沒記到版本號 → 跟以前一樣只看還沒存檔的、講找不到(AC-10)', `${noHead.kind}|${noHead.why}`, 'head|not-found');
+  check('那張臉照舊講「存檔過的看不到」,不講沒有改動', /存檔過的看不到/.test(changeScope(noHead, () => '').empty));
+  execFileSync('git', ['worktree', 'remove', '--force', wt], { cwd: r.dir, stdio: 'ignore' });
+  r.cleanup();
+}
+
+section('兩邊都查不到就照實講,不拿差不多的版本頂替;git 查得到的照舊用 git,算法一個字不改(AC-8、AC-10)', 'P5');
+{
+  const r = makeRepo({ files: { 'src/a.js': '1\n' }, at: T(-60 * MIN) });
+  const init = out(r.dir, 'rev-parse', 'HEAD');
+  eq('短版本號 → 完整的版本', commitOfHead(r.dir, init.slice(0, 7)), init);
+  for (const bad of ['', 'null', 'zzzzzzz', 'deadbee', '12', undefined]) eq(`認不出來的版本號(${JSON.stringify(bad)}) → null,不猜`, commitOfHead(r.dir, bad), null);
+  // 別條分支上的版本:還在 repo 裡,但不在這條線上——跟失效的章同一個判斷(checkpointRelation)
+  const main = out(r.dir, 'rev-parse', '--abbrev-ref', 'HEAD');
+  execFileSync('git', ['checkout', '-q', '-b', 'side'], { cwd: r.dir });
+  writeFileSync(join(r.dir, 'src/a.js'), 'side\n');
+  commitAt(r.dir, T(-50 * MIN), '別條線');
+  const side = out(r.dir, 'rev-parse', 'HEAD');
+  execFileSync('git', ['checkout', '-q', main], { cwd: r.dir });
+  const off = changeBase({ root: r.dir, origin: { at: T(-5 * MIN), from: 'A', head: side.slice(0, 7) }, relationOf: relationOf(r.dir), reflog: [] });
+  eq('感測器記的版本不在這條線上 → 只看還沒存檔的、講找不到', `${off.kind}|${off.why}`, 'head|not-found');
+  // reflog 查得到時照舊用 reflog,感測器記的版本號就算不一樣也不拿來換(今天的行為不變)
+  const viaGit = changeBase({ root: r.dir, origin: { at: T(-5 * MIN), from: 'A', head: side.slice(0, 7) }, relationOf: relationOf(r.dir) });
+  eq('reflog 查得到 → 用 reflog 那一個(不是感測器記的)', `${viaGit.kind}|${viaGit.since}|${viaGit.src}`, `origin|${init}|reflog`);
+  r.cleanup();
+}
+
+section('「這一輪中間動過」也看感測器:沒有 reflog 的資料夾,起點之後記到別的版本號 → 0 的時候講看不全(AC-11,老毛病 P5 的第二個身體)', 'P5');
+{
+  const r = makeRepo({ files: { 'src/a.js': '1\n' }, at: T(-60 * MIN) });
+  const init = out(r.dir, 'rev-parse', 'HEAD');
+  const wt = appWorktree(r, 'app-moved');
+  const o = (heads) => ({ at: T(-5 * MIN), from: 'prompt', sessions: 1, head: init.slice(0, 7), heads });
+  eq('感測器起點之後都記同一個版本 → 沒動過', changeBase({ root: wt, origin: o([init.slice(0, 7)]), relationOf: relationOf(wt) }).moved, false);
+  const moved = changeBase({ root: wt, origin: o([init.slice(0, 7), 'abcdef1']), relationOf: relationOf(wt) });
+  eq('感測器起點之後記到別的版本號 → 動過(git 一筆紀錄都沒有也一樣)', moved.moved, true);
+  check('0 的時候那句話換臉:講中間存過檔或切過分支,不畫「沒有改動」', changeScope(moved, () => '').emptyBlind === true);
+  execFileSync('git', ['worktree', 'remove', '--force', wt], { cwd: r.dir, stdio: 'ignore' });
+  r.cleanup();
+}
+
+section('reflog 最早那一筆跟起點同一秒、而且是對話自己的存檔(app 10/1 起開的資料夾):不當成「資料夾剛建好」,交給感測器那條路(魔鬼教官第一輪,L31 的同一個前提)', 'P1');
+{
+  const at = (sec) => new Date(sec * 1000 + 400).toISOString();
+  eq('最早那一筆是開資料夾那種(沒有說明)、同一秒 → 照舊用它', versionAt('/x', at(100), { reflog: [{ sha: 'a'.repeat(40), sec: 100, gs: '' }] }).commit, 'a'.repeat(40));
+  const v = versionAt('/x', at(100), { reflog: [{ sha: 'b'.repeat(40), sec: 100, gs: 'commit: 收工前存檔' }] });
+  eq('最早那一筆是存檔、同一秒 → 不拿存檔之後的版本(那樣這一輪的改動變 0)', `${v.state}|${v.why}`, 'none|before-history');
+}
+
+section('「這一輪中間動過」從真的紀錄算:沒有 reflog 的資料夾,起點之後感測器記到別的版本號 → 0 個改動時講看不全(魔鬼教官第一輪:以前只手寫 heads 餵進去)', 'P5');
+{
+  const r = makeRepo({ files: { 'src/a.js': '1\n' }, at: T(-60 * MIN) });
+  const init = out(r.dir, 'rev-parse', 'HEAD');
+  const wt = appWorktree(r, 'app-heads');
+  const monitorDir = mkdtempSync(join(tmpdir(), 'pm-origin-mon-'));
+  mkdirSync(join(monitorDir, 'logs')); mkdirSync(join(monitorDir, 'checkpoints'));
+  writeFileSync(join(monitorDir, 'stages.json'), readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'stages.json')));
+  const log = join(monitorDir, 'logs', `${safeName(basename(r.dir))}.jsonl`);
+  const ev = (o) => JSON.stringify({ session: 's1', cwd: wt, ...o });
+  const write = (lines) => writeFileSync(log, lines.map(ev).join('\n') + '\n');
+  const baseOf = () => cardFor({ monitorDir, path: wt })?.card;
+  write([{ ts: T(-10 * MIN), hook: 'UserPromptSubmit', prompt: '開始', head: init.slice(0, 7) },
+         { ts: T(-5 * MIN), hook: 'UserPromptSubmit', prompt: '繼續', head: init.slice(0, 7) }]);
+  let c = baseOf();
+  eq('感測器起點之後都記同一個版本 → 沒動過,0 的時候講一模一樣', `${c?.base?.kind}|${c?.base?.moved}|${c?.scope?.emptyBlind}`, 'origin|false|false');
+  // 中間 HEAD 被不留 reflog 的東西移走又移回來:感測器在那段時間記到別的版本號
+  write([{ ts: T(-10 * MIN), hook: 'UserPromptSubmit', prompt: '開始', head: init.slice(0, 7) },
+         { ts: T(-7 * MIN), hook: 'PostToolUse', tool: 'Edit', file: join(wt, 'src/a.js'), head: 'abcdef1' },
+         { ts: T(-5 * MIN), hook: 'UserPromptSubmit', prompt: '繼續', head: init.slice(0, 7) }]);
+  c = baseOf();
+  eq('感測器起點之後記到別的版本號 → 動過,0 的時候不畫「沒有改動」那張臉', `${c?.base?.kind}|${c?.base?.moved}|${c?.scope?.emptyBlind}`, 'origin|true|true');
+  execFileSync('git', ['worktree', 'remove', '--force', wt], { cwd: r.dir, stdio: 'ignore' });
+  rmSync(monitorDir, { recursive: true, force: true });
+  r.cleanup();
 }
 
 process.exit(summary());

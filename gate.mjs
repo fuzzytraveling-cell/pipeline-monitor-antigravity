@@ -114,13 +114,20 @@ export function decide({ payload, monitorDir = MONITOR_DIR, skillHome = undefine
   const a = view.find((v) => v.checklist?.parsed);
   if (a) {
     const cl = a.checklist;
-    const file = String(cl.file ?? '').startsWith(ctx.root) ? String(cl.file).slice(ctx.root.length + 1) : cl.file;
-    if (cl.batchMissing?.length) {
+    const relOf = (f) => (String(f ?? '').startsWith(ctx.root) ? String(f).slice(ctx.root.length + 1) : f);
+    const file = relOf(cl.file);
+    const ids = (c) => c.items.filter((x) => x.state === 'none' && x.inBatch !== false).map((x) => x.id);
+    const few = (list) => `${list.slice(0, 6).join('、')}${list.length > 6 ? ` 等 ${list.length} 條` : ''}`;
+    if (cl.multi) {
+      // 一輪寫了好幾份(規格:多份規格與新資料夾的起點 AC-3):每一份的清單都要對,分份列。以前只拿第一份讀得出的清單——
+      // 對完報告時間那 5 條就放行,語音斷線那 10 條沒對完也不攔(2026-10-02 實測)。讀不到的那份要不了(檔案不在,打不了勾),A 那格會講
+      const per = cl.parts.filter((p) => p.checklist?.parsed && p.checklist.unmarked > 0).map((p) => `${relOf(p.checklist.file)} 的 ${few(ids(p.checklist))}`);
+      if (per.length) missing.push({ key: 'checklist', line: `- 對規格的清單（這一輪 ${cl.parts.length} 份規格）：${per.join('；')} 還沒標——在每份規格每條 AC 的標題行末尾加「✅ 對過 日期」或「⏳ 待討論：原因」` });
+    } else if (cl.batchMissing?.length) {
       // 這一批記的代號在檔案裡找不到了(改過號、刪了條):不是「這一批做完了」,是對不上——叫它重記(老毛病 P5,魔鬼教官 2026-09-21)
       missing.push({ key: 'checklist', line: `- 對規格的清單：這一批記的 ${cl.batchMissing.join('、')} 在 ${file} 裡找不到了（可能改過號）——重記一次 pipeline-status --spec ${file} <這一批的 AC 代號>` });
     } else if (cl.unmarked > 0) {
-      const ids = cl.items.filter((x) => x.state === 'none' && x.inBatch !== false).map((x) => x.id);
-      missing.push({ key: 'checklist', line: `- 對規格的清單：${ids.slice(0, 6).join('、')}${ids.length > 6 ? ` 等 ${ids.length} 條` : ''} 還沒標——在 ${file} 每條 AC 的標題行末尾加「✅ 對過 日期」或「⏳ 待討論：原因」` });
+      missing.push({ key: 'checklist', line: `- 對規格的清單：${few(ids(cl))} 還沒標——在 ${file} 每條 AC 的標題行末尾加「✅ 對過 日期」或「⏳ 待討論：原因」` });
     } else if (cl.preMarked) {
       // 連上的規格勾都是連上之前打的:可能是別的對話對過那一版(R2,魔鬼教官 2026-09-21),也可能是這個對話先對了清單才記 --spec——
       // 分不出來,所以只講分不出來(R1,第二輪 2026-09-22);改了程式就回頭對一次,重標日期就算數

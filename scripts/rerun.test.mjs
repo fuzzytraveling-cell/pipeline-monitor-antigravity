@@ -366,7 +366,7 @@ section('網頁的 D 那一格:擱著(held)的樣子、伺服器給的那一句�
   const src = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8');
   const fn = (name, sig) => src.match(new RegExp(`^function ${name}\\(${sig}\\) \\{\\n[\\s\\S]*?\\n\\}\\n`, 'm'))?.[0] ?? null;
   const constLine = (name) => src.match(new RegExp(`^const ${name} = .*$`, 'm'))?.[0] ?? null;
-  const parts = [constLine('stageState'), constLine('noteHead'), constLine('tookTail'), constLine('prevSaid'), constLine('clProg'), constLine('linkLine'),
+  const parts = [constLine('stageState'), constLine('noteHead'), constLine('tookTail'), constLine('prevSaid'), constLine('clProg'), constLine('clDoneNote'), constLine('linkLine'),
                  fn('checklistWhy', 'cl'), fn('specNotes', 'st'), fn('workflow', 'c')];
   check('從 ui/app.js 拿得出 workflow 與它用到的那幾個(拿不出來這一段就什麼都沒測到)', parts.every(Boolean), parts.map((p, i) => (p ? '' : i)).join(','));
   const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));

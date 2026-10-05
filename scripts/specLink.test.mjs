@@ -742,6 +742,15 @@ section('規格搬家 AC-3:找到的位置跟記的不一樣,畫面講一句「�
     寫在主資料夾但找不到: { specPlace: { found: 'missing', name: 'x', rel: null, given: 'docs/規劃中/x.md', recordedIn: 'main' } },
     同名的比這一輪還舊: { specPlace: { found: 'older', name: 'x', rel: 'docs/升級摘要/x.md', given: 'docs/規劃中/x.md' } },
     記的在工作區外: { specPlace: { found: 'outside', name: 'x', rel: null, given: null } },
+    // 規格:多份規格與新資料夾的起點(AC-5、AC-7、AC-6、AC-1)
+    好幾份規格一份搬了一份找不到: { specPlace: null, specPlaces: [
+      { found: 'here', name: '甲', rel: 'docs/進行中/甲.md', given: 'docs/規劃中/甲.md', moved: true },
+      { found: 'here', name: '乙', rel: 'docs/規劃中/乙.md', given: 'docs/規劃中/乙.md', moved: false },
+      { found: 'missing', name: '丙', rel: null, given: 'docs/規劃中/丙.md', moved: false }] },
+    另寫兩份: { link: { name: 'x' }, specPlace: { found: 'here', name: 'x', moved: false }, side: { name: 'y、z', count: 2, ts: T(-60) } },
+    換掉連結: { link: { name: 'y' }, specPlace: { found: 'here', name: 'y', moved: false }, replaced: { from: 'x', to: 'y', ts: T(-60) } },
+    還動了一份規格: { specPlace: { found: 'here', name: 'x', moved: false }, extraSpecs: ['戊'] },
+    還動了兩份規格: { extraSpecs: ['戊', '己'] },
   };
   for (const [k, st] of Object.entries(cases)) eq(`${k}:終端機跟網頁一字不差`, JSON.stringify(webNotes?.(st) ?? null), JSON.stringify(cliNotes?.(st) ?? null));
   // 唯一刻意不一樣的一句:終端機要指去儀表板,網頁本身就是儀表板——講的事一樣
@@ -932,6 +941,342 @@ section('規格搬家:魔鬼教官 2026-09-22 第二輪——又叫了一次 A �
   const bn = webNotes?.(b) ?? [];
   check('沒有寫檔紀錄可比 → 不畫清單,只講分不出是不是同一份,不講「不是這一輪寫的」', b.specPlace?.found === 'older' && b.checklist === null && bn.some((l) => l.includes('分不出是不是同一份')) && !bn.some((l) => /不是這一輪寫的/.test(l)), JSON.stringify(bn));
   rmSync(w, { recursive: true, force: true });
+}
+
+/** 網頁的五關:把 ui/app.js 的 workflow 與它用到的小函式**原封不動**拿出來跑(L20)。拿不出來就是 null,用到的地方會紅 */
+const webWorkflow = (() => {
+  const src = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8');
+  const fn = (name) => src.match(new RegExp(`^function ${name}\\([^)]*\\) \\{\\n[\\s\\S]*?\\n\\}\\n`, 'm'))?.[0] ?? null;
+  const one = (name) => src.match(new RegExp(`^const ${name} = .*;$`, 'm'))?.[0] ?? null;
+  const parts = [one('stageState'), one('tookTail'), one('prevSaid'), one('noteHead'), one('clProg'), one('clDoneNote'), one('linkLine'), fn('checklistWhy'), fn('specNotes'), fn('workflow')];
+  const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  return parts.every(Boolean) ? new Function('esc', 'ago', 'ROLE', 'foldOpen', `${parts.join('\n')}; return workflow;`)(esc, (t) => (t ? '5 分鐘前' : ''), {}, () => true) : null;
+})();
+/** 對話列與案件卡的「這一輪走到…」:ui/app.js 的 roundWhere 原封不動拿出來跑 */
+const webRoundWhere = (() => {
+  const m = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8').match(/^function roundWhere\(stages\) \{\n[\s\S]*?\n\}\n/m);
+  return m ? new Function(`${m[0]}; return roundWhere;`)() : null;
+})();
+const repA = (sec, note) => ({ ts: T(sec), event: 'stage_report', stage: 'A', verdict: 'ok', note, source: 'claude', by_session: 's1', session: undefined });
+
+section('多份規格 AC-1～AC-4:一次 A 寫了兩份 → A 那格畫兩份、條數加起來;收工 hook、E 都要每一份(2026-10-02 實測:畫面「全部 5 條」其實 15 條,收工 hook 只要那 5 條)', 'P6');
+{
+  const s = scene();
+  writeFileSync(join(s.root, 'docs/規劃中/甲.md'), specText('甲', 3));
+  writeFileSync(join(s.root, 'docs/規劃中/乙.md'), specText('乙', 2));
+  // TutorPod 那一次的樣子:叫了 A 之後,規格是在背景工作的通知那一回合寫的(prompt_id 跟 A 那次不同);Claude 收尾記了兩筆
+  s.write([
+    { ts: T(-30 * MIN), hook: 'UserPromptSubmit', prompt: '接著處理待辦', prompt_id: 'p1' },
+    { ts: T(-30 * MIN), hook: 'PreToolUse', tool: 'Skill', skill: 'pipeline-monitor:spec', prompt_id: 'p1' },
+    { ts: T(-25 * MIN), hook: 'UserPromptSubmit', prompt: '<task-notification>\n<task-id>w1</task-id>', prompt_id: 'p2' },
+    { ts: T(-24 * MIN), hook: 'PostToolUse', tool: 'Write', file: join(s.root, 'docs/規劃中/甲.md'), prompt_id: 'p2' },
+    { ts: T(-24 * MIN), hook: 'PostToolUse', tool: 'Write', file: join(s.root, 'docs/規劃中/乙.md'), prompt_id: 'p2' },
+    repA(-23 * MIN, 'docs/規劃中/甲.md'), repA(-23 * MIN + 0.08, 'docs/規劃中/乙.md'),
+  ]);
+  let a = s.by(s.sessionOf('s1')?.stages);
+  eq('A 那格:兩份都在,條數加起來', `${a.A?.checklist?.multi}|${a.A?.checklist?.parts?.map((p) => `${p.name}:${p.checklist?.total}`).join(',')}|${a.A?.checklist?.total}`, 'true|甲:3,乙:2|5');
+  // 你點頭 → 兩份都搬到進行中(用 Bash 搬,感測器看不到),Claude 又各記一筆新位置;開始改程式
+  for (const n of ['甲', '乙']) renameSync(join(s.root, `docs/規劃中/${n}.md`), join(s.root, `docs/進行中/${n}.md`));
+  s.append([repA(-6 * MIN, 'docs/進行中/甲.md'), repA(-6 * MIN + 0.08, 'docs/進行中/乙.md'),
+    { ts: T(-5 * MIN), hook: 'UserPromptSubmit', prompt: '要，開工', prompt_id: 'p3' },
+    { ts: T(-4 * MIN), hook: 'PostToolUse', tool: 'Edit', file: join(s.root, 'src/danger.js'), prompt_id: 'p3' }]);
+  a = s.by(s.sessionOf('s1')?.stages);
+  eq('搬家、各記了兩次:還是兩份(同一份不重複算)', `${a.A?.checklist?.parts?.length}|${a.A?.checklist?.total}|${a.A?.specPlaces?.map((p) => `${p.name}:${p.found}`).join(',')}`, '2|5|甲:here,乙:here');
+  eq('B 帶的是兩份加起來的進度', `${a.B?.checklist?.multi}|${a.B?.checklist?.specs}|${a.B?.checklist?.checked}/${a.B?.checklist?.total}|${a.B?.state}`, 'true|2|0/5|current');
+  let g = s.gate();
+  let cl = (g?.reason ?? '').split('\n').find((l) => l.includes('對規格的清單')) ?? '';
+  check('收工 hook 兩份都要:各列各的條目,指的是新位置', cl.includes('這一輪 2 份規格') && cl.includes('docs/進行中/甲.md 的 AC-1、AC-2、AC-3') && cl.includes('docs/進行中/乙.md 的 AC-1、AC-2'), g?.reason);
+  // 只對完甲 → 還要乙(以前拿第一份讀得出的清單,對完它就放行)
+  writeFileSync(join(s.root, 'docs/進行中/甲.md'), specText('甲', 3, { 1: ' ✅ 對過 2026-10-05', 2: ' ✅ 對過 2026-10-05', 3: ' ✅ 對過 2026-10-05' }));
+  g = s.gate();
+  cl = (g?.reason ?? '').split('\n').find((l) => l.includes('對規格的清單')) ?? '';
+  check('只對完甲 → 收工 hook 還要乙,不再列甲', (g?.missing ?? []).includes('checklist') && cl.includes('乙.md') && !cl.includes('甲.md'), g?.reason);
+  const E = s.by(s.sessionOf('s1')?.stages).E;
+  eq('E 要驗的是兩份的每一條,代號前面有規格名', `${E?.verify?.multi}|${E?.verify?.items?.length}|${E?.verify?.expected?.[0]}|${E?.verify?.expected?.at(-1)}`, 'true|5|甲 AC-1|乙 AC-2');
+  const five = fiveOf(s.cli([], { session: 's1' }).out);
+  check('終端機:講兩份共幾條、一份一段、各寫各的條數', five.includes('這一輪寫了 2 份規格，共 5 條') && five.includes('── 甲：3/3 對過（這份 3 條）') && five.includes('── 乙：0/2 對過,2 條還沒對（這份 2 條）'), five.slice(0, 1200));
+  check('終端機:B 那一行講 2 份規格共 5 條', five.includes('2 份規格共 5 條：3 條對過,2 條還沒對'), five.slice(0, 1200));
+  check('終端機:只算一份的「全部 N 條」不出現', !/全部 \d+ 條/.test(five), five.slice(0, 1200));
+  const page = webWorkflow?.({ path: s.root, sensor: { state: 'ok' }, stages: s.sessionOf('s1')?.stages }) ?? '';
+  check('網頁(真的跑 ui/app.js 的 workflow):一份一個清單、各寫各的條數、總數一句', page.includes('這一輪寫了 2 份規格，共 5 條') && page.includes('驗收清單 · 甲：3/3 對過（這份 3 條）') && page.includes('驗收清單 · 乙：0/2 對過,2 條還沒對（這份 2 條）'), page.slice(0, 3000));
+  check('網頁:B 那一行講 2 份規格共 5 條;只算一份的「全部 N 條」不出現', page.includes('2 份規格共 5 條：3 條對過,2 條還沒對') && !/全部 \d+ 條/.test(page), page.slice(0, 3000));
+  const round = s.cli(['--round', 'E'], { session: 's1' }).out;
+  check('--round E:照這 2 份規格驗、回報每一行加規格名、條目帶規格名', round.includes('照這 2 份規格驗') && round.includes('回報每一行前面加規格名') && round.includes('乙 AC-2 第 2 條'), round);
+  writeFileSync(join(s.root, 'docs/進行中/乙.md'), specText('乙', 2, { 1: ' ✅ 對過 2026-10-05', 2: ' ⏳ 待討論：要問人' }));
+  check('兩份都標完(✅ 或 ⏳)→ 收工 hook 不再要求對清單', !(s.gate()?.missing ?? []).includes('checklist'), s.gate()?.reason);
+  s.cleanup();
+}
+{
+  // 只寫一份的對話:畫面跟以前一字不差——「全部 N 條」照舊在,沒有「這一輪寫了 N 份規格」
+  const s = scene();
+  writeFileSync(join(s.root, 'docs/規劃中/新功能.md'), specText('新功能', 3));
+  s.write(aWrote(s.root));
+  const st = s.sessionOf('s1')?.stages;
+  const a = s.by(st);
+  eq('一份規格:不是 multi,A 那格照舊畫那一份', `${a.A?.checklist?.multi ?? false}|${a.A?.checklist?.total}|${a.A?.specPlaces?.length}|${a.B?.checklist?.multi ?? false}`, 'false|3|0|false');
+  const page = webWorkflow?.({ path: s.root, sensor: { state: 'ok' }, stages: st }) ?? '';
+  check('網頁:一份的時候照舊寫「全部 3 條」', page.includes('（全部 3 條）') && !page.includes('份規格，共'), page.slice(0, 2000));
+  s.cleanup();
+}
+
+section('多份規格 AC-5:記過的一份讀不到 → 那一份講一句、條數不算進總數、講另有幾份讀不到——終端機、網頁、對話列、E 都講;讀得到的對完,也不准講成全部對完', 'P5');
+{
+  // 讀不到的一種:檔案在,但裡面沒有照格式寫的 AC(scene 裡的「亂寫的.md」)。找不到的(改名、刪了)是另一種,見下一段
+  const s = scene();
+  writeFileSync(join(s.root, 'docs/規劃中/甲.md'), specText('甲', 3));
+  s.write([
+    { ts: T(-20 * MIN), hook: 'UserPromptSubmit', prompt: '寫兩份規格', prompt_id: 'p1' },
+    { ts: T(-20 * MIN), hook: 'PreToolUse', tool: 'Skill', skill: 'pipeline-monitor:spec', prompt_id: 'p1' },
+    repA(-19 * MIN, '寫了兩份\ndocs/規劃中/甲.md\ndocs/規劃中/亂寫的.md'),
+    { ts: T(-5 * MIN), hook: 'UserPromptSubmit', prompt: '開工', prompt_id: 'p2' },
+    { ts: T(-4 * MIN), hook: 'PostToolUse', tool: 'Edit', file: join(s.root, 'src/danger.js'), prompt_id: 'p2' },
+  ]);
+  const a = s.by(s.sessionOf('s1')?.stages);
+  eq('一筆結論寫兩行路徑 → 兩份;讀不到的那份條數不算', `${a.A?.checklist?.parts?.length}|${a.A?.checklist?.total}|${a.A?.checklist?.unreadable?.join(',')}`, '2|3|亂寫的');
+  const five = fiveOf(s.cli([], { session: 's1' }).out);
+  check('終端機:那一份講沒有照格式寫的 AC、總數旁邊講另有 1 份讀不到', five.includes('這一輪寫了 2 份規格，共 3 條（另有 1 份讀不到，條數不在裡面）') && five.includes('── 亂寫的：規格檔裡沒有照格式寫的 AC'), five.slice(0, 1200));
+  check('終端機:B 那一行也講', five.includes('2 份規格共 3 條：0 條對過,3 條還沒對（另有 1 份讀不到，條數不在裡面）'), five.slice(0, 1200));
+  let page = webWorkflow?.({ path: s.root, sensor: { state: 'ok' }, stages: s.sessionOf('s1')?.stages }) ?? '';
+  check('網頁:A 那格的總數一句、B 那一行都講另有 1 份讀不到(魔鬼教官第一輪:網頁這兩句以前沒有測試釘住)',
+    page.includes('這一輪寫了 2 份規格，共 3 條（另有 1 份讀不到，條數不在裡面）') && page.includes('2 份規格共 3 條：0 條對過,3 條還沒對（另有 1 份讀不到，條數不在裡面）') && page.includes('亂寫的：規格檔裡沒有照格式寫的 AC'), page.slice(0, 3000));
+  // 讀得到的都對完:B 照樣結案,但那一句講另有一份讀不到——不准把「對完清單」講成全部都對完(R2)
+  writeFileSync(join(s.root, 'docs/規劃中/甲.md'), specText('甲', 3, { 1: ' ✅ 對過 2026-10-05', 2: ' ✅ 對過 2026-10-05', 3: ' ✅ 對過 2026-10-05' }));
+  const st = s.sessionOf('s1')?.stages;
+  const five2 = fiveOf(s.cli([], { session: 's1' }).out);
+  check('讀得到的都對完:B 講對完清單,括號講另有一份讀不到', s.by(st).B?.closedBy === 'checklist' && five2.includes('Claude 對完清單（2 份規格共 3 條；另有 1 份讀不到，條數不在裡面）'), five2.slice(0, 1200));
+  page = webWorkflow?.({ path: s.root, sensor: { state: 'ok' }, stages: st }) ?? '';
+  check('網頁:B 對完那一句也講另有一份讀不到', page.includes('Claude 對完清單（2 份規格共 3 條；另有 1 份讀不到，條數不在裡面）'), page.slice(0, 3000));
+  const where = webRoundWhere?.(st) ?? '';
+  check('對話列與案件卡「這一輪走到…」也講(以前只寫「處理完了」)', /另有 1 份規格讀不到/.test(where), where);
+  check('收工 hook 不叫 Claude 去讀不到的那份打勾', !(s.gate()?.missing ?? []).includes('checklist'), s.gate()?.reason);
+  // E:讀不到的那份不准在「N 條裡」消失;回報裡那一份的條目標「讀不到,對不了」,裡面的沒看到要講
+  s.append([
+    { ts: T(-2 * MIN), hook: 'PreToolUse', tool: 'Skill', skill: 'pipeline-monitor:verify', prompt_id: 'p3' },
+    { ts: T(-1 * MIN), event: 'stage_report', stage: 'E', verdict: 'found', source: 'claude', by_session: 's1', session: undefined,
+      note: '第 1 趟\n甲 AC-1 看到了：「一」\n甲 AC-2 看到了：「二」\n甲 AC-3 看到了：「三」\n亂寫的 AC-1 沒看到：應該有，畫面上沒有' },
+  ]);
+  const E = s.by(s.sessionOf('s1')?.stages).E;
+  const walk = E?.elines?.walk ?? '';
+  check('E:「3 條裡 3 條看到了」旁邊講另有 1 份規格讀不到', walk.includes('3 條裡 3 條看到了（另有 1 份規格讀不到，條數不在裡面）'), walk);
+  check('E:讀不到那份的條目講對不了,裡面的「沒看到」沒有被埋掉', walk.includes('亂寫的 AC-1 是讀不到的那份規格的，對不了') && walk.includes('對不上的回報裡有 1 條寫「沒看到」'), walk);
+  s.cleanup();
+}
+{
+  // 找不到的一種:規格改名(Write 了 foo、用 mv 改成 bar、只記了 bar)——以前被算成「2 份規格(另有 1 份讀不到)」(魔鬼教官第一輪,R3)
+  const s = scene();
+  writeFileSync(join(s.root, 'docs/規劃中/bar.md'), specText('bar', 3));
+  s.write([
+    { ts: T(-20 * MIN), hook: 'UserPromptSubmit', prompt: '寫規格', prompt_id: 'p1' },
+    { ts: T(-20 * MIN), hook: 'PreToolUse', tool: 'Skill', skill: 'pipeline-monitor:spec', prompt_id: 'p1' },
+    { ts: T(-19 * MIN), hook: 'PostToolUse', tool: 'Write', file: join(s.root, 'docs/規劃中/foo.md'), prompt_id: 'p1' },
+    repA(-18 * MIN, 'docs/規劃中/bar.md'),
+    { ts: T(-5 * MIN), hook: 'UserPromptSubmit', prompt: '開工', prompt_id: 'p2' },
+    { ts: T(-4 * MIN), hook: 'PostToolUse', tool: 'Edit', file: join(s.root, 'src/danger.js'), prompt_id: 'p2' },
+  ]);
+  const a = s.by(s.sessionOf('s1')?.stages).A;
+  eq('改名:只算找得到的那一份(不是「2 份規格」),照一份的樣子畫', `${a?.checklist?.multi ?? false}|${a?.checklist?.total}|${a?.specPlace?.name}`, 'false|3|bar');
+  const ghost = '記過 foo.md，現在找不到（可能改名或刪了）——不算進這一輪的規格';
+  check('另外講一句記過、現在找不到;終端機與網頁一字不差', (webNotes?.(a) ?? []).includes(ghost) && JSON.stringify(webNotes?.(a)) === JSON.stringify(cliNotes?.(a)), JSON.stringify([webNotes?.(a), cliNotes?.(a)]));
+  check('不講「另有 1 份讀不到」', !fiveOf(s.cli([], { session: 's1' }).out).includes('讀不到'));
+  s.cleanup();
+}
+{
+  // 記過的全都找不到:照單份時的說法(「找不到規格檔」),不藏起來
+  const s = scene();
+  s.write([
+    { ts: T(-20 * MIN), hook: 'PreToolUse', tool: 'Skill', skill: 'pipeline-monitor:spec', prompt_id: 'p1' },
+    repA(-19 * MIN, 'docs/規劃中/不見了.md'),
+  ]);
+  const a = s.by(s.sessionOf('s1')?.stages).A;
+  check('全都找不到:照舊講找不到規格檔,不講「記過、不算進」', (webNotes?.(a) ?? []).some((l) => l.startsWith('找不到規格檔 不見了.md')) && !(webNotes?.(a) ?? []).some((l) => l.includes('不算進這一輪')), JSON.stringify(webNotes?.(a)));
+  s.cleanup();
+}
+
+section('多份規格 AC-6:這一輪還動了另一份規格、沒記到是不是這一輪的 → A 那格講一句、不擋收工、不猜它是不是;自己的規格搬家不算', 'P6');
+{
+  const s = scene();
+  writeFileSync(join(s.root, 'docs/規劃中/新功能.md'), specText('新功能', 3));
+  s.write(aWrote(s.root));
+  let a = s.by(s.sessionOf('s1')?.stages).A;
+  eq('只有自己記的那份:不多講', JSON.stringify(a?.extraSpecs), '[]');
+  renameSync(join(s.root, 'docs/規劃中/新功能.md'), join(s.root, 'docs/進行中/新功能.md'));
+  a = s.by(s.sessionOf('s1')?.stages).A;
+  eq('自己的規格搬到進行中:不算「還動了另一份」', JSON.stringify(a?.extraSpecs), '[]');
+  // Claude 用指令又寫了一份、沒記(感測器看不到,git 看得到)
+  writeFileSync(join(s.root, 'docs/規劃中/戊.md'), specText('戊', 2));
+  a = s.by(s.sessionOf('s1')?.stages).A;
+  eq('git 看到多一份沒記到的 → 講出來', JSON.stringify(a?.extraSpecs), '["戊"]');
+  check('旁白:這一輪還動了 戊.md,沒記到它是不是這一輪的規格', (webNotes?.(a) ?? []).includes('這一輪還動了 戊.md，沒記到它是不是這一輪的規格'), JSON.stringify(webNotes?.(a)));
+  eq('清單照舊只有自己那份(不猜戊是不是)', a?.checklist?.total, 3);
+  const g = s.gate();
+  check('收工 hook 不因為它擋、也不提它', !/戊/.test(g?.reason ?? ''), g?.reason);
+  check('終端機也講', fiveOf(s.cli([], { session: 's1' }).out).includes('這一輪還動了 戊.md'));
+  s.cleanup();
+}
+
+section('多份規格 AC-7:施工對話連著一份又記另一份 → 終端機與 A 那格講原本照哪份、換成哪份;記了「無」再連不算換掉', 'P6');
+{
+  const s = scene();
+  s.write(opening(s.root));
+  s.cli(['--spec', 'docs/規劃中/app建議卡.md']);
+  const rec = s.cli(['--spec', 'docs/進行中/pipeline-ui.md']);
+  check('--spec 第二份:講原本照哪份、換成哪份', rec.code === 0 && rec.out.includes('原本照 app建議卡.md，換成照 pipeline-ui.md'), rec.out);
+  let a = s.by(s.sessionOf('s1')?.stages).A;
+  eq('清單是新的那份', `${a?.link?.name}|${a?.checklist?.total}`, 'pipeline-ui|4');
+  check('A 那格講原本照 app建議卡.md,後來換成 pipeline-ui.md', (webNotes?.(a) ?? []).includes('原本照 app建議卡.md，後來換成 pipeline-ui.md'), JSON.stringify(webNotes?.(a)));
+  const same = s.cli(['--spec', 'docs/進行中/pipeline-ui.md']);
+  check('再記同一份:不講換掉', same.code === 0 && !same.out.includes('原本照'), same.out);
+  s.cli(['--spec', '無']);
+  const again = s.cli(['--spec', 'docs/規劃中/app建議卡.md']);
+  a = s.by(s.sessionOf('s1')?.stages).A;
+  check('記了「無」之後再連:不算換掉(Claude 自己說過不照那份了)', again.code === 0 && !again.out.includes('原本照') && !a?.replaced, again.out + JSON.stringify(a?.replaced));
+  s.cleanup();
+}
+
+section('魔鬼教官第一輪:A 結論的說明只認規劃中／進行中的路徑——一行寫兩份兩份都認;順手提到的參考文件、做完的舊規格不算這一輪的', 'P2');
+{
+  const s = scene();
+  writeFileSync(join(s.root, 'docs/規劃中/甲.md'), specText('甲', 3));
+  writeFileSync(join(s.root, 'docs/規劃中/乙.md'), specText('乙', 2));
+  s.write([
+    { ts: T(-20 * MIN), hook: 'PreToolUse', tool: 'Skill', skill: 'pipeline-monitor:spec', prompt_id: 'p1' },
+    repA(-19 * MIN, '寫好兩份：docs/規劃中/甲.md、docs/規劃中/乙.md\n格式照 docs/升級摘要/做完的.md\n讀了：CLAUDE.md、docs/LESSONS.md'),
+  ]);
+  const a = s.by(s.sessionOf('s1')?.stages).A;
+  eq('同一行兩份都認;升級摘要的舊規格、讀過的文件都不算', `${a?.checklist?.parts?.map((p) => p.name).join(',')}|${a?.checklist?.total}|${(a?.checklist?.unreadable ?? []).length}`, '甲,乙|5|0');
+  check('旁白沒有多出「找不到 LESSONS.md」「做完的」這種話', !(webNotes?.(a) ?? []).some((l) => /LESSONS|做完的/.test(l)), JSON.stringify(webNotes?.(a)));
+  s.cleanup();
+}
+{
+  // 只記一份、說明裡順手提到一份已經做完的規格:以前被當成第二份,舊的勾算進「對過」(R2)
+  const s = scene();
+  writeFileSync(join(s.root, 'docs/規劃中/甲.md'), specText('甲', 3));
+  s.write([
+    { ts: T(-20 * MIN), hook: 'PreToolUse', tool: 'Skill', skill: 'pipeline-monitor:spec', prompt_id: 'p1' },
+    repA(-19 * MIN, 'docs/規劃中/甲.md\ndocs/升級摘要/做完的.md'),
+  ]);
+  const a = s.by(s.sessionOf('s1')?.stages).A;
+  eq('做完的舊規格不算:照一份的樣子畫甲', `${a?.checklist?.multi ?? false}|${a?.checklist?.total}|${a?.checklist?.checked}`, 'false|3|0');
+  s.cleanup();
+}
+
+section('魔鬼教官第一輪:同一個對話叫第二次 A 再寫一份 → 第一份掉出這一輪(一輪的定義不改),但不准說它「沒記到」;還有沒對完的要講出來', 'P6');
+{
+  const s = scene();
+  writeFileSync(join(s.root, 'docs/規劃中/甲.md'), specText('甲', 3));
+  writeFileSync(join(s.root, 'docs/規劃中/乙.md'), specText('乙', 2));
+  s.write([
+    { ts: T(-30 * MIN), hook: 'PreToolUse', tool: 'Skill', skill: 'pipeline-monitor:spec', prompt_id: 'p1' },
+    repA(-29 * MIN, 'docs/規劃中/甲.md'),
+    { ts: T(-20 * MIN), hook: 'UserPromptSubmit', prompt: '再寫一份乙', prompt_id: 'p2' },
+    { ts: T(-20 * MIN), hook: 'PreToolUse', tool: 'Skill', skill: 'pipeline-monitor:spec', prompt_id: 'p2' },
+    repA(-19 * MIN, 'docs/規劃中/乙.md'),
+  ]);
+  const a = s.by(s.sessionOf('s1')?.stages).A;
+  eq('這一輪從第二次 A 算:清單是乙', `${a?.specPlace?.name}|${a?.checklist?.total}`, '乙|2');
+  const notes = webNotes?.(a) ?? [];
+  check('甲:講是這一輪之前叫 A 寫的、還有 3 條沒對、收工 hook 不會要它的清單', notes.includes('甲.md 是這一輪之前叫 A 寫的，還有 3 條沒對——這一輪從後來那次 A 算起，收工 hook 不會要它的清單'), JSON.stringify(notes));
+  check('不准說甲「沒記到」', !notes.some((l) => l.includes('沒記到')), JSON.stringify(notes));
+  eq('終端機跟網頁一字不差', JSON.stringify(cliNotes?.(a)), JSON.stringify(notes));
+  // 甲對完了:不再多講(不多話)
+  writeFileSync(join(s.root, 'docs/規劃中/甲.md'), specText('甲', 3, { 1: ' ✅ 對過 2026-10-05', 2: ' ✅ 對過 2026-10-05', 3: ' ✅ 對過 2026-10-05' }));
+  check('甲對完了 → 不再講', !(webNotes?.(s.by(s.sessionOf('s1')?.stages).A) ?? []).some((l) => l.startsWith('甲.md')));
+  s.cleanup();
+}
+{
+  // A 寫完自己那份、又 --spec 別的對話寫的那份:也是換掉——講出來,不准說自己那份「沒記到」
+  const s = scene();
+  writeFileSync(join(s.root, 'docs/規劃中/甲.md'), specText('甲', 3));
+  s.write([
+    { ts: T(-20 * MIN), hook: 'UserPromptSubmit', prompt: '寫規格', prompt_id: 'p1' },
+    { ts: T(-20 * MIN), hook: 'PreToolUse', tool: 'Skill', skill: 'pipeline-monitor:spec', prompt_id: 'p1' },
+    repA(-19 * MIN, 'docs/規劃中/甲.md'),
+  ]);
+  const rec = s.cli(['--spec', 'docs/規劃中/app建議卡.md']);
+  check('--spec:講原本照自己叫 A 寫的甲、換成照 app建議卡', rec.code === 0 && rec.out.includes('原本照 甲.md（這個對話叫 A 寫的），換成照 app建議卡.md'), rec.out);
+  const a = s.by(s.sessionOf('s1')?.stages).A;
+  const notes = webNotes?.(a) ?? [];
+  check('A 那格:原本照甲(這個對話叫 A 寫的),後來換成 app建議卡;不說甲沒記到', notes.includes('原本照 甲.md（這個對話叫 A 寫的），後來換成 app建議卡.md') && !notes.some((l) => l.includes('沒記到')), JSON.stringify(notes));
+  eq('終端機跟網頁一字不差', JSON.stringify(cliNotes?.(a)), JSON.stringify(notes));
+  s.cleanup();
+}
+
+section('魔鬼教官第一輪:分級卡的 A 那一行跟 A 那格講同一件事——寫了幾份就講幾份(以前只講最後一筆結論的那一份)', 'P2');
+{
+  const s = scene();
+  writeFileSync(join(s.root, 'docs/規劃中/甲.md'), specText('甲', 3));
+  writeFileSync(join(s.root, 'docs/規劃中/乙.md'), specText('乙', 2));
+  s.write([
+    { ts: T(-20 * MIN), hook: 'UserPromptSubmit', prompt: '寫兩份', prompt_id: 'p1' },
+    { ts: T(-20 * MIN), hook: 'PreToolUse', tool: 'Skill', skill: 'pipeline-monitor:spec', prompt_id: 'p1' },
+    repA(-19 * MIN, 'docs/規劃中/甲.md'), repA(-19 * MIN + 0.08, 'docs/規劃中/乙.md'),
+    { ts: T(-5 * MIN), hook: 'UserPromptSubmit', prompt: '開工', prompt_id: 'p2' },
+    { ts: T(-4 * MIN), hook: 'PostToolUse', tool: 'Edit', file: join(s.root, 'src/danger.js'), prompt_id: 'p2' },
+  ]);
+  const reqA = s.sessionOf('s1')?.tier?.requirements?.find((r) => r.key === 'A');
+  eq('分級卡(T2 列了 A):講寫了 2 份規格、是哪兩份', reqA?.detail, '跑過,Claude 說寫了 2 份規格：甲、乙');
+  check('終端機的分級那一段也是同一句', s.cli([], { session: 's1' }).out.includes('寫了 2 份規格：甲、乙'));
+  s.cleanup();
+}
+
+section('魔鬼教官第一輪:共用資料夾,另一個對話叫 A 寫的規格不算到這個對話頭上(只認同一個對話記的 A 結論)', 'P6');
+{
+  const s = scene();
+  writeFileSync(join(s.root, 'docs/規劃中/甲.md'), specText('甲', 3));
+  writeFileSync(join(s.root, 'docs/規劃中/乙.md'), specText('乙', 2));
+  s.write([
+    { ts: T(-30 * MIN), hook: 'UserPromptSubmit', prompt: '寫甲', prompt_id: 'a1', session: 's1' },
+    { ts: T(-30 * MIN), hook: 'PreToolUse', tool: 'Skill', skill: 'pipeline-monitor:spec', prompt_id: 'a1', session: 's1' },
+    { ts: T(-29 * MIN), hook: 'UserPromptSubmit', prompt: '寫乙', prompt_id: 'b1', session: 's2' },
+    { ts: T(-29 * MIN), hook: 'PreToolUse', tool: 'Skill', skill: 'pipeline-monitor:spec', prompt_id: 'b1', session: 's2' },
+    { ...repA(-28 * MIN, 'docs/規劃中/甲.md'), by_session: 's1' },
+    { ...repA(-27 * MIN, 'docs/規劃中/乙.md'), by_session: 's2' },
+  ]);
+  const a1 = s.by(s.sessionOf('s1')?.stages).A, a2 = s.by(s.sessionOf('s2')?.stages).A;
+  eq('s1 只認甲、s2 只認乙', `${a1?.specPlace?.name}|${a1?.checklist?.total}|${a2?.specPlace?.name}|${a2?.checklist?.total}`, '甲|3|乙|2');
+  s.cleanup();
+}
+
+section('魔鬼教官第一輪:好幾份規格、有一條待討論 → B 不結案,B 那一行帶著「1 條待討論」(終端機與網頁)', 'P5');
+{
+  const s = scene();
+  writeFileSync(join(s.root, 'docs/規劃中/甲.md'), specText('甲', 3, { 1: ' ✅ 對過 2026-10-05', 2: ' ✅ 對過 2026-10-05', 3: ' ✅ 對過 2026-10-05' }));
+  writeFileSync(join(s.root, 'docs/規劃中/乙.md'), specText('乙', 2, { 1: ' ✅ 對過 2026-10-05', 2: ' ⏳ 待討論：要問人' }));
+  s.write([
+    { ts: T(-20 * MIN), hook: 'UserPromptSubmit', prompt: '寫兩份', prompt_id: 'p1' },
+    { ts: T(-20 * MIN), hook: 'PreToolUse', tool: 'Skill', skill: 'pipeline-monitor:spec', prompt_id: 'p1' },
+    repA(-19 * MIN, 'docs/規劃中/甲.md'), repA(-19 * MIN + 0.08, 'docs/規劃中/乙.md'),
+    { ts: T(-5 * MIN), hook: 'UserPromptSubmit', prompt: '開工', prompt_id: 'p2' },
+    { ts: T(-4 * MIN), hook: 'PostToolUse', tool: 'Edit', file: join(s.root, 'src/danger.js'), prompt_id: 'p2' },
+  ]);
+  const st = s.sessionOf('s1')?.stages;
+  check('B 不結案(有一條待討論)', s.by(st).B?.closedBy !== 'checklist', JSON.stringify(s.by(st).B));
+  const line = '2 份規格共 5 條：4 條對過,1 條待討論';
+  check('終端機的 B 那一行帶著 1 條待討論', fiveOf(s.cli([], { session: 's1' }).out).includes(line));
+  check('網頁的 B 那一行帶著 1 條待討論', (webWorkflow?.({ path: s.root, sensor: { state: 'ok' }, stages: st }) ?? '').includes(line));
+  s.cleanup();
+}
+
+section('魔鬼教官第一輪:「N 份規格共幾條」那一句終端機與網頁各寫一份——真的跑兩邊,每一種情況一字不差', 'P2');
+{
+  const fnOf = (src, name) => src.match(new RegExp(`^function ${name}\\([^)]*\\) \\{\\n[\\s\\S]*?\\n\\}\\n`, 'm'))?.[0] ?? null;
+  const constOf = (src, name) => src.match(new RegExp(`^const ${name} = .*;$`, 'm'))?.[0] ?? null;
+  const cliSrc = readFileSync(join(ROOT, 'status.mjs'), 'utf8'), webSrc = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8');
+  const cli = fnOf(cliSrc, 'clProg') && fnOf(cliSrc, 'clDoneNote') ? new Function(`${fnOf(cliSrc, 'clProg')}\n${fnOf(cliSrc, 'clDoneNote')}; return { clProg, clDoneNote };`)() : null;
+  const web = constOf(webSrc, 'clProg') && constOf(webSrc, 'clDoneNote') ? new Function(`${constOf(webSrc, 'clProg')}\n${constOf(webSrc, 'clDoneNote')}; return { clProg, clDoneNote };`)() : null;
+  check('從 status.mjs、ui/app.js 都拿得出 clProg、clDoneNote(拿不出來這一段就什麼都沒測到)', !!cli && !!web);
+  const cases = {
+    一份: { parsed: true, checked: 3, total: 5, pending: 1, unmarked: 1 },
+    分批: { parsed: true, batch: ['AC-1'], checked: 0, total: 1, pending: 0, unmarked: 1 },
+    好幾份: { parsed: true, multi: true, specs: 2, checked: 4, total: 5, pending: 1, unmarked: 0, unreadable: [] },
+    好幾份有一份讀不到: { parsed: true, multi: true, specs: 2, checked: 3, total: 3, pending: 0, unmarked: 0, unreadable: ['丙'] },
+    沒有清單: { parsed: false },
+  };
+  for (const [k, cl] of Object.entries(cases)) {
+    eq(`${k}:進度那一句兩邊一樣`, web?.clProg(cl) ?? 'x', cli?.clProg(cl) ?? '');
+    eq(`${k}:對完那一句的括號兩邊一樣`, web?.clDoneNote(cl) ?? 'x', cli?.clDoneNote(cl) ?? 'y');
+  }
+  check('對照組:有一份讀不到時兩邊都講(不然上面的一字不差可能只是兩邊都沒講)', /另有 1 份讀不到/.test(web?.clProg(cases.好幾份有一份讀不到) ?? '') && /另有 1 份讀不到/.test(cli?.clDoneNote(cases.好幾份有一份讀不到) ?? ''));
 }
 
 process.exit(summary());

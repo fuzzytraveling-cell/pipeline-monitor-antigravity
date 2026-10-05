@@ -21,9 +21,9 @@ import process from 'node:process';
 import { git, gitExit, real, gitContext, changeScale, changeHealth, TEST_FILE, ago, uncommitted, checkpointRelation, backupBranchName } from './lib/git.mjs';
 import { cardFor, sessionTier } from './lib/collect.mjs';
 import { readEvents, loadStages, lastRunPerStage, runsPerStage, roundView, editsOf, reportsIn, reportLogIn, decisionsIn, clearLogIn, perStageOfRound, gateHeartbeat, safeName, logFileOf, specContext,
-         sessionsOf, sessionView, rerunLine, tookLine, rerunMapOf, runMode, afterCall } from './lib/events.mjs';
+         sessionsOf, sessionView, rerunLine, tookLine, rerunMapOf, runMode, afterCall, reportText } from './lib/events.mjs';
 import { eLines, parseWalk, walkSummary, summaryLine } from './lib/verify.mjs';
-import { readChecklist, locateSpec } from './lib/checklist.mjs';
+import { readChecklist, locateSpec, specPathsInNote } from './lib/checklist.mjs';
 import { buildTier, readTierConfig, writeTierConfig, proposeCodeArea, codeFileFn, computeTier, changeTimeOf, fileTimeOf } from './lib/tier.mjs';
 import { changeFacts, reflogOf, takeoverOf, tenureEvents } from './lib/origin.mjs';
 import { checkpointFor, writeCheckpoint } from './lib/checkpoint.mjs';
@@ -419,7 +419,7 @@ function stageFacts(ctx, ev, info = {}) {
   const here = (e) => e.cwd === ctx.root;
   const view = roundView({
     runs, stages, cleared, reports, edits, isCode, cpAt,
-    gitChanges: change.gitChanges,
+    gitChanges: change.gitChanges, specFiles: change.specFiles,
     spec: { ...spec, startHere: specContext(events, { cwd: ctx.root, cpAt }).startHere }, root: ctx.root, mainRoot: ctx.mainRoot,
     // 結論會過期的關(D):每一筆結論與決定,配得出「叫 → 結論」、對得回你說的話(D 多輪先問人;跟卡片同一種取法)
     reportLog: reportLogIn(events, here), decisions: decisionsIn(events, here), events,
@@ -488,13 +488,13 @@ function renderStages(ctx, ev, facts, info = {}) {
     // B(對話本身):改到程式檔就算在動;最後一次改檔的時間要印出來。不數檔案——數量在改動體檢那段(git)
     if (st.type === 'main-conversation' && st.state !== 'main') {
       const cl = st.checklist;
-      const prog = cl?.parsed ? `清單${cl.batch ? '這一批' : ''} ${cl.checked}/${cl.total} 對過${cl.pending ? `,${cl.pending} 條待討論` : ''}${cl.unmarked ? `,${cl.unmarked} 條還沒對` : ''}` : null;
+      const prog = clProg(cl);
       const viaNote = st.via === 'git' ? '（感測器沒看到改檔,是 git 說的——可能是用 Bash 寫的）' : '';
       const extra = cl?.batchMissing?.length || cl?.preMarked ? `；${checklistWhy(cl)}` : '';
       console.log(st.state === 'current' ? `   ${label} ⏸ 最後一次改程式檔 ${ago(st.ranAt)}${viaNote}——現在在這一關${prog ? `（${prog}${extra}）` : ''}`
         : st.state === 'stale' ? `   ${label} 🔁 改過程式檔（最後一次 ${ago(st.ranAt)}）,${prog}——${checklistWhy(cl)},不算寫完`
-        : st.state === 'done' ? `   ${label} ✅ 改過程式檔（最後一次 ${ago(st.ranAt)}）,${ago(st.doneAt)}Claude 對完清單`
-        : `   ${label} ✓  改過程式檔（最後一次 ${ago(st.ranAt)}）${st.closedBy === 'checklist' ? ',Claude 對完清單' : ''}——已走過`);
+        : st.state === 'done' ? `   ${label} ✅ 改過程式檔（最後一次 ${ago(st.ranAt)}）,${ago(st.doneAt)}Claude 對完清單${clDoneNote(cl)}`
+        : `   ${label} ✓  改過程式檔（最後一次 ${ago(st.ranAt)}）${st.closedBy === 'checklist' ? `,Claude 對完清單${clDoneNote(cl)}` : ''}——已走過`);
       continue;
     }
     // E 驗收(瀏覽器那一關):三句話分開講——開過瀏覽器、Claude 說走了一遍、你說驗收過了(E 自動驗收 AC-7)。
@@ -599,16 +599,48 @@ function renderStages(ctx, ev, facts, info = {}) {
 /** 規格檔裡的 AC 清單(五關自動結案 AC-5)。給人看的是標題與白話那一句,不印技術那層。 */
 function printChecklist(cl) {
   const rel = (f) => (typeof f === 'string' ? f.split('/').slice(-3).join('/') : '');
+  const items = (c) => {
+    for (const it of c.items) {
+      const mark = it.state === 'checked' ? '✅' : it.state === 'pending' ? '⏳' : '○';
+      console.log(`              ${mark} ${it.id} ${it.title}${it.state === 'pending' && it.note ? `（待討論：${it.note}）` : ''}${it.inBatch === false ? '（不在這一批）' : ''}`);
+      if (it.plain) console.log(`                 ${it.plain.slice(0, 70)}${it.plain.length > 70 ? '…' : ''}`);
+    }
+  };
+  // 一輪寫了好幾份(規格:多份規格與新資料夾的起點 AC-1、AC-2、AC-5):一份一段,各寫各的條數;總數只加讀得到的,讀不到的講出來。
+  // 「全部 N 條」只在一份的時候出現——只算一份卻長得像全部,就是 2026-10-02 那個「全部 5 條其實 15 條」
+  if (cl.multi) {
+    console.log(`              這一輪寫了 ${cl.parts.length} 份規格，共 ${cl.total} 條${cl.unreadable?.length ? `（另有 ${cl.unreadable.length} 份讀不到，條數不在裡面）` : ''}`);
+    for (const p of cl.parts) {
+      const c = p.checklist;
+      if (!c) continue;                                    // 不在這個工作區的那一份:在哪、為什麼,旁白(specNotes)講了
+      if (!c.parsed) { console.log(`              ── ${p.name}：${c.missing ? '找不到規格檔' : '規格檔裡沒有照格式寫的 AC'}（${rel(c.file)}）`); continue; }
+      console.log(`              ── ${p.name}：${clProg(c).replace(/^清單 /, '')}（這份 ${c.total} 條）`);
+      items(c);
+    }
+    return;
+  }
   if (cl.missing) { console.log(`              清單：找不到這一輪的規格檔${cl.file ? `（${rel(cl.file)}）` : ''}`); return; }
   if (!cl.parsed) { console.log(`              清單：規格檔裡沒有照格式寫的 AC（${rel(cl.file)}）${cl.head ? `,開頭是：${cl.head.slice(0, 60)}` : ''}`); return; }
   // 分批做的規格(施工對話認規格 AC-8):整份照畫,不在這一批的標出來——收工前只要求這一批
   if (cl.batch) console.log(`              這一批只對 ${cl.batch.join('、')}（全部 ${cl.allTotal} 條）`);
   if (cl.batchMissing?.length || cl.preMarked) console.log(`              ⚠️ ${checklistWhy(cl)}`);
-  for (const it of cl.items) {
-    const mark = it.state === 'checked' ? '✅' : it.state === 'pending' ? '⏳' : '○';
-    console.log(`              ${mark} ${it.id} ${it.title}${it.state === 'pending' && it.note ? `（待討論：${it.note}）` : ''}${it.inBatch === false ? '（不在這一批）' : ''}`);
-    if (it.plain) console.log(`                 ${it.plain.slice(0, 70)}${it.plain.length > 70 ? '…' : ''}`);
-  }
+  items(cl);
+}
+
+/**
+ * B 的清單進度一句話:「清單 3/5 對過,1 條待討論,1 條還沒對」。沒有清單是 null。分批做的規格只數這一批(施工對話認規格 AC-8)。
+ * 好幾份規格:講幾份、共幾條,讀不到的另外講(規格:多份規格與新資料夾的起點 AC-2、AC-5)。網頁(ui/app.js 的 clProg)是翻譯,改一邊要改另一邊
+ */
+function clProg(cl) {
+  if (!cl?.parsed) return null;
+  const tail = `${cl.pending ? `,${cl.pending} 條待討論` : ''}${cl.unmarked ? `,${cl.unmarked} 條還沒對` : ''}`;
+  if (cl.multi) return `${cl.specs} 份規格共 ${cl.total} 條：${cl.checked} 條對過${tail}${cl.unreadable?.length ? `（另有 ${cl.unreadable.length} 份讀不到，條數不在裡面）` : ''}`;
+  return `清單${cl.batch ? '這一批' : ''} ${cl.checked}/${cl.total} 對過${tail}`;
+}
+
+/** Claude 對完清單之後那一句的括號:好幾份規格才有——對完的是幾份、共幾條,讀不到的那份不算進「對完」(R2)。網頁同一句 */
+function clDoneNote(cl) {
+  return cl?.multi ? `（${cl.specs} 份規格共 ${cl.total} 條${cl.unreadable?.length ? `；另有 ${cl.unreadable.length} 份讀不到，條數不在裡面` : ''}）` : '';
 }
 
 /** 「照別的對話寫的規格 X（Claude 說的）」——終端機與網頁同一句(ui/app.js 的 linkLine 是翻譯,改一邊要改另一邊)。 */
@@ -620,23 +652,42 @@ function linkLine(link) {
 /** 寫規格那一關的旁白:規格在哪、另寫了一份、第一句話的提示、分不出是誰記的。都只是講,不算 A、不擋人(施工對話認規格)。 */
 function specNotes(st) {
   const L = [];
-  const lk = st.link, at = st.specPlace;
+  const lk = st.link;
   // 規格在哪(規格搬家 AC-3、AC-4):別的對話寫的連結、這個對話 A 寫的,兩條路都讀 specPlace 這一份——同一個地方判斷、同一句話
-  // 資料夾不在了(worktree 清掉了):工作區裡沒辦法找,不准講成「都沒有同名的」(R1,魔鬼教官 2026-09-22)
-  if (at?.gone) L.push(at.found === 'main' ? `這個對話的資料夾已經不在了；規格在主資料夾：${at.rel ?? `${at.name}.md`}` : `這個對話的資料夾已經不在了，找不到記的規格檔（${at.given ?? `${at.name}.md`}）`);
-  // 記在主資料夾的(worktree 的對話把規格寫進了主資料夾):講寫在那裡,不講「可能還沒併進來」
-  else if (at?.found === 'main') L.push(at.recordedIn === 'main' ? `規格寫在主資料夾（${at.rel ?? `${at.name}.md`}），不在這個工作區——不會叫 Claude 去那裡打勾` : '規格在主資料夾，不在這個工作區（可能還沒併進來）——不會叫 Claude 去那裡打勾');
-  else if (at?.found === 'missing') L.push(`找不到規格檔 ${at.name}.md${!at.given ? '' : at.recordedIn === 'main' ? `（記的是主資料夾的 ${at.given}；主資料夾的規劃中／進行中／升級摘要都沒有同名的）` : `（記的是 ${at.given}；規劃中／進行中／升級摘要都沒有同名的）`}`);
-  // 同名的那一份比記的那份還舊:分不出是不是同一份,不拿它的勾(R2,魔鬼教官 2026-09-22);證據只到「比較舊」,不講「是別份」(第二輪)
-  else if (at?.found === 'older') L.push(`記的規格檔 ${at.name}.md 不在記的位置（${at.given}）；工作區裡同名的 ${at.rel} 比記的那份還舊，分不出是不是同一份——不畫它的清單`);
-  // 記的位置不在這個工作區、也不在主資料夾:不拿工作區裡同名的另一份頂替(P6,魔鬼教官 2026-09-22)
-  else if (at?.found === 'outside') L.push(`記的規格檔 ${at.name}.md 不在這個工作區，也不在主資料夾——不會叫 Claude 去那裡打勾`);
-  else if (at?.found === 'ambiguous') L.push(`工作區裡叫 ${at.name}.md 的規格不只一份（${(at.where ?? []).join('、')}），分不出是哪一份`);
-  else if (at?.moved) L.push(`規格搬到了 ${at.rel}（記的是 ${at.given}）`);
-  if (st.side) L.push(st.side.name ? `另寫了一份規格 ${st.side.name}（等你點頭）` : `${ago(st.side.ts)}又叫了寫規格那一關（寫了哪份看不到）；施工清單還是 ${lk?.name ?? '原本那份'}`);
+  const where = (at) => {
+    // 資料夾不在了(worktree 清掉了):工作區裡沒辦法找,不准講成「都沒有同名的」(R1,魔鬼教官 2026-09-22)
+    if (at?.gone) return at.found === 'main' ? `這個對話的資料夾已經不在了；規格在主資料夾：${at.rel ?? `${at.name}.md`}` : `這個對話的資料夾已經不在了，找不到記的規格檔（${at.given ?? `${at.name}.md`}）`;
+    // 記在主資料夾的(worktree 的對話把規格寫進了主資料夾):講寫在那裡,不講「可能還沒併進來」
+    if (at?.found === 'main') return at.recordedIn === 'main' ? `規格寫在主資料夾（${at.rel ?? `${at.name}.md`}），不在這個工作區——不會叫 Claude 去那裡打勾` : '規格在主資料夾，不在這個工作區（可能還沒併進來）——不會叫 Claude 去那裡打勾';
+    if (at?.found === 'missing') return `找不到規格檔 ${at.name}.md${!at.given ? '' : at.recordedIn === 'main' ? `（記的是主資料夾的 ${at.given}；主資料夾的規劃中／進行中／升級摘要都沒有同名的）` : `（記的是 ${at.given}；規劃中／進行中／升級摘要都沒有同名的）`}`;
+    // 同名的那一份比記的那份還舊:分不出是不是同一份,不拿它的勾(R2,魔鬼教官 2026-09-22);證據只到「比較舊」,不講「是別份」(第二輪)
+    if (at?.found === 'older') return `記的規格檔 ${at.name}.md 不在記的位置（${at.given}）；工作區裡同名的 ${at.rel} 比記的那份還舊，分不出是不是同一份——不畫它的清單`;
+    // 記的位置不在這個工作區、也不在主資料夾:不拿工作區裡同名的另一份頂替(P6,魔鬼教官 2026-09-22)
+    if (at?.found === 'outside') return `記的規格檔 ${at.name}.md 不在這個工作區，也不在主資料夾——不會叫 Claude 去那裡打勾`;
+    if (at?.found === 'ambiguous') return `工作區裡叫 ${at.name}.md 的規格不只一份（${(at.where ?? []).join('、')}），分不出是哪一份`;
+    if (at?.moved) return `規格搬到了 ${at.rel}（記的是 ${at.given}）`;
+    return null;
+  };
+  // 一次 A 寫了好幾份(規格:多份規格與新資料夾的起點 AC-5):一份一句,前面標是哪一份——讀不到的那份不准安靜消失
+  const many = Array.isArray(st.specPlaces) && st.specPlaces.length > 1;
+  for (const at of many ? st.specPlaces : [st.specPlace]) {
+    const line = where(at);
+    if (line) L.push(many ? `${at.name}：${line}` : line);
+  }
+  if (st.side) L.push(!st.side.name ? `${ago(st.side.ts)}又叫了寫規格那一關（寫了哪份看不到）；施工清單還是 ${lk?.name ?? '原本那份'}`
+    : st.side.count > 1 ? `另寫了 ${st.side.count} 份規格 ${st.side.name}（等你點頭）` : `另寫了一份規格 ${st.side.name}（等你點頭）`);
+  // 連著一份規格又記了另一份(AC-7):換掉可以,安靜換掉不行。這一輪自己叫 A 寫的被 --spec 換掉也一樣
+  if (st.replaced) L.push(st.replaced.own ? `原本照 ${(st.replaced.fromNames ?? [st.replaced.from]).map((n) => `${n}.md`).join('、')}（這個對話叫 A 寫的），後來換成 ${st.replaced.to}.md`
+    : `原本照 ${st.replaced.from}.md，後來換成 ${st.replaced.to}.md`);
+  // 這一輪之前叫 A 寫的、還有沒對完的(同一個對話叫第二次 A,一輪從後來那次算):收工 hook 不會再要它的清單,講出來
+  for (const e of st.earlierSpecs ?? []) L.push(`${e.name}.md 是這一輪之前叫 A 寫的，還有 ${e.unmarked} 條沒對——這一輪從後來那次 A 算起，收工 hook 不會要它的清單`);
+  // 記過、現在哪裡都找不到的(改名、刪了):不算進這一輪的規格,講一句
+  if (st.ghostSpecs?.length) L.push(`記過 ${st.ghostSpecs.map((n) => `${n}.md`).join('、')}，現在找不到（可能改名或刪了）——不算進這一輪的規格`);
   if (st.hint) L.push(`從你第一句話看，可能是照 ${st.hint.name} 施工（Claude 還沒確認${st.hint.cut ? '；感測器只記第一句話的開頭，後面有沒有提到別份看不到' : ''}）`);
   if (st.unsure) L.push(`有一筆規格連結（${st.unsure.name}）分不出是哪個對話記的——不算數`);
   if (st.shared) L.push('這個工作區這一輪有好幾個對話；規格連結只算記它的那個對話，看儀表板各對話的頁面');
+  // 這一輪還動了別的規格檔、沒記到它是不是這一輪的(AC-6):講一句,不擋收工(Oscar 2026-10-05:會多講話,可以)
+  if (st.extraSpecs?.length) L.push(`這一輪還動了 ${st.extraSpecs.map((n) => `${n}.md`).join('、')}，沒記到${st.extraSpecs.length > 1 ? '它們' : '它'}是不是這一輪的規格`);
   return L;
 }
 
@@ -794,8 +845,20 @@ function doSpec(ctx, ev, args) {
     console.log(`${loc.rel} 看起來是這個對話自己寫的（${self}）——那是 ${stageName} 的工作，${cmd ? `跑 ${cmd}` : `跑 ${stageName}`}（它會自己連上寫的那份）。`);
     return 1;
   }
+  // 這個對話這一輪已經連著別份(AC-7,規格:多份規格與新資料夾的起點):一次只照一份,新記的會換掉舊的——換掉可以,安靜換掉不行。
+  // 「現在連著哪一份」跟儀表板、收工 hook 同一個算法(stageFacts 的 roundView),不在這裡另算一份(老毛病 P2)
+  //   這一輪自己叫 A 寫了規格、又 --spec 別份,也是換掉(魔鬼教官第一輪)。算不出來就不講(不猜有沒有換掉)
+  let before = [], own = false;
+  try {
+    const v = stageFacts(ctx, ev, gatherChange(ctx, ev)).view;
+    const a = v.stages.find((x) => x.skill);
+    own = !v.link && !!a?.ranAt;
+    before = v.link?.name ? [v.link.name] : !own ? [] : a.specPlaces?.length ? a.specPlaces.map((x) => x.name) : a.specPlace?.name ? [a.specPlace.name] : [];
+  } catch { before = []; }
   if (!record({ spec: loc.rel, ...(acs.length ? { acs } : {}) })) return 1;
   const name = basename(loc.rel).replace(/\.md$/i, '');
+  const replaced = before.length && !before.includes(name)
+    ? `   ⚠️ 原本照 ${before.map((n) => `${n}.md`).join('、')}${own ? '（這個對話叫 A 寫的）' : ''}，換成照 ${name}.md——之後儀表板、收工 hook 只對 ${name} 的清單；一個對話一次只照一份規格。` : null;
   if (loc.found === 'main') {
     // 只在主資料夾:儀表板只寫一句、不畫清單、收工不要求打勾(AC-6)——第一行就照實講,不先說「會畫出 N 條」
     console.log(`✅ 記下了：這個對話照 ${name} 施工（Claude 說的）。`);
@@ -804,6 +867,7 @@ function doSpec(ctx, ev, args) {
     console.log(`✅ 記下了：這個對話照 ${name} 施工（Claude 說的）。儀表板的 ${stageName} 會畫出那份的 ${cl.total} 條 AC。`);
     console.log(`   收工前在 ${loc.rel} 每條 AC 的標題行末尾標「✅ 對過 日期」或「⏳ 待討論：原因」。`);
   }
+  if (replaced) console.log(replaced);
   if (acs.length) console.log(`   這一批只對 ${acs.join('、')}；其他條標「不在這一批」，收工前不要求。`);
   tail();
   return 0;
@@ -836,7 +900,10 @@ function writtenHere(ctx, ev, loc, sid, stages) {
       // 一筆結論屬於它之前最後一次被叫的那一關(跟 roundView 認 A 寫了哪份同一種認法)
       const aRuns = runsPerStage(ev.events, stages, (e) => e.cwd === ctx.root).get(first.id) ?? [];
       for (const r of here.filter((e) => e.event === 'stage_report' && e.stage === first.id && typeof e.note === 'string')) {
-        if (basename(r.note.trim().split('\n')[0].trim()) !== name) continue;
+        // 一次 A 寫了好幾份就記好幾份(規格:多份規格與新資料夾的起點 AC-1):說明裡每一個規劃中／進行中的路徑都看——
+        // 跟 roundView 認「A 寫了哪幾份」同一個抽法(specPathsInNote);一個都抽不到才照以前的規則(整份說明就是一個 .md)
+        const txt = reportText(r), named = specPathsInNote(txt);
+        if (!(named.length ? named.some((x) => basename(x) === name) : basename(txt.trim()) === name)) continue;
         const run = aRuns.filter((x) => Date.parse(x.ts) <= Date.parse(r.ts)).at(-1);
         if (run?.session === me) return `這個對話的 ${first.id} ${first.name} 收尾記了它`;
       }
@@ -1070,7 +1137,19 @@ function roundOfWalk(ctx, f, st) {
   const a = f.view.stages.find((x) => x.skill) ?? null;   // 寫規格那一關
   const vl = v?.verify ?? null;
   const cl = f.view.checklist ?? null;
-  if (vl) {
+  if (vl?.multi) {
+    // 這一輪寫了好幾份規格(規格:多份規格與新資料夾的起點 AC-4):每一份都要驗;兩份都有 AC-1,回報每一行前面加規格名才分得開
+    const relOf = (s) => (s.where === 'main' ? s.file : relative(ctx.root, s.file).split('\\').join('/'));
+    console.log(`   照這 ${vl.specs.length} 份規格驗（跟儀表板 ${a?.id ?? 'A'} 那格的清單同一組）：`);
+    for (const s of vl.specs) {
+      console.log(s.file ? `      ${s.name}：${relOf(s)}（${s.total} 條${s.where === 'main' ? '；規格在主資料夾，不在這個工作區——照那份讀，只讀，不在那裡改任何東西' : ''}）`
+        : `      ${s.name}：讀不到——不自己編這一份的條目`);
+    }
+    for (const line of (a ? specNotes(a) : [])) console.log(`   規格：${line}`);
+    console.log(`   有 ${vl.specs.length} 份規格：回報每一行前面加規格名，不然分不出是哪一份的 AC——例：${vl.items[0].id} 看到了：「畫面上的原文」`);
+    for (const it of vl.items) console.log(`      ${it.id} ${it.title}${it.plain ? ` —— ${it.plain}` : ''}`);
+    console.log('   每條在畫面上要看到什麼，寫在那份規格那一條的「會發生的情況」：打開上面那幾份讀，照那段在畫面上找。');
+  } else if (vl) {
     const rel = typeof vl.file === 'string' ? (vl.where === 'main' ? vl.file : relative(ctx.root, vl.file).split('\\').join('/')) : '這一輪的規格';
     console.log(vl.where === 'main'
       ? `   照這份規格驗：${rel}（規格在主資料夾，不在這個工作區——照那份讀，只讀，不在那裡改任何東西）`

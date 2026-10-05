@@ -53,6 +53,7 @@ allowed-tools: Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git l
    索引那一行是唯一准改的既有檔案；除了那一行，索引檔的其他部分一個字都不動。
 6. **告訴儀表板規格在哪**：`pipeline-status --report A ok "docs/規劃中/<slug>.md"`（沒有這個指令的話：`node "<pipeline-monitor 的資料夾>/status.mjs" --report A ok "…"`，
    那個資料夾就是 `~/.claude/skills/pipeline-monitor` 指向的位置）。儀表板靠這一行找到這一輪的清單；用 Bash 寫檔時感測器看不到那次寫檔，這一行就是唯一的線索。
+   **寫了幾份就記幾次**（一份一行）——儀表板、收工 hook 只認得記過的那幾份，漏記的那份清單不會被要求對。規格搬家（規劃中 → 進行中）之後再記一次新位置也可以。
 7. **回報並停下**。
 
 ## 最小格式（專案沒有自己的範本時）
