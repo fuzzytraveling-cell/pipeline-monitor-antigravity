@@ -337,7 +337,46 @@ section('AC-10、AC-12:--round D——第幾次、怎麼跑、第一次之後改
   e.write([said(-12 * MIN, '修一下'), callD(-10 * MIN, e.head()), report(-9 * MIN)]);
   check('危險清單空的:講硬門檻只剩「蔓延」那一條', /危險清單是空的，硬門檻只剩「蔓延」那一條/.test(e.cli(['--round', 'D']).out));
   e.cleanup();
-  check('不是結論會過期的關 → 失敗,講能用的是哪一關', (() => { const x = scene(); const r = x.cli(['--round', 'C']); x.cleanup(); return r.code !== 0 && /能用 --round 的關：D 魔鬼教官/.test(r.out); })());
+  // C 打掃(有指令、結論不會過期):以前失敗,現在只給這一輪的範圍(規格:skill 範圍跟收工 hook 對齊 AC-2)。認不出的關照舊失敗、講能用哪幾關
+  check('--round C → 給這一輪的範圍,不失敗', (() => { const x = scene(); const r = x.cli(['--round', 'C']); x.cleanup(); return r.code === 0 && /C 打掃：這一輪的範圍/.test(r.out); })());
+  check('認不出的關 → 失敗,講能用的是哪幾關(含 C)', (() => { const x = scene(); const r = x.cli(['--round', 'Z']); x.cleanup(); return r.code !== 0 && /能用 --round 的關：.*C 打掃.*D 魔鬼教官/.test(r.out); })());
+}
+
+section('第一輪的範圍跟收工 hook 同一份:中途存過檔,--round D 第一次、--round C 照樣列存檔過的(規格:skill 範圍跟收工 hook 對齊 AC-1、AC-2、AC-4)', 'P1');
+{
+  const s = scene({ danger: false });                                     // T1:只要 D
+  const h0 = s.head().slice(0, 7);
+  s.write([said(-30 * MIN, '改兩個檔')]);
+  s.touch('src/a.js', -20 * MIN);
+  execFileSync('git', ['add', '-A'], { cwd: s.root });                     // 一輪中途存一次檔(Claude 常這樣)
+  execFileSync('git', ['commit', '-qm', '存一次'], { cwd: s.root, env: { ...process.env, GIT_AUTHOR_DATE: T(-19 * MIN), GIT_COMMITTER_DATE: T(-19 * MIN) } });
+  s.touch('src/c.js', -10 * MIN);                                          // 存檔之後又改一個(還沒存)
+  writeFileSync(join(s.root, 'src', 'brand-new.js'), 'n\n');               // 還沒追蹤的新檔
+  const d = s.cli(['--round', 'D']).out;
+  check('D 第一次:講這一輪從哪算起、版本是開始那一刻的(不是現在的)、跟收工 hook 同一份', /這一輪的範圍：從這個對話第一句話/.test(d) && d.includes(`（版本 ${h0}）`) && /含已存檔的/.test(d), d);
+  check('D 第一次:存檔過的 a.js、還沒存的 c.js、新檔都列,新檔標出來', /src\/a\.js/.test(d) && /src\/c\.js/.test(d) && /src\/brand-new\.js　新檔/.test(d), d);
+  check('D 第一次:給拿改動的指令(git diff 開始那一刻的版本)', d.includes(`git diff ${h0} --`), d);
+  const c = s.cli(['--round', 'C']);
+  const scopeOf = (o) => o.split('\n').filter((l) => /^   這一輪的範圍：|^      src\//.test(l)).join('\n');   // 標題行各關不同,比內容
+  check('C:同一份範圍(一字不差)', c.code === 0 && scopeOf(c.out) === scopeOf(d) && scopeOf(d).length > 0, `${scopeOf(c.out)}\n---\n${scopeOf(d)}`);
+  const g = s.gate();
+  check('收工 hook 擋的時候講同一個範圍(這一輪，含已存檔的)', g !== null && /這一輪，含已存檔的/.test(g.reason), g?.reason);
+  s.cleanup();
+
+  // 找不到這一輪的起點(一筆紀錄都沒有):只看得到還沒存檔的——照實講,而且叫 skill 在回報第一行寫出來
+  const b = scene({ danger: false });
+  b.touch('src/a.js', -5 * MIN);
+  const bo = b.cli(['--round', 'C']).out;
+  check('起點找不到 → 講只算還沒存檔的、回報第一行要寫「這一輪的起點找不到」', /只算還沒存檔的/.test(bo) && /回報第一行寫「這一輪的起點找不到，只看了還沒存檔的改動」/.test(bo), bo);
+  b.cleanup();
+
+  // skill 的字:第一輪照 --round 給的範圍;不准再把「沒參數 → git diff HEAD」當第一輪的預設(抓意圖:哪一句在、哪一句不在,P4)
+  const dk = readFileSync(join(ROOT, 'skills', 'chaos-check', 'SKILL.md'), 'utf8');
+  const ck = readFileSync(join(ROOT, 'skills', 'cleanup', 'SKILL.md'), 'utf8');
+  check('chaos-check:第一次照 --round 印的「這一輪的範圍」拿改動', /第一次 → 它印的「這一輪的範圍」：`git diff <它給的版本> -- <它列的那幾個檔>`/.test(dk));
+  check('chaos-check:沒有「沒參數 → git diff HEAD」當預設那一句', !/沒參數 → `git diff HEAD`/.test(dk));
+  check('cleanup:先跑 --round C、照它的範圍,而且准用這個指令', /先跑 `pipeline-status --round C`/.test(ck) && /allowed-tools:.*Bash\(pipeline-status --round:\*\)/.test(ck));
+  check('cleanup:沒有「沒參數 → git diff HEAD」當預設那一句', !/沒參數 → `git diff HEAD --name-only`/.test(ck));
 }
 
 section('AC-3、AC-13:從叫到記結論幾分鐘——紀錄算的、只算一次;還在跑的那一次不印時間;tokens 一個字都不印');

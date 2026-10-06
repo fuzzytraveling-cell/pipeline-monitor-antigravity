@@ -1,7 +1,7 @@
 ---
 name: chaos-check
 description: D 魔鬼教官這一關（產線監視器 pipeline-monitor 帶的通用版）：拿這個專案自己踩過的坑（docs/FAILURE-PATTERNS.md，沒有就用三條通用判準）逐條對照這次的改動，找出正在重蹈的已知死法。只找問題、不改任何檔案、不宣稱通過。使用者說「檢查一下有沒有踩到老毛病」「魔鬼教官」「chaos check」時用；專案自己也有 /chaos-check 時，使用者叫哪個就跑哪個，不要自作主張換。
-argument-hint: "[git ref，預設是還沒 commit 的改動]"
+argument-hint: "[git ref，預設是這一輪的改動（pipeline-status --round 給的範圍）]"
 allowed-tools: Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git ls-files:*), Bash(git rev-parse:*), Bash(ls:*), Bash(pipeline-status --round:*)
 ---
 
@@ -56,6 +56,8 @@ allowed-tools: Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git l
 | 第二次以上 | 不論分級都你自己看，**只看它列的那幾個檔**（第一次之後改的），不派 agent；回報第一行照它給的那句寫 |
 | 拿不到第一次之後的清單、或這個指令不存在 | 看整批，回報第一行寫「拿不到第一輪之後的清單，這次看的是整批」 |
 
+第一次它也會印「這一輪的範圍」：從哪一刻的版本算起、這一輪改過的檔——跟收工 hook、儀表板說的「這一輪」同一份。步驟 1 照它拿改動。
+
 第二次以上只看那幾個檔，代價是：修法跟沒重讀的那些檔之間的交互，這一次看不到——所以回報**不准**講成「全部看過」。
 
 **交給獨立 agent 跑也一樣要先在這個對話叫這一關**（儀表板只看得到這裡叫過），收尾一定由你記結論。
@@ -63,10 +65,13 @@ allowed-tools: Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git l
 
 ## 步驟
 
-1. **拿改動**：
+1. **拿改動**——範圍照 `--round D` 給的，不自己決定（自己用 `git diff HEAD` 的話，這一輪中途存過檔的那一半看不到，照樣回報「跑過」）：
+   - 第一次 → 它印的「這一輪的範圍」：`git diff <它給的版本> -- <它列的那幾個檔>`，標「新檔」的整份讀。一輪中途存過檔的也在裡面。
+     它說起點找不到、只看得到還沒存檔的 → 照它說的拿，回報第一行照它給的那句寫。
    - 第二次以上 → 只拿 `--round` 列的那幾個檔：`git diff <它給的版本> -- <那幾個檔>`，新檔整份讀。基準是第一次那一刻的版本，第一輪之後存過檔的改動才看得到。
    - 有參數 → `git diff $ARGUMENTS`
-   - 沒參數 → `git diff HEAD`（還沒 commit 的改動）；空的話 → `git diff main...HEAD`（沒有 main 就 master）
+   - `--round` 沒給範圍（這個指令不存在、或是舊版沒有這一段）→ `git diff HEAD`；空的話 → `git diff main...HEAD`（沒有 main 就 master）。
+     回報第一行寫「拿不到這一輪的範圍，這次看的是 <你實際用的那個 git 指令>」。
    - ⚠️ **`git diff` 看不到還沒被 git 追蹤的新檔案，而新檔案是 AI 最常見的產物。** 一律再跑
      `git ls-files --others --exclude-standard`，新檔案整份讀。漏掉的方向永遠是讓改動看起來比實際小——那是危險的那一邊。
    - 拿不到（不是 git 專案、指令失敗）→ 說「拿不到改動」，**不是**「沒有改動」。

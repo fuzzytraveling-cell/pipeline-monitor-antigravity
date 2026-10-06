@@ -20,12 +20,12 @@ import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { git, gitExit, real, gitContext, changeScale, changeHealth, TEST_FILE, ago, uncommitted, checkpointRelation, backupBranchName } from './lib/git.mjs';
 import { cardFor, sessionTier } from './lib/collect.mjs';
-import { readEvents, loadStages, lastRunPerStage, runsPerStage, roundView, editsOf, reportsIn, reportLogIn, decisionsIn, clearLogIn, perStageOfRound, gateHeartbeat, safeName, logFileOf, specContext,
+import { readEvents, readProjectConfig, loadStages, lastRunPerStage, runsPerStage, roundView, editsOf, reportsIn, reportLogIn, decisionsIn, clearLogIn, perStageOfRound, gateHeartbeat, safeName, logFileOf, specContext,
          sessionsOf, sessionView, rerunLine, tookLine, rerunMapOf, runMode, afterCall, reportText, unknownPromptsOf, unknownPromptLine, noWords, RETAIN_DAYS } from './lib/events.mjs';
 import { faultsNow, faultBanner, faultNotes, sensorNow, unreadableLine, roundStartFor } from './lib/faults.mjs';
 import { eLines, parseWalk, walkSummary, summaryLine } from './lib/verify.mjs';
 import { readChecklist, locateSpec, specPathsInNote } from './lib/checklist.mjs';
-import { buildTier, readTierConfig, writeTierConfig, proposeCodeArea, codeFileFn, computeTier, changeTimeOf, fileTimeOf } from './lib/tier.mjs';
+import { buildTier, readTierConfig, writeTierConfig, proposeCodeArea, codeFileFn, computeTier, changeTimeOf, fileTimeOf, dangerSince, addedSince, missingDanger } from './lib/tier.mjs';
 import { changeFacts, reflogOf, takeoverOf, tenureEvents } from './lib/origin.mjs';
 import { checkpointFor, writeCheckpoint } from './lib/checkpoint.mjs';
 import { changeScope } from './lib/scope.mjs';
@@ -1077,7 +1077,8 @@ function rerunStageOf(ctx, stageId, flag) {
   const { stages } = loadStages(HERE, ctx.root, ctx.mainRoot);
   const st = stages.find((x) => x.id.toLowerCase() === String(stageId ?? '').toLowerCase());
   if (st?.rerunAfterChange) return st;
-  const list = stages.filter((x) => x.rerunAfterChange).map((x) => `${x.id} ${x.name}`).join('、') || '這個專案沒有';
+  // --round 另外也給有指令的關(C):只有範圍(規格:skill 範圍跟收工 hook 對齊 AC-2)
+  const list = stages.filter((x) => x.rerunAfterChange || (flag === '--round' && x.skill)).map((x) => `${x.id} ${x.name}`).join('、') || '這個專案沒有';
   console.log(`${st ? `${st.id} ${st.name} 的結論不會因為之後改檔而過期，沒有「${flag === '--round' ? '第幾次' : '要不要再跑'}」可講。` : `認不出關卡「${stageId ?? ''}」。`}能用 ${flag} 的關：${list}`);
   return null;
 }
@@ -1091,6 +1092,14 @@ function rerunStageOf(ctx, stageId, flag) {
  * 拿不到清單(那一筆沒有 head、git 問不到)照實講,看整批(R1);時間只從紀錄拿,拿不到就說看不到,不估(R3)。
  */
 async function doRound(ctx, ev, stageId) {
+  // 有指令、結論不會因為之後改檔而過期的關(C 打掃):只給這一輪的範圍——沒有第幾次、跑法,這一輪跑過就算(規格:skill 範圍跟收工 hook 對齊 AC-2)
+  const { stages } = loadStages(HERE, ctx.root, ctx.mainRoot);
+  const plain = stages.find((x) => x.id.toLowerCase() === String(stageId ?? '').toLowerCase() && x.skill && !x.rerunAfterChange && x.type !== 'browser');
+  if (plain) {
+    console.log(`━━ ${plain.id} ${plain.name}：這一輪的範圍 ━━`);
+    printScope(ctx, ev, { stage: plain.id });
+    return 0;
+  }
   const st = rerunStageOf(ctx, stageId, '--round');
   if (!st) return 1;
   const f = await rerunFacts(ctx, ev);
@@ -1115,6 +1124,8 @@ async function doRound(ctx, ev, stageId) {
     const dh = t.machine?.hits?.danger ?? [], ch = t.machine?.hits?.code ?? [];
     console.log(`   分級：${t.final.id}（${dh.length ? `碰到危險清單：${dh.slice(0, 3).join('、')}${dh.length > 3 ? ` 等 ${dh.length} 個` : ''}` : ch.length ? `碰到程式區 ${ch.length} 個檔` : '沒碰到程式區'}）`);
   }
+  // 第一次:這一輪的範圍(起點與檔案),跟收工 hook、儀表板同一份——skill 照它拿改動,不自己 git diff HEAD(規格:skill 範圍跟收工 hook 對齊 AC-1)
+  if (nth === 1) printScope(ctx, ev, { stage: st.id });
   if (nth >= 2) {
     console.log(`   ${r.took ? `${tookLine(r.took)}（紀錄算的：從叫 ${st.id} 到記結論；用了多少 tokens 這裡看不到）` : '上一輪從叫到記結論：紀錄裡看不到（上一次沒記結論、或配不到是哪一次叫的）'}`);
     const files = roundFiles(ctx, f, r);
@@ -1126,7 +1137,7 @@ async function doRound(ctx, ev, stageId) {
       console.log(look.length
         ? `   第一次（${ago(r.first.ts)}，版本 ${r.first.head}）之後改了 ${look.length} 個要看的檔：`
         : `   第一次（${ago(r.first.ts)}，版本 ${r.first.head}）之後沒有改到程式區或測試檔。`);
-      for (const x of look) console.log(`      ${x.file}${x.danger ? '　危險清單' : ''}${x.test ? '　測試檔' : ''}${x.gone ? '　已刪' : ''}`);
+      for (const x of look) console.log(rowLine(x));
       if (other.length) console.log(`   另外改了 ${other.length} 個不在程式區的檔（文件、設定），這一次不用看：${other.slice(0, 5).map((x) => x.file).join('、')}${other.length > 5 ? ' …' : ''}`);
       if (f.shared) console.log('   ⚠️ 這個工作區有好幾個對話：git 看到的改動可能含別的對話改的，清單照列。');
       if (look.length) console.log(`   回報第一行寫「第 ${nth} 輪只看了第一輪之後改的 ${look.length} 個檔：${look.slice(0, 5).map((x) => x.file).join('、')}${look.length > 5 ? ' …' : ''}」，不准講成全部看過。`);
@@ -1295,14 +1306,60 @@ function roundFiles(ctx, f, r) {
     .map((e) => inRoot(e.file)).filter(Boolean);
   const fromGit = [...rows.map((x) => x[1]), ...untracked.split('\n')].filter(Boolean)
     .filter((p) => { const t = changeTimeOf(ctx.root, p); return (t !== null && afterCall(t, first.ts)) || (added.has(p) && afterCall(dirTime(p), first.ts)); });
+  return { state: 'ok', list: fileRows(ctx, [...new Set([...fromGit, ...fromSensor])], added) };
+}
+
+/**
+ * 一份檔案清單怎麼標:要看的(程式區或測試檔)、危險清單、測試檔、新檔、已刪。第一輪的範圍(printScope)與第二輪以後(roundFiles)同一個——
+ * 兩份各寫一套,遲早一邊標危險、一邊不標(老毛病 P2)。added:這一輪新加的(還沒追蹤的、跟起點比是新增的)。
+ */
+function fileRows(ctx, paths, added = new Set()) {
   const cfg = readTierConfig(ctx.root, ctx.mainRoot, HERE);
   const isCode = codeFileFn(ctx.root, cfg.state === 'ok' ? cfg.config : null);
   const inDanger = (p) => cfg.state === 'ok' && computeTier([p], cfg.config).rank === 2;
-  const list = [...new Set([...fromGit, ...fromSensor])].sort().map((p) => {
+  return [...paths].sort().map((p) => {
     const test = TEST_FILE.test(p);
-    return { file: p, test, danger: inDanger(p), gone: !existsSync(join(ctx.root, p)), look: test || isCode(p) };
+    const gone = !existsSync(join(ctx.root, p));
+    return { file: p, test, danger: inDanger(p), gone, fresh: !gone && added.has(p), look: test || isCode(p) };
   });
-  return { state: 'ok', list };
+}
+
+/** 一行一個檔,後面掛標記(第一輪與第二輪以後同一種樣子)。 */
+const rowLine = (x) => `      ${x.file}${x.danger ? '　危險清單' : ''}${x.test ? '　測試檔' : ''}${x.fresh ? '　新檔' : ''}${x.gone ? '　已刪' : ''}`;
+
+/**
+ * 這一輪的範圍:從哪算起、改過哪些檔(規格:skill 範圍跟收工 hook 對齊 AC-1、AC-2)。C 打掃、D 魔鬼教官第一輪照這裡給的版本與檔案拿改動——
+ * 以前它們自己用 git diff HEAD,這一輪中途存過檔就只看到還沒存檔的那一半,照樣回報「跑過」(R2,老毛病 P1、P2)。
+ * 起點與清單跟改動體檢、分級、收工 hook 同一份(stageFacts → changeFacts 的 base 與那份清單),講法用 lib/scope.mjs 那句——這裡不另算起點。
+ */
+function printScope(ctx, ev, { stage }) {
+  const info = gatherChange(ctx, ev);
+  const facts = stageFacts(ctx, ev, info);
+  const base = facts.base ?? null;
+  const list = facts.health?.list ?? null;
+  if (list === null) {
+    console.log(`   這一輪的範圍：拿不到（git 問不到改了哪些檔）——回報第一行寫「拿不到這一輪的範圍」，不准講成沒有改動。`);
+    return;
+  }
+  const sc = changeScope(base, ago);
+  const ver = base?.since ? base.since.slice(0, 7) : null;
+  // 新檔:還沒追蹤的＋跟起點比是新增的——git diff 看不到還沒追蹤的,要整份讀(L2)
+  const status = git(['diff', '--name-status', '--no-renames', ver ?? 'HEAD'], ctx.root);
+  const untracked = git(['ls-files', '--others', '--exclude-standard'], ctx.root);
+  const added = new Set([...(status ?? '').split('\n').filter((l) => l.startsWith('A\t')).map((l) => l.slice(2)), ...(untracked ?? '').split('\n').filter(Boolean)]);
+  const rows = fileRows(ctx, list, added);
+  const look = rows.filter((x) => x.look), other = rows.filter((x) => !x.look);
+  console.log(ver && !sc.blind
+    ? `   這一輪的範圍：${sc.note ?? sc.title}（版本 ${ver}）——跟收工 hook、儀表板說的「這一輪」同一份。`
+    : `   這一輪的範圍：${sc.short}。`);
+  console.log(look.length ? `   這一輪改過的 ${look.length} 個要看的檔：` : '   這一輪沒有改到程式區或測試檔。');
+  for (const x of look) console.log(rowLine(x));
+  if (other.length) console.log(`   另外改了 ${other.length} 個不在程式區的檔（文件、設定），${stage} 不用看：${other.slice(0, 5).map((x) => x.file).join('、')}${other.length > 5 ? ' …' : ''}`);
+  const shared = new Set(facts.events.filter((e) => e.cwd === ctx.root && e.hook && e.session).map((e) => e.session)).size > 1;
+  if (shared) console.log('   ⚠️ 這個工作區有好幾個對話：git 看到的改動可能含別的對話改的，清單照列。');
+  if (!look.length) return;
+  if (ver && !sc.blind) console.log(`   拿改動：git diff ${ver} -- <上面那幾個檔>；標「新檔」的整份讀。一輪中途存過檔的也在裡面。`);
+  else console.log('   拿改動：git diff HEAD -- <上面那幾個檔>；標「新檔」的整份讀。回報第一行寫「這一輪的起點找不到，只看了還沒存檔的改動」。');
 }
 
 /**
@@ -1475,6 +1532,8 @@ function describeTier(t) {
     for (const f of t.candidates.slice(0, 5)) L.push(`        ${f}`);
     L.push('      （只是提醒。改錯會靜默丟資料的話,加進 .claude/pipeline-stages.json 的 tiers.danger。）');
   }
+  // 危險清單可能過期了(規格:危險清單會過期):句子在 lib/tier.mjs 算好,網頁照印同一句(老毛病 P2)
+  for (const line of t.staleNotes ?? []) L.push(`   ${line}`);
   L.push('   為了程式碼安全,分級只能往上調。');
   if (manual) L.push('   收回你調的：pipeline-status --tier-retract');
   else if (t.upgradable.length) L.push(`   要調高：pipeline-status --tier ${t.upgradable[0]} "理由"`);
@@ -1533,6 +1592,77 @@ function doTierOff(ctx, why) {
   if (!r.ok) { console.log(`❌ ${r.why}（${r.path}）`); return 1; }
   console.log(`✅ 記下了：這個專案不分級${why ? `（${why}）` : ''}。對話開始時不會再提醒。`);
   console.log('   要恢復：  pipeline-status --tier-init');
+  return 0;
+}
+
+/** 分級設定還沒好的時候,危險清單的兩個指令講同一句(不准當成「清單沒過期」)。 */
+function tierNotReady(cfg) {
+  console.log(cfg.state === 'unset' ? `還沒設定分級,沒有危險清單可以看。${SETUP_HINT}`
+    : cfg.state === 'off' ? '這個專案設定成不分級,沒有危險清單可以看。要恢復：pipeline-status --tier-init'
+    : `分級設定讀不懂（${cfg.from ?? '.claude/pipeline-stages.json'}）：${cfg.why ?? ''}——沒有危險清單可以看。`);
+  return 1;
+}
+
+/**
+ * --tier-review:危險清單判斷用的事實(規格:危險清單會過期 AC-3)——清單定好(或判斷過)之後才新加、不在清單上的程式檔(整個專案,不只這一輪)、
+ * 清單裡已經不在的。只列,不判斷:哪個危險是使用者決定(tier-setup 那個 skill 拿這份去問)。
+ */
+function doTierReview(ctx) {
+  const cfg = readTierConfig(ctx.root, ctx.mainRoot, HERE);
+  if (cfg.state !== 'ok') return tierNotReady(cfg);
+  const c = cfg.config;
+  const top = c.levels.danger.id;
+  console.log('━━ 危險清單 ━━');
+  console.log(c.danger.length ? `   清單上 ${c.danger.length} 條：${c.danger.join('、')}` : `   清單是空的——永遠不會出現 ${top}。`);
+  const since = dangerSince(cfg.from, c);
+  if (!since) {
+    console.log('   沒記下是什麼時候定的（設定檔沒進版控、改了還沒存檔、或也沒記過判斷時間）——之後新加了哪些,這裡分不出來。');
+  } else {
+    // Claude 代記的,附的話是 Claude 打的——不准講成「使用者說」(老毛病 P7;--decide、--clear E 同一套標法)
+    const who = since.by === 'human' ? '你自己記的' : 'Claude 代記';
+    console.log(since.how === 'checked'
+      ? `   上一次判斷：${ago(since.at)}（${who}${since.said ? `，附的話：「${since.said}」` : ''}）`
+      : `   清單定好：${ago(since.at)}（git 說的：危險清單那一段從這次存檔起就是這樣）`);
+    const added = addedSince(ctx.root, since);
+    const inArea = codeFileFn(ctx.root, c);
+    const fresh = added === null ? null
+      : [...added].filter((f) => inArea(f) && computeTier([f], c).rank === 1 && existsSync(join(ctx.root, f))).sort();
+    if (fresh === null) console.log('   問不到 git——之後新加了哪些,這裡分不出來。');
+    else if (!fresh.length) console.log('   之後沒有新加不在清單上的程式檔。');
+    else {
+      console.log(`   之後才新加、不在清單上的程式檔 ${fresh.length} 個（清單不可能考慮過,危不危險還沒有人判斷）：`);
+      for (const f of fresh) console.log(`      ${f}`);
+    }
+  }
+  const missing = missingDanger(ctx.root, c.danger);
+  if (missing.length) {
+    console.log(`   清單裡已經不在的 ${missing.length} 條（改了名或搬了家的話,新的名字不在清單上,碰到它也不會是 ${top}）：`);
+    for (const f of missing) console.log(`      ${f}`);
+  }
+  console.log('   判斷完（使用者說了哪些要加、哪些要刪、或都不用）：pipeline-status --tier-checked "使用者的原話"——之後只問那一刻之後新加的。');
+  return 0;
+}
+
+/**
+ * --tier-checked "<使用者的原話>":記下危險清單判斷過了(規格:危險清單會過期 AC-3)。寫進設定檔的 tiers.checked = { at, said },其他鍵原封不動;
+ * 寫回讀出來的那一份(worktree 沒有自己的設定檔時,是主資料夾那一份)。判斷是使用者的——沒附原話不收。
+ */
+function doTierChecked(ctx, words) {
+  const said = String(words ?? '').trim();
+  if (!said) {
+    console.log('要附使用者的原話：pipeline-status --tier-checked "使用者的原話"——哪些檔危險是使用者判斷的,不是 Claude。');
+    return 1;
+  }
+  const cfg = readTierConfig(ctx.root, ctx.mainRoot, HERE);
+  if (cfg.state !== 'ok') return tierNotReady(cfg);
+  const { data } = readProjectConfig(ctx.root, ctx.mainRoot);
+  const at = new Date().toISOString();
+  // 在對話裡跑的(環境帶著對話代號)= Claude 代記;你自己在終端機跑的 = 你記的。你在對話框用 ! 跑的也會被標成 Claude 代記——往保守那邊錯
+  const by = sessionFromEnv() ? 'claude' : 'human';
+  const r = writeTierConfig(dirname(dirname(cfg.from)), { ...data.tiers, checked: { at, said: said.slice(0, 200), by } });
+  if (!r.ok) { console.log(`❌ ${r.why}（${r.path}）`); return 1; }
+  console.log(`✅ 記下了：危險清單判斷過（${by === 'claude' ? 'Claude 代記' : '你自己記的'}，附的話：「${said.slice(0, 200)}」）。之後只問這一刻之後才新加的程式檔。`);
+  console.log(`   寫在 ${r.path}——設定檔進版控的話,記得一起存檔。`);
   return 0;
 }
 
@@ -1660,6 +1790,8 @@ async function main() {
   // 分級的設定不需要有 commit
   if (at('--tier-init') !== -1) return doTierInit(ctx, after('--tier-init'));
   if (at('--tier-off') !== -1) return doTierOff(ctx, after('--tier-off').join(' '));
+  if (at('--tier-review') !== -1) return doTierReview(ctx);
+  if (at('--tier-checked') !== -1) return doTierChecked(ctx, after('--tier-checked').join(' '));
 
   // 紀錄只讀一次:感測器那行(活著嗎)、五關那段(跑過什麼)、分級(人調的)共用同一份
   const ev = readEvents(LOG_DIR, ctx.project);

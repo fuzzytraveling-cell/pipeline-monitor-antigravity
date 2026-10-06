@@ -404,6 +404,8 @@ function statTier(c, p) {
   const cand = t.candidates.length
     ? `<div class="hint">⚠️ 這次動到的檔案裡，有 ${t.candidates.length} 個名字像會存東西、但不在危險清單：${
         t.candidates.slice(0, 3).map(esc).join('、')}。只是提醒，改錯會靜默丟資料的話再加進去。</div>` : '';
+  // 危險清單可能過期了(規格:危險清單會過期):句子是伺服器算好的(lib/tier.mjs,跟終端機同一句),這裡只畫。舊的服務沒給就不畫
+  const stale = (t.staleNotes ?? []).map((x) => `<div class="hint">${esc(x)}</div>`).join('');
   const ignored = t.manualIgnored
     ? `<div class="hint">你${ago(t.manualIgnored.ts)}說的 ${esc(t.manualIgnored.id)} 沒有比機器算的高，不採用。</div>` : '';
   // 調高:只列比機器算的高的等級,理由必填。收回:只收回你自己調的,回到機器算的——沒有任何按鈕能低於機器算的。
@@ -417,7 +419,7 @@ function statTier(c, p) {
       : '';
   const tone = t.requirements.some((r) => r.state === 'missing') ? 'alert' : 'safe';
   return card(tone, esc(manual ? manual.id : final.id), sub,
-    `${blind}${reqs}${ignored}${emptyWarn}${cand}
+    `${blind}${reqs}${ignored}${emptyWarn}${cand}${stale}
     <div class="hint muted">為了程式碼安全，分級只能往上調。</div>${control}`);
 }
 

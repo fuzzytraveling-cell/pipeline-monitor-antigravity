@@ -3,14 +3,14 @@
  *   沒設定被折成 T0、危險清單空的被講成安全、「需要」被畫成通過、人調的往下或過期還掛著、
  *   sh(remind.sh)跟 node 對「設定了沒」的答案不一樣。
  */
-import { writeFileSync, mkdirSync, mkdtempSync, rmSync, readFileSync, copyFileSync } from 'node:fs';
+import { writeFileSync, mkdirSync, mkdtempSync, rmSync, readFileSync, copyFileSync, utimesSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import {
-  readTierConfig, computeTier, manualTier, requirementStatus, candidateFiles, buildTier, proposeCodeArea, RANKS,
+  readTierConfig, computeTier, manualTier, requirementStatus, candidateFiles, buildTier, proposeCodeArea, RANKS, staleLines,
 } from '../lib/tier.mjs';
 import { describeTier } from '../status.mjs';
 import { rerunOf } from '../lib/events.mjs';
@@ -226,6 +226,125 @@ section('整支 CLI:--tier-init 寫骨架、被 gitignore 要講;--tier 理由�
   check('畫面:已設定為不分級', run().out.includes('已設定為不分級'));
   for (const d of [logDir, home]) rmSync(d, { recursive: true, force: true });
   r.cleanup();
+}
+
+section('危險清單會過期:清單定好之後才新加的程式檔、清單裡已經不在的,分級卡講出來;判斷過記得下來(規格:危險清單會過期)', 'P3');
+{
+  // 「現在」只取一次(L18);存檔的時間照劇本給(GIT_COMMITTER_DATE),「清單定好」看的是存檔時間
+  const NOW = Date.now();
+  const H = (h) => new Date(NOW - h * 3600_000).toISOString();
+  const tiers = (danger) => ({ code: ['src/'], danger });
+  const r = makeRepo({ at: H(10), files: { 'src/a.js': '1\n', 'src/store.js': 's\n', '.claude/pipeline-stages.json': JSON.stringify({ tiers: tiers(['src/store.js']) }) } });
+  const commitAt = (h, msg) => {
+    execFileSync('git', ['add', '-A'], { cwd: r.dir });
+    execFileSync('git', ['commit', '-qm', msg], { cwd: r.dir, env: { ...process.env, GIT_AUTHOR_DATE: H(h), GIT_COMMITTER_DATE: H(h) } });
+  };
+  const cfgPath = join(r.dir, '.claude', 'pipeline-stages.json');
+  writeFileSync(join(r.dir, 'src', 'new.js'), 'n\n'); commitAt(8, '清單定好之後新加一個檔');
+  // 6 小時前設定檔又存了一次,改的不是危險清單——不准當成「清單定好」(pipeline-monitor 9/23 那次就是)
+  writeFileSync(cfgPath, JSON.stringify({ _說明: '只是說明', tiers: tiers(['src/store.js']) })); commitAt(6, '設定檔加一句說明');
+  const logDir = mkdtempSync(join(tmpdir(), 'pm-log-')), home = mkdtempSync(join(tmpdir(), 'pm-home-'));
+  const run = (...args) => {
+    try { return { code: 0, out: execFileSync('node', [join(ROOT, 'status.mjs'), ...args], { cwd: r.dir, encoding: 'utf8', env: { ...process.env, PIPELINE_MONITOR_LOG_DIR: logDir, HOME: home } }) }; }
+    catch (e) { return { code: e.status, out: String(e.stdout ?? '') }; }
+  };
+  const staleLine = (o) => o.split('\n').find((l) => l.includes('之後才新加的程式檔')) ?? '';
+  const goneLine = (o) => o.split('\n').find((l) => l.includes('已經不在了')) ?? '';
+
+  writeFileSync(join(r.dir, 'src', 'new.js'), 'n2\n'); writeFileSync(join(r.dir, 'src', 'a.js'), '2\n');   // 這一輪:改一個新檔、一個舊檔
+  let out = run().out;
+  check('碰到清單定好(10 小時前,git 說的)之後才新加的 → 講出來、點名那個檔、講如果危險其實是哪一級、怎麼判斷',
+    /這一輪碰到 1 個危險清單定好（10 小時前，git 說的）之後才新加的程式檔：src\/new\.js/.test(staleLine(out)) && staleLine(out).includes(`其實是 ${LEVELS.danger.id}`) && /幫我看危險清單/.test(staleLine(out)), out);
+  check('清單定好時就在的舊檔不講', !staleLine(out).includes('src/a.js'), staleLine(out));
+  check(`等級照舊(${LEVELS.code.id}),不自動升`, out.includes(`${LEVELS.code.id}（碰到程式區`), out);
+
+  writeFileSync(join(r.dir, 'src', 'fresh.js'), 'f\n');                                                       // 還沒存檔的新檔也算
+  out = run().out;
+  check('還沒存檔的新檔也算', /碰到 2 個/.test(staleLine(out)) && staleLine(out).includes('src/fresh.js'), staleLine(out));
+  const rev = run('--tier-review');
+  check('--tier-review:清單、定好的時間、之後才新加的(整個專案)、怎麼記判斷',
+    rev.code === 0 && rev.out.includes('清單上 1 條：src/store.js') && /清單定好：10 小時前/.test(rev.out) && rev.out.includes('src/new.js') && rev.out.includes('src/fresh.js')
+      && !rev.out.includes('src/a.js') && /--tier-checked "使用者的原話"/.test(rev.out), rev.out);
+
+  eq('--tier-checked 沒附原話 → 不收', run('--tier-checked').code, 1);
+  utimesSync(join(r.dir, 'src', 'fresh.js'), new Date(NOW - 60_000), new Date(NOW - 60_000));                 // 判斷的時候它已經在了
+  const ck = run('--tier-checked', '兩個都只是畫面，不危險');
+  check('附了原話 → 記下', ck.code === 0 && /記下了/.test(ck.out), ck.out);
+  const saved = JSON.parse(readFileSync(cfgPath, 'utf8'));
+  check('寫進 tiers.checked(時間、原話),其他鍵原封不動', saved.tiers.checked?.said === '兩個都只是畫面，不危險' && Number.isFinite(Date.parse(saved.tiers.checked?.at))
+    && saved._說明 === '只是說明' && saved.tiers.danger[0] === 'src/store.js' && saved.tiers.code[0] === 'src/', JSON.stringify(saved));
+  eq('判斷之前就在的(存檔過的、還沒存檔的)不再問', staleLine(run().out), '');
+  writeFileSync(join(r.dir, 'src', 'later.js'), 'l\n');                                                       // 判斷之後才新建
+  check('判斷之後才新加的照樣問,講「判斷過(N 前)」', /危險清單判斷過（[^）]*）之後才新加的程式檔：src\/later\.js/.test(staleLine(run().out)), staleLine(run().out));
+
+  // 中文檔名(魔鬼教官第一輪):git 預設把非 ASCII 檔名轉義,跟改動清單對不上——以前這種新檔永遠不會被講出來,--tier-review 還說「之後沒有新加」
+  writeFileSync(join(r.dir, 'src', '報告時間.js'), 'z\n');
+  out = run().out;
+  check('中文檔名的新檔照樣講出來(不是一串轉義碼)', staleLine(out).includes('src/報告時間.js') && !/\\\d{3}/.test(staleLine(out)), staleLine(out));
+  check('--tier-review 也列出中文檔名', run('--tier-review').out.includes('src/報告時間.js'));
+  rmSync(join(r.dir, 'src', '報告時間.js'));
+  // 誰記的(魔鬼教官第一輪,P7):在對話裡跑的(環境帶著對話代號)是 Claude 代記——附的話是 Claude 打的,不准講成「使用者說」;
+  // 你自己在終端機跑的才是你記的。環境變數一律在這裡給,不吃跑測試那台電腦的(P8)
+  const runAs = (session, ...args) => {
+    const { CLAUDE_CODE_SESSION_ID: _drop, ...env } = process.env;
+    if (session) env.CLAUDE_CODE_SESSION_ID = session;
+    try { return execFileSync('node', [join(ROOT, 'status.mjs'), ...args], { cwd: r.dir, encoding: 'utf8', env: { ...env, PIPELINE_MONITOR_LOG_DIR: logDir, HOME: home } }); }
+    catch (e) { return String(e.stdout ?? ''); }
+  };
+  runAs('s-claude', '--tier-checked', '都不危險');
+  check('在對話裡記的 → 設定檔寫 by:claude,--tier-review 講「Claude 代記」、不講「使用者說」',
+    JSON.parse(readFileSync(cfgPath, 'utf8')).tiers.checked?.by === 'claude' && /Claude 代記，附的話：「都不危險」/.test(runAs(null, '--tier-review')) && !/（使用者說：/.test(runAs(null, '--tier-review')));
+  runAs(null, '--tier-checked', '我自己看過了');
+  check('自己在終端機記的 → by:human,講「你自己記的」', JSON.parse(readFileSync(cfgPath, 'utf8')).tiers.checked?.by === 'human' && /你自己記的，附的話：「我自己看過了」/.test(runAs(null, '--tier-review')));
+
+  // 危險清單上的檔改了名(git mv,還沒存檔):舊名字講不在了,新名字算新加的
+  execFileSync('git', ['mv', 'src/store.js', 'src/storage.js'], { cwd: r.dir });
+  out = run().out;
+  check('清單裡已經不在的 → 講出來,講新名字不在清單上、碰到它也不會是最高那一級',
+    /危險清單裡有 1 個已經不在了：src\/store\.js/.test(goneLine(out)) && goneLine(out).includes(`也不會是 ${LEVELS.danger.id}`), out);
+  check('改了名的新名字(add 過、還沒存檔)算新加的,要有人看過', staleLine(out).includes('src/storage.js'), staleLine(out));
+  for (const d of [logDir, home]) rmSync(d, { recursive: true, force: true });
+  r.cleanup();
+
+  // 危險清單後來改過:從改的那一次存檔算起(那之前新加的已經被考慮過)
+  const r2 = makeRepo({ at: H(10), files: { 'src/store.js': 's\n', '.claude/pipeline-stages.json': JSON.stringify({ tiers: tiers(['src/store.js']) }) } });
+  const commit2 = (h, msg) => {
+    execFileSync('git', ['add', '-A'], { cwd: r2.dir });
+    execFileSync('git', ['commit', '-qm', msg], { cwd: r2.dir, env: { ...process.env, GIT_AUTHOR_DATE: H(h), GIT_COMMITTER_DATE: H(h) } });
+  };
+  writeFileSync(join(r2.dir, 'src', 'eight.js'), '8\n'); commit2(8, '8 小時前新加');
+  writeFileSync(join(r2.dir, '.claude', 'pipeline-stages.json'), JSON.stringify({ tiers: tiers(['src/store.js', 'src/other/']) })); commit2(6, '危險清單加一條');
+  writeFileSync(join(r2.dir, 'src', 'five.js'), '5\n'); commit2(5, '5 小時前新加');
+  writeFileSync(join(r2.dir, 'src', 'eight.js'), '8b\n'); writeFileSync(join(r2.dir, 'src', 'five.js'), '5b\n');
+  const out2 = execFileSync('node', [join(ROOT, 'status.mjs')], { cwd: r2.dir, encoding: 'utf8', env: { ...process.env, PIPELINE_MONITOR_LOG_DIR: mkdtempSync(join(tmpdir(), 'pm-log-')), HOME: mkdtempSync(join(tmpdir(), 'pm-home-')) } });
+  check('危險清單 6 小時前改過 → 從那次算:5 小時前新加的要問,8 小時前的不問',
+    /定好（6 小時前，git 說的）之後才新加的程式檔：src\/five\.js/.test(staleLine(out2)) && !staleLine(out2).includes('eight.js'), staleLine(out2));
+  check('清單裡的資料夾(src/other/)不在 → 也講', goneLine(out2).includes('src/other/'), goneLine(out2));
+  r2.cleanup();
+
+  // 設定檔沒進版控、也沒記過判斷時間(或記的時間讀不懂)→ 分不出來,不講成「沒有新檔」(R1)
+  for (const checked of [undefined, { at: '不是時間', said: 'x' }]) {
+    const r3 = makeRepo({ at: H(10), files: { 'src/old.js': 'o\n', '.gitignore': '.claude/\n' } });
+    cfgFile(r3.dir, { tiers: { ...tiers([]), ...(checked ? { checked } : {}) } });
+    writeFileSync(join(r3.dir, 'src', 'old.js'), 'o2\n');
+    const out3 = execFileSync('node', [join(ROOT, 'status.mjs')], { cwd: r3.dir, encoding: 'utf8', env: { ...process.env, PIPELINE_MONITOR_LOG_DIR: mkdtempSync(join(tmpdir(), 'pm-log-')), HOME: mkdtempSync(join(tmpdir(), 'pm-home-')) } });
+    check(`設定檔沒進版控${checked ? '、判斷時間讀不懂' : ''} → 講分不出哪些是之後才新加的`, /危險清單沒記下是什麼時候定的/.test(out3) && !staleLine(out3), out3);
+    r3.cleanup();
+  }
+
+  // 這次已經是最高那一級:不講「其實是」那半句;句子終端機與網頁同一句(網頁照印伺服器給的)
+  const s0 = { since: { at: H(3), how: 'git' }, fresh: ['src/x.js'], missing: [], unknown: null };
+  check('已經是最高那一級 → 不講「這次其實是」', !staleLines(s0, { dangerId: LEVELS.danger.id, already: true, ago: () => '3 小時前' })[0].includes('其實是'));
+  const src = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8');
+  const pick = (name, sig) => src.match(new RegExp(`^function ${name}\\(${sig}\\) \\{\\n[\\s\\S]*?\\n\\}\\n`, 'm'))?.[0] ?? null;
+  const code = [pick('scopeOfOldServer', 'c'), pick('statTier', 'c, p')];
+  check('從 ui/app.js 拿得出 statTier', code.every(Boolean));
+  const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const statTier = code.every(Boolean) ? new Function('esc', 'ago', `${code.join('\n')}; return statTier;`)(esc, () => '3 小時前') : null;
+  const line = staleLines(s0, { dangerId: LEVELS.danger.id, ago: () => '3 小時前' })[0];
+  const html = statTier?.({ path: '/x', scope: { blind: false }, tier: { state: 'ok', machine: { rank: 1, id: LEVELS.code.id, hits: { danger: [], code: ['src/x.js'] } }, manual: null,
+    final: { id: LEVELS.code.id }, requirements: [], candidates: [], upgradable: [], staleNotes: [line] } }, { name: 'p' }) ?? '';
+  check('網頁的分級卡照印伺服器算好的那一句(跟終端機同一句)', html.includes(esc(line)), html);
 }
 
 section('remind.sh:只在對話開始、只在還沒設定分級時,給 Claude 一行;其他時候一個字都不出');

@@ -1,8 +1,8 @@
 ---
 name: cleanup
 description: C 打掃這一關（產線監視器 pipeline-monitor 帶的通用版）：清掉寫程式時留下的鷹架。只做證明得出來安全的刪除（沒用到的 import／變數、註解掉的死碼、同一檔案內零呼叫點的函式），其餘只出建議清單；測試檔唯讀；不改控制流。使用者說「打掃一下」「清一下沒用到的東西」時用；專案自己也有 /cleanup 時，使用者叫哪個就跑哪個，不要自作主張換。
-argument-hint: "[git ref，預設是還沒 commit 的改動]"
-allowed-tools: Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git ls-files:*), Bash(ls:*)
+argument-hint: "[git ref，預設是這一輪的改動（pipeline-status --round 給的範圍）]"
+allowed-tools: Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git ls-files:*), Bash(ls:*), Bash(pipeline-status --round:*)
 ---
 
 # C —— 打掃（通用版）
@@ -42,9 +42,13 @@ allowed-tools: Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git l
 
 ## 範圍
 
-只看**這一輪動到的檔案**：
+只看**這一輪動到的檔案**——跟收工 hook、儀表板說的「這一輪」同一份，不自己決定（自己用 `git diff HEAD` 的話，這一輪中途存過檔的那一半掃不到）：
+- 先跑 `pipeline-status --round C`（沒有這個指令的話：`node "<pipeline-monitor 的資料夾>/status.mjs" --round C`，
+  那個資料夾就是 `~/.claude/skills/pipeline-monitor` 指向的位置）。照它印的「這一輪的範圍」：`git diff <它給的版本> -- <它列的那幾個檔>`，
+  標「新檔」的整份讀。它說起點找不到、只看得到還沒存檔的 → 照它說的拿，報告第一行照它給的那句寫。
 - 有參數 → `git diff $ARGUMENTS --name-only`
-- 沒參數 → `git diff HEAD --name-only` **加上** `git ls-files --others --exclude-standard`（新檔案 `git diff` 看不到）
+- `--round` 沒給範圍（這個指令不存在、或是舊版沒有這一段）→ `git diff HEAD --name-only` **加上** `git ls-files --others --exclude-standard`（新檔案 `git diff` 看不到）；
+  報告第一行寫「拿不到這一輪的範圍，只看了還沒存檔的改動」。
 
 不要去打掃這一輪沒動到的地方——那是另一件事，要另外開一輪。
 
