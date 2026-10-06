@@ -23,7 +23,8 @@ import process from 'node:process';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 import { decide } from '../gate.mjs';
 import { collectAll } from '../lib/collect.mjs';
-import { safeName, linkOwner, roundOf, specContext, sessionView, PROMPT_CAP } from '../lib/events.mjs';
+import { safeName, PROMPT_CAP } from '../lib/events.mjs';
+import { linkOwner, roundOf, specContext, sessionView } from '../lib/rounds.mjs';
 import { specHint, batchOf, parseChecklist, locateSpec } from '../lib/checklist.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');

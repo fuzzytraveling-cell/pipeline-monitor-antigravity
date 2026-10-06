@@ -13,7 +13,7 @@ import {
   readTierConfig, computeTier, manualTier, requirementStatus, candidateFiles, buildTier, proposeCodeArea, RANKS, staleLines,
 } from '../lib/tier.mjs';
 import { describeTier } from '../status.mjs';
-import { rerunOf } from '../lib/events.mjs';
+import { rerunOf } from '../lib/rounds.mjs';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -132,7 +132,7 @@ section('「需要」那幾項:只講有沒有紀錄,不講通過');
   check('B(對話)／E(未建)／Z(沒這關) → unknown,各有說法', by.B.state === 'unknown' && by.E.state === 'unknown' && by.Z.state === 'unknown');
   check('沒有任何一項叫 passed', rs.every((x) => !('passed' in x)));
   // 五關自動結案:Claude 記的結論也算結案,但要說得出是 Claude 說的。結論會過期的關(D)只讀 roundView 算好的「要不要再跑」
-  // (lib/events.mjs 的 rerunOf),這裡不另外比時間——以前這裡比結論時間、收工 hook 比被叫的時間(D 多輪先問人 AC-9)
+  // (lib/rounds.mjs 的 rerunOf),這裡不另外比時間——以前這裡比結論時間、收工 hook 比被叫的時間(D 多輪先問人 AC-9)
   const stagesD = [{ id: 'D', name: '魔鬼教官', skill: 'chaos-check', rerunAfterChange: true }, { id: 'C', name: '打掃', skill: 'cleanup' }];
   const ps = new Map([['D', { ts: '2026-09-16T01:00:00Z' }], ['C', { ts: '2026-09-16T01:00:00Z' }]]);
   const reports = new Map([['C', { ts: '2026-09-16T02:00:00Z', verdict: 'ok', note: '列了 3 條' }]]);

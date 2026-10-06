@@ -18,7 +18,8 @@ import { reflogOf, versionAt, changeBase, changeFacts, takeoverOf, tenureEvents,
 import { changeTimeOf } from '../lib/tier.mjs';
 import { changeScope } from '../lib/scope.mjs';
 import { changeHealth, checkpointRelation } from '../lib/git.mjs';
-import { sessionsOf, safeName } from '../lib/events.mjs';
+import { safeName } from '../lib/events.mjs';
+import { sessionsOf } from '../lib/rounds.mjs';
 import { cardFor } from '../lib/collect.mjs';
 
 const out = (dir, ...a) => execFileSync('git', a, { cwd: dir, encoding: 'utf8' }).trim();

@@ -208,7 +208,7 @@
 
 **哪裡會再犯**：任何讀 UserPromptSubmit 的 `prompt` 的地方——回合從哪開始、對話有幾則訊息、第一句話、畫面上「你說的原話」；
 任何標著 `source: human` 的紀錄——先問：**寫這一筆的，可能是 Claude 替你跑的指令嗎？** 指令的環境帶著對話代號，就是 Claude 在跑。
-分辨只在讀的那一端做一次（`lib/events.mjs` 的 `saidByHuman`／`promptKind`）；感測器照舊全部照記，不在熱路徑上判斷。
+分辨只在讀的那一端做一次（`lib/rounds.mjs` 的 `saidByHuman`／`promptKind`）；感測器照舊全部照記，不在熱路徑上判斷。
 新的系統格式不准預設成人話：認得的系統訊息、認得的你的動作之外，一律算「沒見過的」——猜錯的代價是多問一次，不是替你說了話。
 **釘住它的測試**：`scripts/sensor.test.mjs` 標 P7 的 E3 段落（剝掉 system-reminder 之後才截 200 字）；
 `scripts/rerun.test.mjs` 標 P7 的段落（系統通知、子 agent 的回報不重算回合、不算訊息數、不當成你說不用再跑的那句話；沒見過的格式收工 hook 取會擋的那邊）；

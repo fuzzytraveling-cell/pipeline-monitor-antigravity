@@ -19,7 +19,8 @@ import process from 'node:process';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 import { decide } from '../gate.mjs';
 import { collectAll } from '../lib/collect.mjs';
-import { safeName, sessionView, lastRunPerStage, acceptOf, rerunLine } from '../lib/events.mjs';
+import { safeName } from '../lib/events.mjs';
+import { sessionView, lastRunPerStage, acceptOf, rerunLine } from '../lib/rounds.mjs';
 import { parseWalk, walkSummary, summaryLine, walkItems, eLines } from '../lib/verify.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');

@@ -19,7 +19,8 @@ import process from 'node:process';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 import { decide } from '../gate.mjs';
 import { collectAll } from '../lib/collect.mjs';
-import { safeName, sessionsOf, firstPromptsOf, saidByHuman, promptKind, rerunOf, rerunLine, tookLine, pairRuns } from '../lib/events.mjs';
+import { safeName } from '../lib/events.mjs';
+import { sessionsOf, firstPromptsOf, saidByHuman, promptKind, rerunOf, rerunLine, tookLine, pairRuns } from '../lib/rounds.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const PLUGIN = JSON.parse(readFileSync(join(ROOT, '.claude-plugin', 'plugin.json'), 'utf8')).name;

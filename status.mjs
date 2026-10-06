@@ -20,9 +20,13 @@ import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { git, gitExit, real, gitContext, changeScale, changeHealth, TEST_FILE, ago, uncommitted, checkpointRelation, backupBranchName } from './lib/git.mjs';
 import { cardFor, sessionTier } from './lib/collect.mjs';
-import { readEvents, readProjectConfig, loadStages, lastRunPerStage, runsPerStage, roundView, editsOf, reportsIn, reportLogIn, decisionsIn, clearLogIn, perStageOfRound, gateHeartbeat, safeName, logFileOf, specContext,
-         sessionsOf, sessionView, rerunLine, tookLine, rerunMapOf, runMode, afterCall, reportText, unknownPromptsOf, unknownPromptLine, noWords, RETAIN_DAYS } from './lib/events.mjs';
-import { faultsNow, faultBanner, faultNotes, sensorNow, unreadableLine, roundStartFor } from './lib/faults.mjs';
+import { readEvents, safeName, logFileOf, RETAIN_DAYS } from './lib/events.mjs';
+import {
+  readProjectConfig, loadStages, lastRunPerStage, runsPerStage, roundView, editsOf, reportsIn, reportLogIn, decisionsIn, clearLogIn,
+  perStageOfRound, specContext, sessionsOf, sessionView, rerunLine, tookLine, rerunMapOf, runMode, afterCall, reportText, unknownPromptsOf,
+  unknownPromptLine, noWords
+} from './lib/rounds.mjs';
+import { faultsNow, faultBanner, faultNotes, sensorNow, unreadableLine, roundStartFor, gateHeartbeat } from './lib/faults.mjs';
 import { eLines, parseWalk, walkSummary, summaryLine } from './lib/verify.mjs';
 import { readChecklist, locateSpec, specPathsInNote } from './lib/checklist.mjs';
 import { buildTier, readTierConfig, writeTierConfig, proposeCodeArea, codeFileFn, computeTier, changeTimeOf, fileTimeOf, dangerSince, addedSince, missingDanger, checkSnapshot, laterOf, committedDanger } from './lib/tier.mjs';
@@ -416,7 +420,7 @@ function stageFacts(ctx, ev, info = {}) {
   const runs = runsPerStage(events, stages, (e) => e.cwd === ctx.root);
   const cpAt = info.cpUsable ? info.cp?.at ?? null : null;
   // 規格連結(施工對話認規格):Claude 跑的(拿得到對話代號,而且這個對話在這裡動過)→ 用這個對話的連結,跟 --spec、收工 hook 同一個代號來源;
-  // 人自己在終端機跑拿不到 → 工作區層級,這個工作區只有一個對話在動時等於它(lib/events.mjs 的 specContext)。
+  // 人自己在終端機跑拿不到 → 工作區層級,這個工作區只有一個對話在動時等於它(lib/rounds.mjs 的 specContext)。
   // ⚠️ 以前一律用工作區層級:worktree 只要來過別的對話,剛記了連結的 Claude 自己一看就是「A 沒有紀錄」(魔鬼教官 2026-09-21,老毛病 P2)
   const sid = sessionFromEnv();
   const mine = sid && events.some((e) => e.session === sid && inWorkspace(ctx, e.cwd)) ? sid : null;
@@ -544,7 +548,7 @@ function renderStages(ctx, ev, facts, info = {}) {
     // 「被叫」的證據有兩種:你自己打的斜線指令(不經過 Skill 工具,L19)、或 Claude 自己去叫。字要跟證據一樣大:叫了,不是跑完了
     const verb = st.type === 'browser' ? `開瀏覽器跑過一輪${st.count ? `（${st.count} 個動作）` : ''}`
       : st.via === 'typed' ? `你叫了 /${st.calledAs}` : `Claude 叫了 /${st.calledAs ?? st.skill}`;
-    // 結論會過期的關(D):「要不要再跑」那一句與「上一輪從叫到記結論幾分鐘」都從 lib/events.mjs 拿(D 多輪先問人 AC-9、AC-13),這裡只負責印。
+    // 結論會過期的關(D):「要不要再跑」那一句與「上一輪從叫到記結論幾分鐘」都從 lib/rounds.mjs 拿(D 多輪先問人 AC-9、AC-13),這裡只負責印。
     // 花了多久只在最後一次跑完時印——還在跑的那一次只講「N 分鐘前叫的」
     const took = st.rerun?.took?.latest ? `（${tookLine(st.rerun.took)}）` : '';
     const lastHead = String(st.report?.note ?? '').split('\n')[0].trim();
@@ -802,7 +806,7 @@ async function doClear(ctx, args) {
  * ⚠️ 只收還沒做完的規格(AC-4):這個工作區 docs/規劃中/ 或 docs/進行中/ 的 .md、讀得出 AC、不是這個對話自己寫的。
  *    工作區沒有、只在主資料夾有(可能還沒併進來)→ 收,但講明:儀表板只寫一句「在主資料夾」,不叫 Claude 去那裡打勾(AC-6)。
  * 對話代號:Claude Code 給指令的環境變數 CLAUDE_CODE_SESSION_ID(2026-09-21 實測有給,跟感測器記的 session 一樣)。
- *   拿不到就不記,讀取端只在「這個工作區只有一個對話」時才歸給它(lib/events.mjs 的 linkOwner)——不猜一個填進去。
+ *   拿不到就不記,讀取端只在「這個工作區只有一個對話」時才歸給它(lib/rounds.mjs 的 linkOwner)——不猜一個填進去。
  */
 function doSpec(ctx, ev, args) {
   const [target, ...rest] = args;
@@ -1088,7 +1092,7 @@ function rerunStageOf(ctx, stageId, flag) {
  * skill 開工第一步先跑它,照它說的分路走;要問人「要不要再跑」之前也跑它,拿「改了什麼、上一輪花多久」。
  * 「第一次之後改了誰」= 感測器的改檔 ∪ git 說跟第一次那一刻的版本(那一筆紀錄的 head)有差、而且變動時間在那之後的檔
  *   (Bash 寫檔繞過感測器,L8;新檔也算,L2)。基準是那一刻的 head,不是現在的 HEAD:第一輪之後存過檔的改動才不會消失。
- *   「之後」跟 rerunOf 同一個判斷(lib/events.mjs 的 afterCall)。
+ *   「之後」跟 rerunOf 同一個判斷(lib/rounds.mjs 的 afterCall)。
  * 拿不到清單(那一筆沒有 head、git 問不到)照實講,看整批(R1);時間只從紀錄拿,拿不到就說看不到,不估(R3)。
  */
 async function doRound(ctx, ev, stageId) {

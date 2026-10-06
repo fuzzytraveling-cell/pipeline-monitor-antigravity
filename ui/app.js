@@ -96,11 +96,11 @@ const clock = (iso) => {
     ? `${String(d.getMonth() + 1)}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
     : '時間對不上';
 };
-// 狀態是伺服器算好的(lib/events.mjs 的 roundView):main／notbuilt／none／passed／current／done／stale／held／seen。
+// 狀態是伺服器算好的(lib/rounds.mjs 的 roundView):main／notbuilt／none／passed／current／done／stale／held／seen。
 // 畫面上 current 沿用「ran」的樣式(亮),passed 是劃掉變淡,done 是劃掉但深色(你說處理完了)。
 // stale(要處理:D 之後又改了程式、要不要再跑你決定;B 清單沒對完)與 held(你說不用再跑:擱著,不劃掉、不打勾)照原樣給 CSS
 const stageState = (st) => st.state === 'current' ? 'ran' : (st.state ?? 'none');
-/** 結論會過期的關(D)的兩句話,伺服器照 lib/events.mjs 算好給的(D 多輪先問人 AC-9、AC-13)——這裡不另寫一份。舊的服務沒給就不印 */
+/** 結論會過期的關(D)的兩句話,伺服器照 lib/rounds.mjs 算好給的(D 多輪先問人 AC-9、AC-13)——這裡不另寫一份。舊的服務沒給就不印 */
 const tookTail = (st) => (st.rerun?.took ? `（${st.rerun.took}）` : '');
 // 上一次 Claude 說了什麼:只在「要不要再跑」與「你說不用再跑」時補一句——找到問題那一句本身就帶著結論,不重複
 const prevSaid = (st) => (noteHead(st) && (st.rerun?.state === 'ask' || st.rerun?.state === 'skipped') ? ` · 上一次 Claude 說：${noteHead(st)}` : '');

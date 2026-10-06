@@ -14,7 +14,8 @@ import process from 'node:process';
 import { collectAll, ladderSteps } from '../lib/collect.mjs';
 import { monitorHome } from '../lib/paths.mjs';
 import { readAppTitles, deletedAt, transcriptDirName } from '../lib/appSessions.mjs';
-import { safeName, SUGGEST_TOOL } from '../lib/events.mjs';
+import { safeName } from '../lib/events.mjs';
+import { SUGGEST_TOOL } from '../lib/rounds.mjs';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');

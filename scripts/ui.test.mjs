@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { describeFreshness, STALE_AFTER_SECONDS } from '../lib/freshness.mjs';
 import { createApp } from '../server.mjs';
-import { SUGGEST_TOOL } from '../lib/events.mjs';
+import { SUGGEST_TOOL } from '../lib/rounds.mjs';
 import { changeScope } from '../lib/scope.mjs';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 

@@ -16,7 +16,8 @@ import process from 'node:process';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 import { decide } from '../gate.mjs';
 import { collectAll, cardFor } from '../lib/collect.mjs';
-import { safeName, sessionsOf } from '../lib/events.mjs';
+import { safeName } from '../lib/events.mjs';
+import { sessionsOf } from '../lib/rounds.mjs';
 import { laterOf } from '../lib/tier.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');

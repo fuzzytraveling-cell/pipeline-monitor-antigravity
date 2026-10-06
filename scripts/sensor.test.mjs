@@ -8,7 +8,11 @@ import { tmpdir } from 'node:os';
 import { join, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
-import { readEvents, loadStages, safeName, sessionsOf, lastRunPerStage, runsPerStage, roundView, sessionView, suggestionsOf, firstPromptsOf, perStageOfRound, prepareSweep, finishSweep, drainSweep, SUGGEST_TOOL, WITHDRAW_TOOL } from '../lib/events.mjs';
+import { readEvents, safeName, prepareSweep, finishSweep, drainSweep } from '../lib/events.mjs';
+import {
+  loadStages, sessionsOf, lastRunPerStage, runsPerStage, roundView, sessionView, suggestionsOf, firstPromptsOf, perStageOfRound, SUGGEST_TOOL,
+  WITHDRAW_TOOL
+} from '../lib/rounds.mjs';
 import { collectAll } from '../lib/collect.mjs';
 import { parseChecklist } from '../lib/checklist.mjs';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
@@ -675,7 +679,7 @@ section('app 建議卡(輸入畸形):prompt 不是字串、是空的、整個 to
 
 section('app 建議卡:讀取端認的兩個工具名(提卡、收回),感測器真的有接(hooks.json 對得上);hook.sh 自己不認工具名', 'P2');
 {
-  // 這個工具名住兩個地方(hooks.json 的 matcher、lib/events.mjs 的 SUGGEST_TOOL)。對不上的話卡一張都進不來,而且沒有任何東西會紅
+  // 這個工具名住兩個地方(hooks.json 的 matcher、lib/rounds.mjs 的 SUGGEST_TOOL)。對不上的話卡一張都進不來,而且沒有任何東西會紅
   const pre = JSON.parse(readFileSync(join(ROOT, 'hooks', 'hooks.json'), 'utf8')).hooks.PreToolUse;
   const hits = (tool) => pre.filter((e) => new RegExp(`^(?:${e.matcher})$`).test(tool));
   eq('PreToolUse 剛好一筆接得到它(兩筆就會記兩次)', hits(SUGGEST_TOOL).length, 1);
