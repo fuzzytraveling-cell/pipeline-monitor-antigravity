@@ -43,6 +43,25 @@ section('設定檔的狀態:沒設定／不分級／讀不懂／設好了——�
     JSON.stringify(ok));
   cfgFile(r.dir, { tiers: { code: ['src/'], levels: { none: { id: '甲' }, code: { id: '乙', requires: ['D'] }, danger: { id: '丙' } } } });
   eq('專案自己的 levels 優先', readTierConfig(r.dir, null, ROOT).config.levels.code.id, '乙');
+  // 清單裡不是路徑、要跑的關不是清單:以前終端機直接印出程式的錯誤訊息,或把 null 當成程式區照樣分級(修小洞,2026-10-06)——讀不懂就講讀不懂
+  const lv = (requires) => ({ none: { id: '甲' }, code: { id: '乙', requires }, danger: { id: '丙' } });
+  for (const [label, tiers] of [
+    ['程式區裡有一條是 null', { code: [null] }],
+    ['危險清單裡有一條是數字', { code: ['src/'], danger: [3] }],
+    ['要跑的關寫成數字', { code: ['src/'], levels: lv(5) }],
+    ['要跑的關裡有 null', { code: ['src/'], levels: lv([null]) }],
+  ]) {
+    cfgFile(r.dir, { tiers });
+    const b = readTierConfig(r.dir, null, ROOT);
+    check(`${label} → broken,講得出哪裡讀不懂`, b.state === 'broken' && typeof b.why === 'string' && b.why.length > 0, JSON.stringify(b));
+    writeFileSync(join(r.dir, 'a.js'), `${label}\n`);
+    let term = '';
+    try { term = execFileSync('node', [join(ROOT, 'status.mjs')], { cwd: r.dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, HOME: mkdtempSync(join(tmpdir(), 'pm-home-')), PIPELINE_MONITOR_LOG_DIR: mkdtempSync(join(tmpdir(), 'pm-log-')) } }); }
+    catch (e) { term = `${e.stdout ?? ''}${e.stderr ?? ''}`; }
+    check(`${label} → 終端機不印程式的錯誤,分級那段講讀不懂`, !/TypeError|at file:|Error:/.test(term) && term.includes(b.why ?? '（沒有理由）'), term.slice(-500));
+  }
+  cfgFile(r.dir, { tiers: { code: ['src/'] } });                 // 改回好的,下一條要拿它當主資料夾的設定
   // worktree 沒有自己的設定 → 找主資料夾
   const wt = makeRepo({ files: { 'a.js': '1\n' } });
   eq('自己沒有、主資料夾有 → 用主資料夾的', readTierConfig(wt.dir, r.dir, ROOT).state, 'ok');

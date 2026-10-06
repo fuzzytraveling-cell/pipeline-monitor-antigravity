@@ -15,7 +15,7 @@ import { join, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
-import { faultState, faultsNow, faultBanner, faultNotes, sensorNow, unreadableLine, hookTimesIn, roundStartFor } from '../lib/faults.mjs';
+import { faultState, faultsNow, faultBanner, faultNotes, sensorNow, unreadableLine, hookTimesIn, roundStartFor, sensorOffLine } from '../lib/faults.mjs';
 import { readEvents, safeName, RETAIN_DAYS } from '../lib/events.mjs';
 import { collectAll } from '../lib/collect.mjs';
 import { installPlugin, mountState, mountFix, mount, hookPathsIn } from '../lib/mount.mjs';
@@ -217,6 +217,23 @@ section('終端機跟儀表板同一句:橫條、這一輪碰到的那段期間�
   check('對話頁的「最後一筆來自這裡的紀錄」只算感測器寫的(之後那筆結論不算)', cardOf(a).sensor.lastSeen === H(11), cardOf(a).sensor.lastSeen);
   check('終端機的感測器那一行同樣不算那筆結論(不寫「最後一筆來自這裡的紀錄：1 小時前」)', !/最後一筆來自這裡的紀錄：1 小時前/.test(out), out);
   s.cleanup();
+
+  // 設定裡沒掛感測器(拿掉 plugin)、紀錄卻有,感測器現在又記不到:儀表板與終端機那一句是同一個函式算的,只差「見哪裡」
+  // (老毛病 P2:以前兩邊各寫一份,結尾已經不一樣——C 打掃 2026-10-05 留的建議)
+  const u = scene();
+  rmSync(join(u.home, '.claude', 'skills', PLUGIN), { force: true });
+  u.faults([jq(10), jq(2)]);
+  // 「掛在哪」看家目錄的設定:儀表板這邊也要給假的家目錄,不然吃到跑測試那台電腦的(這台 Mac 裝了 plugin 就是「已掛上」,老毛病 P8)
+  const keepHome = process.env.HOME;
+  process.env.HOME = u.home;
+  let ua;
+  try { ua = u.all(); } finally { process.env.HOME = keepHome; }
+  const uout = u.cli().out;
+  const offLine = cardOf(ua)?.sensor?.offLine ?? '';
+  check('設定裡沒掛、紀錄卻有 → 儀表板那一句是伺服器算好給的:那時候它在記、之後記不到(見最上面那一條)',
+    /那時候它在記/.test(offLine) && /之後這台電腦的感測器記不到東西（見最上面那一條）/.test(offLine), offLine);
+  check('終端機那一行跟它一字不差(只差「見上面那一行」)', !!offLine && uout.includes(offLine.replace('見最上面那一條', '見上面那一行')), `${offLine}\n---\n${uout}`);
+  u.cleanup();
 }
 
 section('畫面:每一頁最上面畫伺服器給的那一句;舊的服務沒給那一欄 → 講出來,不當成沒有故障;對話頁的旁白照畫(真的跑 ui/app.js)', 'P2');
@@ -238,8 +255,8 @@ section('畫面:每一頁最上面畫伺服器給的那一句;舊的服務沒給
   const stub = (n) => () => `<${n}>`;
   const s1 = { id: 's1', title: 't', prompts: 1, lastTs: H(1), closedAt: null, stages: [], cwd: '/w', sharesCwd: false, movedOn: null,
                card: { path: '/w', branch: 'b', stages: [] }, unknownNote: '⚠️ 這個對話有 1 則不是你打的 <x>', faultNotes: ['⚠️ 感測器在 3 小時前記不到'] };
-  const page = sp ? new Function('latest', 'esc', 'ago', 'workflow', 'statRestore', 'statLadder', 'statChanges', 'statTier', 'sensorLine', `${sp}; return sessionPage;`)(
-    { projects: [{ name: 'p', sessions: [s1] }] }, esc, ago, stub('workflow'), stub('r'), stub('l'), stub('c'), stub('t'), stub('sensor')) : null;
+  const page = sp ? new Function('latest', 'esc', 'ago', 'workflow', 'statRestore', 'statLadder', 'statChanges', 'statTier', 'sensorLine', 'stagesNoteLine', `${sp}; return sessionPage;`)(
+    { projects: [{ name: 'p', sessions: [s1] }] }, esc, ago, stub('workflow'), stub('r'), stub('l'), stub('c'), stub('t'), stub('sensor'), stub('stagesNote')) : null;
   const html = page?.('p', 's1') ?? '';
   check('對話頁畫「沒算成你說的話」那一句與「感測器記不到」那一句(跳脫過)', html.includes('1 則不是你打的 &lt;x&gt;') && html.includes('感測器在 3 小時前記不到'), html);
 
@@ -249,10 +266,22 @@ section('畫面:每一頁最上面畫伺服器給的那一句;舊的服務沒給
   const dangling = { state: 'broken', where: 'plugin', paths: ['/h/.claude/skills/pipeline-monitor'], dangling: true };
   const out = line({ sensor: { mount: dangling, lastSeen: H(2), fix: mountFix(dangling) } });
   check('捷徑壞了 → 畫伺服器給的修法(跟終端機同一句),不再叫你跑 --on', out.includes('node status.mjs --install') && !out.includes('--on'), out);
-  const offSeen = line({ sensor: { mount: { state: 'off', where: null, paths: [] }, lastSeen: H(2) } }, { faults: { banner: [], sensor: 'broken' } });
-  check('感測器現在記不到 → 「它在記」只到最後那一筆為止', /那時候它在記/.test(offSeen) && /之後這台電腦的感測器記不到東西/.test(offSeen), offSeen);
-  const offFlaky = line({ sensor: { mount: { state: 'off', where: null, paths: [] }, lastSeen: H(2) } }, { faults: { banner: [], sensor: 'flaky' } });
+  // 設定裡沒掛上的那兩種:網頁照印伺服器算好的那一句(lib/faults.mjs 的 sensorOffLine,跟終端機同一個函式)——以前網頁自己拼一份,結尾跟終端機不一樣(P2)
+  const offMount = { state: 'off', where: null, paths: [] };
+  const offLineOf = (now, mount = offMount) => sensorOffLine({ mount, lastSeen: H(2), now, here: '最上面那一條', ago });
+  const offSeen = line({ sensor: { mount: offMount, lastSeen: H(2), offLine: offLineOf('broken') } });
+  check('感測器現在記不到 → 照印伺服器那一句:「它在記」只到最後那一筆為止', /那時候它在記/.test(offSeen) && /之後這台電腦的感測器記不到東西（見最上面那一條）/.test(offSeen), offSeen);
+  const offFlaky = line({ sensor: { mount: offMount, lastSeen: H(2), offLine: offLineOf('flaky') } });
   check('時好時壞 → 照舊「它在記」,附一句時好時壞(不講「之後記不到」)', /它在記/.test(offFlaky) && /時好時壞/.test(offFlaky) && !/之後這台電腦的感測器記不到/.test(offFlaky), offFlaky);
+  // 你退出記錄的專案:以前網頁照樣講「它在記」,終端機講「已退出」——現在同一句
+  const opted = { state: 'off', where: null, paths: [], optedOut: { at: H(5) } };
+  const optedLine = line({ sensor: { mount: opted, lastSeen: H(2), offLine: offLineOf(null, opted) } });
+  check('退出記錄的專案 → 講已經退出,不講「它在記」', /已退出記錄/.test(optedLine) && !/它在記/.test(optedLine), optedLine);
+  // 舊的服務沒給那一句 → 不自己拼(那就是第二份),講服務還在跑舊的程式、叫你重啟
+  const oldSrv = line({ sensor: { mount: offMount, lastSeen: H(2) } });
+  check('舊的服務沒給那一句 → 不自己拼「它在記」,叫你重啟服務', !/它在記/.test(oldSrv) && /還在跑舊的程式/.test(oldSrv) && /--serve-restart/.test(oldSrv), oldSrv);
+  const none = line({ sensor: { mount: offMount, lastSeen: null, offLine: null } });
+  check('沒掛上、也沒有紀錄 → 沒掛上', /沒掛上/.test(none), none);
 }
 
 section('AC-6:外掛的捷徑壞了——照畫面那句修法做一次就修好;--on 不准回「本來就在記錄中」', 'P3');
@@ -316,16 +345,21 @@ section('魔鬼教官第一輪:時好時壞不是「現在記不到」;看不懂
 section('魔鬼教官第一輪:收工 hook 自己出錯那條路(專案設定寫壞)——記下資料夾;畫面講可能沒檢查就放行,不印錯誤原文', 'P6');
 {
   const s = scene();
-  // 專案自己的關卡設定寫壞了(一關是 null):收工 hook 判斷到一半丟例外——任何錯誤一律放行,記一筆故障
+  // 收工 hook 判斷到一半丟例外——任何錯誤一律放行,記一筆故障。
+  // 以前拿「專案自己的關卡設定寫壞(一關是 null)」觸發;那條路修好了(退回內建的五關、講出來,不再丟例外,修小洞 2026-10-06),
+  // 改成監視器自己的關卡清單壞掉——那是程式內部的錯,正是這條路要接住的
+  const builtin = readFileSync(join(s.monitorDir, 'stages.json'), 'utf8');
+  writeFileSync(join(s.monitorDir, 'stages.json'), JSON.stringify({ ...JSON.parse(builtin), stages: [null] }));
   mkdirSync(join(s.root, '.claude'), { recursive: true });
-  writeFileSync(join(s.root, '.claude', 'pipeline-stages.json'), JSON.stringify({ stages: [null], tiers: { code: ['a.js'], danger: [] } }));
+  writeFileSync(join(s.root, '.claude', 'pipeline-stages.json'), JSON.stringify({ tiers: { code: ['a.js'], danger: [] } }));
   const { CLAUDE_CODE_SESSION_ID: _drop, ...base } = process.env;
   const env = { ...base, HOME: s.home, PIPELINE_MONITOR_HOME: s.monitorDir, PIPELINE_MONITOR_LOG_DIR: s.logDir };
   const said = execFileSync('sh', [join(ROOT, 'gate.sh')], { input: JSON.stringify({ session_id: 's1', cwd: s.root, hook_event_name: 'Stop' }), env, encoding: 'utf8' });
   eq('出錯 → 一個字都不印(放行)', said, '');
   const last = readFileSync(join(s.logDir, '_sensor.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).at(-1);
   check('記下一筆 gate_broken,帶著那次的資料夾', last?.event === 'gate_broken' && last?.cwd === s.root, JSON.stringify(last));
-  // 設定改回來再看畫面(寫壞的設定另外會讓終端機自己出錯——那是另一件事,不在這份規格)
+  // 改回來再看畫面
+  writeFileSync(join(s.monitorDir, 'stages.json'), builtin);
   rmSync(join(s.root, '.claude', 'pipeline-stages.json'));
   const out = s.cli().out;
   check('最上面紅燈:收工 hook 自己出錯、可能沒檢查就放行、叫你給 Claude 看', /收工 hook 自己出錯/.test(out) && /可能沒檢查就放行/.test(out) && /給 Claude 看/.test(out), out);

@@ -24,9 +24,9 @@ import { readEvents, safeName, logFileOf, RETAIN_DAYS } from './lib/events.mjs';
 import {
   readProjectConfig, loadStages, lastRunPerStage, runsPerStage, roundView, editsOf, reportsIn, reportLogIn, decisionsIn, clearLogIn,
   perStageOfRound, specContext, sessionsOf, sessionView, rerunLine, tookLine, rerunMapOf, runMode, afterCall, reportText, unknownPromptsOf,
-  unknownPromptLine, noWords
+  unknownPromptLine, noWords, stagesBrokenLine
 } from './lib/rounds.mjs';
-import { faultsNow, faultBanner, faultNotes, sensorNow, unreadableLine, roundStartFor, gateHeartbeat } from './lib/faults.mjs';
+import { faultsNow, faultBanner, faultNotes, sensorNow, unreadableLine, roundStartFor, gateHeartbeat, sensorOffLine } from './lib/faults.mjs';
 import { eLines, parseWalk, walkSummary, summaryLine } from './lib/verify.mjs';
 import { readChecklist, locateSpec, specPathsInNote } from './lib/checklist.mjs';
 import { buildTier, readTierConfig, writeTierConfig, proposeCodeArea, codeFileFn, computeTier, changeTimeOf, fileTimeOf, dangerSince, addedSince, missingDanger, checkSnapshot, laterOf, committedDanger } from './lib/tier.mjs';
@@ -168,7 +168,7 @@ function describeSensor({ mount, lastSeen, now = null }) {
   const seen = lastSeen ? `最後一筆來自這裡的紀錄：${ago(lastSeen)}` : null;
   if (mount.state === 'off' && mount.optedOut) {
     // 人自己按的退出。照實說「退出了」,不說「沒掛上」——那是兩件事
-    L.push(`感測器：這個專案已退出記錄（${mount.optedOut.at ? ago(mount.optedOut.at) : '時間不明'}）,之前的紀錄還在。`);
+    L.push(sensorOffLine({ mount, lastSeen, now, here: '上面那一行' }));
     if (seen) L.push(`         ${seen}`);
     L.push('         重新加入：pipeline-status --on,或儀表板的「重新加入記錄」按鈕');
   } else if (mount.state === 'broken') {
@@ -187,10 +187,8 @@ function describeSensor({ mount, lastSeen, now = null }) {
       : `還沒有來自這裡的紀錄（設定是對話開始時讀的,掛上之後要開新的對話才會開始記${now === 'flaky' ? '；這台電腦的感測器時好時壞，開了也不一定記得到，見上面那一行' : ''}）`)}`);
     if (mount.alsoLegacy) L.push('         ⚠️ 這個專案的設定檔裡還有舊的接法,會記兩次。拆掉：pipeline-status --on');
   } else if (seen) {
-    // 感測器現在記不到東西的話,「它在記」只到最後那一筆為止——不准講成現在還在記(R1)
-    L.push(now === 'broken'
-      ? `感測器：設定裡找不到,但 ${ago(lastSeen)}還有來自這裡的紀錄——那時候它在記,只是我不知道是哪份設定在做；之後這台電腦的感測器記不到東西（見上面那一行）。`
-      : `感測器：設定裡找不到,但 ${ago(lastSeen)}還有來自這裡的紀錄——它在記,只是我不知道是哪份設定在做${now === 'flaky' ? '（這台電腦的感測器時好時壞，見上面那一行）' : ''}。`);
+    // 設定裡找不到、紀錄卻有 → 它在記(感測器現在記不到的話只到最後那一筆為止,R1)。跟儀表板同一句(lib/faults.mjs)
+    L.push(sensorOffLine({ mount, lastSeen, now, here: '上面那一行' }));
   } else {
     L.push('感測器：沒掛上（打 pipeline-status --on 掛上）');
   }
@@ -399,7 +397,7 @@ function render(ctx, ev, info) {
 
 /** 五關的事實,一次算好:關卡清單、每關最後一次紀錄、人蓋的結案。五關那段與分級那段共用。 */
 function stageFacts(ctx, ev, info = {}) {
-  const { stages } = loadStages(HERE, ctx.root, ctx.mainRoot);
+  const { stages, broken: stagesBroken = null } = loadStages(HERE, ctx.root, ctx.mainRoot);
   // 「有沒有任何一筆來自這裡」講的是感測器,看整個資料夾的紀錄;下面算這一輪的全部只看這一手的(規格:新對話接手舊資料夾)——
   // 資料夾換過人的話,上一手的 A、C、D、結論、你說處理完了、規格連結都不在 events 裡
   const { sawAnyEventHere } = lastRunPerStage(ev.events, stages, ctx.root);
@@ -451,7 +449,7 @@ function stageFacts(ctx, ev, info = {}) {
   }
   const { base, health } = change.facts();
   // events:這一手的紀錄——分級(調高的等級)與共用與否也只看它,跟五關同一份
-  return { stages, perStage: perStageOfRound(view), cleared, reports, view, sawAnyEventHere, base, health, events };
+  return { stages, stagesBroken, perStage: perStageOfRound(view), cleared, reports, view, sawAnyEventHere, base, health, events };
 }
 
 /** 這一筆紀錄的資料夾在不在這個工作區裡(就是工作區的根,或它底下的子資料夾——對話可以開在專案的子資料夾)。 */
@@ -466,6 +464,8 @@ function renderStages(ctx, ev, facts, info = {}) {
   const { state, events } = ev;
   const faults = info.faults ?? null;
   console.log('\n━━ 五關 ━━');
+  // 專案自己寫的關卡讀不懂:退回內建的五關,但要講(跟儀表板同一句,lib/rounds.mjs)
+  if (facts.stagesBroken) console.log(`   ${stagesBrokenLine(facts.stagesBroken)}`);
 
   // ⚠️ AC-1／AC-7:三種「看起來一樣」的情況必須分開講。
   // 感測器在這台電腦上記不到東西(故障記號,最上面那一行)的時候,「分不出來」不是真的——分得出來:是壞了

@@ -15,6 +15,8 @@ import { collectAll, ladderSteps } from '../lib/collect.mjs';
 import { monitorHome } from '../lib/paths.mjs';
 import { readAppTitles, deletedAt, transcriptDirName } from '../lib/appSessions.mjs';
 import { safeName } from '../lib/events.mjs';
+import { stagesBrokenLine } from '../lib/rounds.mjs';
+import { decide } from '../gate.mjs';
 import { SUGGEST_TOOL } from '../lib/rounds.mjs';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 
@@ -516,6 +518,68 @@ section('只刪檔的回合:D 說沒問題之後刪了程式檔,D 要回到「�
   eq('刪之後:D 要再跑一次', after.D.state, 'stale');
   check('分級卡的 D 那一行也說要再跑', /再跑/.test(c.tier?.requirements?.find((r) => r.key === 'D')?.detail ?? ''), JSON.stringify(c.tier?.requirements));
   s.cleanup();
+}
+
+section('專案自己寫的關卡讀不懂:不准讓整頁儀表板不見、不准在終端機印程式的錯誤;退回內建的五關,而且講出來(終端機與儀表板同一句)');
+{
+  // ⚠️ 以前一關寫成 null:終端機印出程式的錯誤訊息,儀表板整頁算不出來——連別的專案一起不見;空的,五關整段消失;不是清單,安安靜靜用內建的
+  const monitorDir = mkdtempSync(join(tmpdir(), 'pm-monitor-'));
+  mkdirSync(join(monitorDir, 'checkpoints')); mkdirSync(join(monitorDir, 'logs'));
+  copyFileSync(join(ROOT, 'stages.json'), join(monitorDir, 'stages.json'));
+  const home = mkdtempSync(join(tmpdir(), 'pm-home-'));     // 空的假 home(P8)
+  const now = new Date().toISOString();
+  const mk = (stages) => {
+    const r = makeRepo({ files: { 'a.js': '1\n' } });
+    const root = out(r.dir, 'rev-parse', '--show-toplevel');
+    mkdirSync(join(root, '.claude'), { recursive: true });
+    if (stages !== undefined) writeFileSync(join(root, '.claude', 'pipeline-stages.json'), JSON.stringify({ stages }));
+    writeFileSync(join(monitorDir, 'logs', `${basename(root)}.jsonl`), JSON.stringify({ ts: now, hook: 'UserPromptSubmit', prompt: 'hi', session: 's1', cwd: root }) + '\n');
+    return { r, root };
+  };
+  const env = { ...process.env, HOME: home, PIPELINE_MONITOR_HOME: monitorDir, PIPELINE_MONITOR_LOG_DIR: join(monitorDir, 'logs') };
+  const good = mk(undefined);                                // 沒覆寫:照內建的,不講任何一句
+  const cases = [
+    [[null], '第 1 個不是一關'],
+    ['x', '「stages」不是一張清單'],
+    [[], '「stages」是空的'],
+    [[{ name: '沒有代號' }], '第 1 個沒有代號（id）'],
+    [[{ id: 'A', name: '寫規格' }, { id: 'A', name: '又一個' }], '代號 A 出現兩次'],
+    [[{ id: 'A' }], 'A 沒有名字（name）'],
+    [[{ id: 'E', name: '驗收', tools: '(' }], 'E 的工具名規則（tools）讀不懂'],
+  ];
+  for (const [stages, why] of cases) {
+    const bad = mk(stages);
+    const label = JSON.stringify(stages);
+    let all = null, err = null;
+    try { all = collectAll({ monitorDir, skillHome: home }); } catch (e) { err = e; }
+    const cardOf = (root) => all?.projects.flatMap((p) => p.cards ?? []).find((c) => c.path === root);
+    check(`${label}:儀表板照樣算得出來,別的專案也還在`, !err && !!cardOf(good.root) && !!cardOf(bad.root), String(err?.message ?? ''));
+    check(`${label}:那張卡帶著那一句(${why}),照內建的五關畫`, cardOf(bad.root)?.stagesNote === stagesBrokenLine(why) && cardOf(bad.root)?.stages?.length === 5,
+      JSON.stringify(cardOf(bad.root)?.stagesNote ?? null));
+    let term = '';
+    try { term = execFileSync('node', [join(ROOT, 'status.mjs')], { cwd: bad.root, encoding: 'utf8', env, stdio: ['ignore', 'pipe', 'pipe'] }); }
+    catch (e) { term = `${e.stdout ?? ''}${e.stderr ?? ''}`; }
+    check(`${label}:終端機不印程式的錯誤,五關照畫、上面講同一句`, !/TypeError|SyntaxError|at file:|Error:/.test(term) && term.includes(stagesBrokenLine(why)) && term.includes('━━ 五關 ━━'), term.slice(0, 400));
+    let threw = null;
+    try { decide({ payload: { session_id: 's1', cwd: bad.root, hook_event_name: 'Stop', stop_hook_active: false }, monitorDir, skillHome: home }); } catch (e) { threw = e; }
+    check(`${label}:收工 hook 也不出錯`, !threw, String(threw?.message ?? ''));
+    bad.r.cleanup();
+  }
+  const goodCard = collectAll({ monitorDir, skillHome: home }).projects.flatMap((p) => p.cards ?? []).find((c) => c.path === good.root);
+  eq('沒覆寫的專案:沒有那一句', goodCard ? goodCard.stagesNote : '找不到這張卡', null);
+  // 選填的欄位寫成 null 就是「沒有」:舊程式照常照專案自己寫的關卡跑——不准講成讀不懂、退回內建的(魔鬼教官第一輪,R1)
+  const nul = mk([{ id: 'A', name: '寫規格', skill: 'spec' }, { id: 'B', name: '寫程式', type: 'main-conversation', skill: null, tools: null }]);
+  const nulCard = collectAll({ monitorDir, skillHome: home }).projects.flatMap((p) => p.cards ?? []).find((c) => c.path === nul.root);
+  check('skill／tools 寫成 null → 照專案自己寫的兩關,不講讀不懂', nulCard?.stagesNote === null && nulCard?.stages?.length === 2, JSON.stringify({ note: nulCard?.stagesNote, n: nulCard?.stages?.length }));
+  nul.r.cleanup();
+  const src = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8');
+  const code = src.match(/^function stagesNoteLine\(c\) \{\n[\s\S]*?\n\}\n/m)?.[0] ?? null;
+  check('從 ui/app.js 拿得出 stagesNoteLine(拿不出來這一段就什麼都沒測到)', !!code);
+  const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const note = code ? new Function('esc', `${code}; return stagesNoteLine;`)(esc) : () => '';
+  check('網頁照印伺服器給的那一句(跳脫過);沒有就不畫', note({ stagesNote: '⚠️ <x>' }).includes('⚠️ &lt;x&gt;') && note({ stagesNote: null }) === '');
+  good.r.cleanup();
+  for (const d of [monitorDir, home]) rmSync(d, { recursive: true, force: true });
 }
 
 process.exit(summary());

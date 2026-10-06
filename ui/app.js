@@ -441,14 +441,19 @@ function sensorLine(c) {
     const gate = c.sensor?.gate?.ts ? `收工 hook 最後一次跑 ${ago(c.sensor.gate.ts)}` : '收工 hook 還沒跑過（要開新對話;一直沒跑就是沒被觸發,不是沒事）';
     return `<p class="section-note">感測器：已掛上${esc(where)} · ${esc(last)} · ${esc(gate)}</p>`;
   }
-  // 設定裡找不到、紀錄裡卻有 → 它在記。證據在手上時不准說「沒掛上」(R1)。
-  // 這台電腦的感測器現在記不到東西(上面的故障橫條)時,「它在記」只到最後那一筆為止(規格:agent回報與故障記號 AC-3)
-  // 時好時壞(flaky)時它真的還在記,只是有些對話記不到——不講「之後記不到」(魔鬼教官第一輪)
-  const now = latest?.faults?.sensor ?? null;
-  if (seen) return `<p class="section-note">感測器：設定裡找不到,但 ${esc(ago(seen))}還有來自這裡的紀錄——${now === 'broken'
-    ? '那時候它在記,只是不知道是哪份設定在做；之後這台電腦的感測器記不到東西（見最上面那一條）'
-    : `它在記,只是不知道是哪份設定在做${now === 'flaky' ? '（這台電腦的感測器時好時壞，見最上面那一條）' : ''}`}。</p>`;
-  return `<p class="section-note">感測器：沒掛上。在那個資料夾跑 <code>pipeline-status --on</code>。</p>`;
+  // 設定裡沒掛上的那兩種(你退出了、設定裡找不到但紀錄還有 → 它在記):伺服器照終端機同一個函式算好給的那一句
+  // (lib/faults.mjs 的 sensorOffLine)——這裡不另寫一份。以前兩邊各寫一份,結尾已經不一樣(老毛病 P2)
+  if (c.sensor && 'offLine' in c.sensor) {
+    return c.sensor.offLine ? `<p class="section-note">${esc(c.sensor.offLine)}</p>`
+      : '<p class="section-note">感測器：沒掛上。在那個資料夾跑 <code>pipeline-status --on</code>。</p>';
+  }
+  // 舊的服務沒給那一句:不在這裡猜(證據在手上時不准說「沒掛上」,R1)——叫你看終端機
+  return `<p class="section-note">感測器：設定裡找不到${seen ? `,但 ${esc(ago(seen))}還有來自這裡的紀錄` : ''}——細節跑 <code>pipeline-status</code> 看（儀表板的服務還在跑舊的程式，重啟它：<code>pipeline-status --serve-restart</code>）。</p>`;
+}
+
+/** 專案自己寫的關卡讀不懂、先照內建的五關畫:伺服器給的那一句(跟終端機同一句,lib/rounds.mjs)。沒有就不畫 */
+function stagesNoteLine(c) {
+  return c.stagesNote ? `<p class="section-note">${esc(c.stagesNote)}</p>` : '';
 }
 
 /* ═══ My Agent work flow:左邊架構圖,右邊五張說明卡 ═══ */
@@ -827,6 +832,7 @@ function sessionPage(name, sid) {
       <p class="section-note">五個工班跑到哪了,工作進度監視。<br>
         ⚠️「跑過」不等於「通過」——感測器只看得到指令被呼叫,看不到結果。</p>
       ${sensorLine(c)}
+      ${stagesNoteLine(c)}
       ${workflow({ ...c, stages: s.stages })}
     </div>`;
 }
