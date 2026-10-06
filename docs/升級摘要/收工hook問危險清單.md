@@ -110,4 +110,13 @@ B 那批 20 處、第一輪修法 7 處（其中一處的原文被這一輪改�
 - 實況還沒看過：收工 hook 在 app 裡真的為新檔擋下來問、你真的說「先不看」——都只在測試與暫存資料夾裡看過，等真的碰到再看。
   新的收工 hook、`--tier-later` 與 skill 的字，併進 main 之後才生效。
 
+### 2026-10-06　蓋章、併進 main、重啟儀表板、推上 GitHub
+
+- Oscar 說「不跑，結案，蓋章，commit+merge+push」。蓋章放在存檔之後（章要蓋在存好的版本上才回得去）：3dd62cd，test 全綠。
+- 快轉併進 main（3dd62cd），`--serve-restart` 之後常駐儀表板回應中，三個專案都讀得到；`logs/` 裡沒有殘檔。
+  常駐儀表板上：TutorPod 兩個資料夾的分級卡（T1）都列出 liveModelChoice.js、reportTime.js 兩個沒人判斷過的新檔——那邊的對話之後改了程式要收工時，收工 hook 會為它們擋下來問；
+  pipeline-monitor 一個舊資料夾（T2）列出 5 個，已經是最高那一級，收工 hook 不問。
+- 推之前照 L24 在本機模擬 GitHub 的環境（從 main 重新複製一份、空的家目錄、UTC、清掉所有環境變數、不讀系統的 git 設定、node 24）：17 支全綠、hook.sh／remind.sh／gate.sh 語法沒問題；
+  推上 GitHub（98f4ce5..3dd62cd）。GitHub 上 CI 的結果這台電腦看不到。
+
 上線版本：v0.22.0
