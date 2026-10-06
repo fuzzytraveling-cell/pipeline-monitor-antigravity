@@ -4,7 +4,8 @@
  *
  * Claude 準備收工時看一眼:這一回合有改到程式區的檔案、而這次改動的分級要求的關這一輪還沒跑
  * → 擋一次,用白話告訴它還缺哪幾關、該叫哪個指令。結論會過期的關(D)跑過之後又改了程式,**不叫它再跑**,
- * 叫它先停下來問人(D 多輪先問人 AC-1)。其他情況一律安靜放行。
+ * 叫它先停下來問人(D 多輪先問人 AC-1)。這一輪碰到危險清單定好之後才新加、沒人判斷過的程式檔,
+ * 也叫它先停下來問人,不准自己決定(收工hook問危險清單 AC-1)。其他情況一律安靜放行。
  *
  * ⚠️ 三條契約:
  *   1. 任何錯誤一律放行(exit 0、不輸出),壞掉的事實記進 logs/_sensor.jsonl(gate_broken)。hook 壞了不准讓人下不了班。
@@ -27,7 +28,7 @@ import process from 'node:process';
 import { cardFor, sessionTier } from './lib/collect.mjs';
 import { sessionsOf, logFileOf, GATE_FILE, SENSOR_FILE, saidByHuman, promptKind, rerunLine, runMode, SKEW_MS } from './lib/events.mjs';
 import { ago } from './lib/git.mjs';
-import { readTierConfig, codeFileFn, changeTimeOf } from './lib/tier.mjs';
+import { readTierConfig, codeFileFn, changeTimeOf, RANKS, DANGER_ASK, dangerAskLine, laterOf } from './lib/tier.mjs';
 import { changeScope } from './lib/scope.mjs';
 import { commandFor as findCommand, pluginName } from './lib/skills.mjs';
 import { optOutState } from './lib/mount.mjs';
@@ -62,6 +63,7 @@ function commandFor(skill, root, mainRoot, home) {
  * 除了讀檔與問 git,沒有副作用——記紀錄是 main() 的事,測試才能直接呼叫。
  * missing 是這一次擋的「種類」:關卡代號(A、C、D、E)、tests、checklist,結論會過期的關(D、E)另有兩種——
  *   <關>:report(叫了還沒記結論,AC-6)、<關>:ask(之後又改了程式,要不要再跑／再走先問人,AC-1)。記進 gate_blocked,這一回合同一種不再擋(AC-7)。
+ *   danger:ask(lib/tier.mjs 的 DANGER_ASK):沒人判斷過的新檔,先問人(收工hook問危險清單 AC-1)——「這次先不看」算不算數也找這一種。
  *   E 只有在專案自己的分級把它放進清單時才會出現(E 自動驗收 AC-8,預設三級都不放)。
  */
 export function decide({ payload, monitorDir = MONITOR_DIR, skillHome = undefined }) {
@@ -83,7 +85,11 @@ export function decide({ payload, monitorDir = MONITOR_DIR, skillHome = undefine
   const tier = mineNow.tier;
   if (!tier || tier.state !== 'ok') return null;                  // 沒設定分級就沒有「該跑的關」;只看得到還沒存檔的而且沒有(unseen)也要不了
   const requires = tier.final?.requires ?? [];
-  if (!requires.length) return null;
+  // 危險清單定好之後才新加、沒人判斷過的程式檔(規格:收工hook問危險清單 AC-1、AC-4):分級卡算好的那一份(buildTier 的 stale),不另算。
+  // 已經是最高那一級 → 判斷結果改不了這一輪要跑的關,不問;分不出來(unknown)時 fresh 是空的,也不問
+  const top = (tier.final?.rank ?? RANKS.length - 1) >= RANKS.length - 1;
+  const fresh = !top && tier.stale?.since && Array.isArray(tier.stale.fresh) ? tier.stale.fresh : [];
+  if (!requires.length && !fresh.length) return null;
   const cfg = readTierConfig(ctx.root, ctx.mainRoot, monitorDir);
   if (cfg.state !== 'ok') return null;
 
@@ -126,6 +132,16 @@ export function decide({ payload, monitorDir = MONITOR_DIR, skillHome = undefine
   const view = mineNow.view.stages;
   const specStage = stages.find((s) => s.skill);   // 寫規格的那一關 = 第一個指令關(跟一輪的分界同一個認法,不寫死代號)
   const missing = [];
+  // 危險清單(規格:收工hook問危險清單 AC-1)排第一:他的答案會改這一輪的等級,其他缺的關跟著變。
+  // 這個對話說過「這次先不看」、而且算數的那幾個檔不再問(AC-3;--tier-later 記的,用 by_session 記,所以給整份紀錄、不給 mine)
+  if (fresh.length) {
+    const later = laterOf(events, { session: sid, since: mineNow.view?.origin?.at ?? null });
+    const ask = fresh.filter((f) => !later.covered.has(f));
+    if (ask.length) {
+      missing.push({ key: DANGER_ASK, ask: true,
+        line: dangerAskLine({ since: tier.stale.since, fresh: ask }, { dangerId: tier.levels.danger.id, deferred: fresh.length - ask.length, ago }) });
+    }
+  }
   // 有規格的輪次:改了程式就要回頭對清單(AC-6)。沒標的 AC 列出來;⏳ 待討論的不算沒標——那是要跟人談,不是要 Claude 補。
   // 規格分批做的話(--spec 帶了 AC 代號),只要求這一批(施工對話認規格 AC-8);不在這一批的沒標不算
   const a = view.find((v) => v.checklist?.parsed);
@@ -236,9 +252,9 @@ export function decide({ payload, monitorDir = MONITOR_DIR, skillHome = undefine
     : `碰到程式區：${list(codeHits)}`;
   // 從哪裡算起跟儀表板同一句話(lib/scope.mjs):「這一輪，含已存檔的」——Claude 才不會以為存了檔就不算
   const scope = changeScope(mineNow.base, () => '').short;
-  // 有「先問人」那一行時,最後那句不准叫它「先把缺的跑完」——那會跟「不要自己再跑」打架(AC-7)
+  // 有「先問人」那一行時,最後那句不准叫它「先把缺的跑完」——那會跟「不要自己再跑」打架(AC-7);危險清單那一行也是先問人(收工hook問危險清單 AC-1)
   const closing = due.some((m) => m.ask)
-    ? '標「不要自己再跑」「不要自己再走」的那一項是要你先停下來問使用者、等使用者決定，不是叫你再跑；其他缺的先補完再收工。這是分級的要求，不是建議。'
+    ? '標「不要自己再跑」「不要自己再走」「不要自己決定」的那一項是要你先停下來問使用者、等使用者決定，不是叫你自己動手；其他缺的先補完再收工。這是分級的要求，不是建議。'
     : '先把缺的跑完再收工；跑完照那支指令的收尾把結果記給儀表板。這是分級的要求，不是建議。';
   const reason = [
     `[產線監視器] 這次改動至少 ${level}（${touched}；${scope}）。收工前還缺：`,

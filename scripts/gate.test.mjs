@@ -17,6 +17,7 @@ import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 import { decide } from '../gate.mjs';
 import { collectAll, cardFor } from '../lib/collect.mjs';
 import { safeName, sessionsOf } from '../lib/events.mjs';
+import { laterOf } from '../lib/tier.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const PLUGIN = JSON.parse(readFileSync(join(ROOT, '.claude-plugin', 'plugin.json'), 'utf8')).name;
@@ -503,6 +504,177 @@ section('app 新開的資料夾、這一輪從「叫 A」開始(真的那個 Tut
   eq('卡片:從叫 A 那一刻的版本算起(不是「看不全」)', `${card?.tier?.state}|${card?.base?.kind}|${card?.base?.origin?.from}`, 'ok|origin|A');
   execFileSync('git', ['worktree', 'remove', '--force', wt], { cwd: s.root, stdio: 'ignore' });
   s.cleanup();
+}
+
+/**
+ * 危險清單那幾段共用:設定檔在 30 分鐘前存進去(git 才說得出清單哪一次定的),這一輪新增 src/fresh.js(還沒存檔)。
+ * 指令一律給齊環境(P8):假的家目錄、監視器資料夾、紀錄位置;對話代號照劇本給,不吃跑測試那台電腦的。
+ */
+function freshScene(opts = {}) {
+  const s = scene(opts);
+  execFileSync('git', ['add', '.claude/pipeline-stages.json'], { cwd: s.root });
+  execFileSync('git', ['commit', '-qm', '設定分級'], { cwd: s.root, env: { ...process.env, GIT_AUTHOR_DATE: T(-30 * MIN), GIT_COMMITTER_DATE: T(-30 * MIN) } });
+  writeFileSync(join(s.root, 'src', 'fresh.js'), 'f\n');
+  const past = new Date(Date.now() - 4 * MIN * 1000);
+  utimesSync(join(s.root, 'src', 'fresh.js'), past, past);
+  const cli = (args, session = null) => {
+    const { CLAUDE_CODE_SESSION_ID: _drop, ...env } = process.env;
+    if (session) env.CLAUDE_CODE_SESSION_ID = session;
+    try { return { code: 0, out: execFileSync('node', [join(ROOT, 'status.mjs'), ...args], { cwd: s.root, encoding: 'utf8',
+      env: { ...env, HOME: s.home, PIPELINE_MONITOR_HOME: s.monitorDir, PIPELINE_MONITOR_LOG_DIR: join(s.monitorDir, 'logs') } }) }; }
+    catch (e) { return { code: e.status, out: String(e.stdout ?? '') }; }
+  };
+  const go = (payload = s.payload) => decide({ payload, monitorDir: s.monitorDir, skillHome: s.home });
+  const lines = () => readFileSync(s.log, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  return { ...s, cli, go, lines };
+}
+
+section('危險清單定好之後才新加、沒人判斷過的程式檔:收工 hook 擋一次叫 Claude 先問人;判斷過、存檔、再改都不再問(規格:收工hook問危險清單 AC-1、AC-2、AC-4)', 'P9');
+{
+  const s = freshScene();
+  const base = [
+    { ts: T(-5 * MIN), hook: 'UserPromptSubmit', prompt: '幫我加一個小功能' },
+    { ts: T(-4 * MIN), hook: 'PostToolUse', tool: 'Write', file: join(s.root, 'src/fresh.js') },
+  ];
+  s.write(base);
+  const d = s.go();
+  eq('擋:缺「危險清單先問人」與 D,危險清單那一項排第一(他的答案會改這一輪的等級)', (d?.missing ?? []).join(','), 'danger:ask,D');
+  const r = d?.reason ?? '';
+  check('理由點名那個新檔、講清單哪時定的、如果危險其實是 T2', /這一輪碰到 1 個危險清單定好（[^）]*git 說的）之後才新加、還沒人判斷過的程式檔：src\/fresh\.js/.test(r) && /其實是 T2/.test(r), r);
+  check('理由叫它不要自己決定、先停下來問、三個問題、講加進清單的代價、給建議', /不要自己決定，先停下來問使用者/.test(r) && /幾天後才發現/.test(r) && /這一輪就變 T2/.test(r) && /最後一行給建議/.test(r), r);
+  check('理由給兩條路:判斷了 --tier-checked、這次先不看 --tier-later(都要附原話)', /--tier-checked "使用者的原話"/.test(r) && /--tier-later "使用者的原話"/.test(r), r);
+  // --tier-checked 記的是整份清單判斷過了:只問這一輪碰到的就記,沒給你看過的新檔會一起被當成判斷過(魔鬼教官第一輪,R1)
+  check('理由叫它先跑 --tier-review、每一個都問,只判斷了一部分不跑 --tier-checked',
+    /先跑 pipeline-status --tier-review，它列的每一個都要問/.test(r) && /整份清單判斷過了/.test(r) && /只判斷了一部分[^；]*不跑 --tier-checked/.test(r), r);
+  // 只判斷了一部分:清單一改、一存檔,沒判斷的就算清單考慮過了——不替他決定,講清楚讓他選(魔鬼教官第二輪,R1)
+  check('只判斷了一部分:先講清楚清單一改一存檔沒判斷的就不再問,讓他選一起判斷完或清單先不動',
+    /只判斷了一部分：先跟他講清楚「清單一改、一存檔，沒判斷的那幾個就算清單考慮過了，之後不會再問」/.test(r) && /清單這次先不動/.test(r) && /清單不動、不跑 --tier-checked/.test(r), r);
+  check('最後那句:「不要自己決定」那一項是先問人,不叫它先把缺的跑完', /「不要自己決定」的那一項是要你先停下來問使用者/.test(r) && !/先把缺的跑完再收工/.test(r), r);
+  check('理由裡沒有程式內部值', !/null|undefined|NaN|danger:ask/.test(r), r);
+  // skill 跟收工 hook 講同一套(AC-5):收工 hook 叫 Claude 跑的每一個指令,tier-setup skill 裡都有、而且有「收工 hook 問危險清單時」那一段
+  const skill = readFileSync(join(ROOT, 'skills', 'tier-setup', 'SKILL.md'), 'utf8');
+  const cmds = [...new Set(r.match(/pipeline-status --tier-[a-z]+ "使用者的原話"/g) ?? [])];
+  check('收工 hook 叫的兩個指令,skill 裡都有;skill 有「收工 hook 問危險清單時」那一段', cmds.length === 2 && cmds.every((c) => skill.includes(c)) && /## 收工 hook 問危險清單時/.test(skill), JSON.stringify(cmds));
+  const gateFlow = skill.split('## 收工 hook 問危險清單時')[1]?.split('\n## ')[0] ?? '';
+  check('skill 那一段也叫它先跑 --tier-review、每一個都問,只判斷一部分不跑 --tier-checked、先講清楚存檔之後不會再問',
+    /--tier-review/.test(gateFlow) && /每一個檔都要問/.test(gateFlow) && /不跑 `--tier-checked`/.test(gateFlow) && /沒判斷的那幾個就算清單考慮過了/.test(gateFlow), gateFlow);
+
+  // 同一回合擋過了 → 不再擋(AC-7 那一條照舊);你還沒回答、下一回合又改了程式 → 再問一次
+  const blocked = { ts: T(-3 * MIN), event: 'gate_blocked', missing: ['danger:ask', 'D'], source: 'gate' };
+  s.write([...base, blocked]);
+  eq('同一回合擋過了 → 不再擋', s.go({ ...s.payload, stop_hook_active: true }), null);
+  s.write([...base, blocked, { ts: T(-2 * MIN), hook: 'UserPromptSubmit', prompt: '那個檔是做什麼的？' }]);
+  eq('下一回合只是回答問題、沒改程式 → 不擋(契約 3)', s.go(), null);
+  s.write([...base, blocked, { ts: T(-2 * MIN), hook: 'UserPromptSubmit', prompt: '繼續做' }, { ts: T(-1 * MIN), hook: 'PostToolUse', tool: 'Edit', file: join(s.root, 'src/a.js') }]);
+  writeFileSync(join(s.root, 'src/a.js'), '這一回合又改了\n');
+  check('還沒回答、下一回合又改了程式 → 再問一次', (s.go()?.missing ?? []).includes('danger:ask'));
+
+  // 判斷了:照原話記 → 不再問;判斷 → 存檔 → 再改,也不再問(以前一存檔就又變成「判斷之後才新加的」,L35)
+  const ck = s.cli(['--tier-checked', 'fresh.js 只是排版，不危險'], 's1');
+  check('--tier-checked 記下了', ck.code === 0 && /記下了/.test(ck.out), ck.out);
+  eq('判斷過 → 只剩 D', (s.go()?.missing ?? []).join(','), 'D');
+  check('判斷過了、這一輪沒有沒人判斷的新檔 → --tier-later 沒有東西可以先不看', (() => { const x = s.cli(['--tier-later', '先不看'], 's1'); return x.code === 1 && /沒有東西可以先不看/.test(x.out); })());
+  execFileSync('git', ['add', 'src/fresh.js'], { cwd: s.root });
+  execFileSync('git', ['commit', '-qm', '存檔'], { cwd: s.root });
+  writeFileSync(join(s.root, 'src/fresh.js'), '存檔之後又改了\n');
+  eq('判斷 → 存檔 → 再改:照樣只剩 D,不再問', (s.go()?.missing ?? []).join(','), 'D');
+  s.cleanup();
+
+  // 判斷結果改不了這一輪的時候安靜(AC-4):已經是最高那一級;分不出清單哪時定的
+  const t2 = freshScene({ danger: true });
+  t2.write([{ ts: T(-5 * MIN), hook: 'UserPromptSubmit', prompt: '改匯出' }, { ts: T(-4 * MIN), hook: 'PostToolUse', tool: 'Edit', file: join(t2.root, 'src/danger.js') }]);
+  const dt2 = t2.go();
+  check('已經是 T2(碰到危險清單)→ 照樣擋 T2 缺的,但不問危險清單', dt2 !== null && !(dt2.missing ?? []).includes('danger:ask') && dt2.level === 'T2', JSON.stringify(dt2?.missing));
+  t2.cleanup();
+  const blind = scene();                                                    // 設定檔沒進版控、也沒記過判斷時間 → 分不出來
+  writeFileSync(join(blind.root, 'src', 'fresh.js'), 'f\n');
+  blind.write([{ ts: T(-5 * MIN), hook: 'UserPromptSubmit', prompt: '加功能' }, { ts: T(-4 * MIN), hook: 'PostToolUse', tool: 'Write', file: join(blind.root, 'src/fresh.js') }]);
+  eq('分不出清單哪時定的 → 不問危險清單(分級卡照舊講分不出來)', (decide({ payload: blind.payload, monitorDir: blind.monitorDir, skillHome: blind.home })?.missing ?? []).join(','), 'D');
+  blind.cleanup();
+}
+
+section('--tier-checked 記的是整份清單:記之前算出它會蓋掉哪幾個、照實列出來——收工 hook 只列這一輪碰到的,別的新檔不准不聲不響被當成判斷過(魔鬼教官第一輪,R1)');
+{
+  const s = freshScene();
+  // 另一個新檔在這一輪開始之前就存了檔(清單定好之後才新加):這一輪沒碰到它,收工 hook 不會列它,--tier-review 會
+  writeFileSync(join(s.root, 'src', 'older.js'), 'o\n');
+  execFileSync('git', ['add', 'src/older.js'], { cwd: s.root });
+  execFileSync('git', ['commit', '-qm', '上一輪新加的'], { cwd: s.root, env: { ...process.env, GIT_AUTHOR_DATE: T(-20 * MIN), GIT_COMMITTER_DATE: T(-20 * MIN) } });
+  s.write([{ ts: T(-5 * MIN), hook: 'UserPromptSubmit', prompt: '加功能' }, { ts: T(-4 * MIN), hook: 'PostToolUse', tool: 'Write', file: join(s.root, 'src/fresh.js') }]);
+  const line = (s.go()?.reason ?? '').split('\n').find((l) => l.startsWith('- 危險清單')) ?? '';
+  check('收工 hook 只列這一輪碰到的 fresh.js', /程式檔：src\/fresh\.js——/.test(line) && !line.includes('older.js'), line);
+  check('--tier-review 兩個都列', /src\/older\.js/.test(s.cli(['--tier-review']).out) && /src\/fresh\.js/.test(s.cli(['--tier-review']).out));
+  const ck = s.cli(['--tier-checked', '只看了 fresh.js'], 's1');
+  check('--tier-checked 照實列出這一筆算判斷過的(兩個都在,含收工 hook 沒列的 older.js),並交代沒問過的要告訴使用者',
+    /這一筆把 2 個之後才新加的程式檔算成判斷過了：src\/fresh\.js、src\/older\.js/.test(ck.out) && /有沒問過的，告訴使用者/.test(ck.out), ck.out);
+  s.cleanup();
+
+  // 最常見的那條路:看完清單、把 older.js 加進危險清單(還沒存檔)、記判斷——之前沒判斷過,git 又對不上剛改的清單。
+  // 照上一次存檔的那份清單算:蓋掉的是 fresh.js(older.js 已經在清單上),這一行照樣要出現(魔鬼教官第二輪)
+  const e = freshScene();
+  writeFileSync(join(e.root, 'src', 'older.js'), 'o\n');
+  execFileSync('git', ['add', 'src/older.js'], { cwd: e.root });
+  execFileSync('git', ['commit', '-qm', '上一輪新加的'], { cwd: e.root, env: { ...process.env, GIT_AUTHOR_DATE: T(-20 * MIN), GIT_COMMITTER_DATE: T(-20 * MIN) } });
+  const cfgPath = join(e.root, '.claude', 'pipeline-stages.json');
+  const cfg = JSON.parse(readFileSync(cfgPath, 'utf8'));
+  writeFileSync(cfgPath, JSON.stringify({ ...cfg, tiers: { ...cfg.tiers, danger: [...cfg.tiers.danger, 'src/older.js'] } }));
+  const ck2 = e.cli(['--tier-checked', 'older.js 加進去，fresh.js 不危險'], 's1');
+  check('清單剛改過、之前沒判斷過 → 照上一次存檔的清單算,照樣列出這一筆蓋掉的(只有 fresh.js;older.js 已經在清單上)',
+    /這一筆把 1 個之後才新加的程式檔算成判斷過了：src\/fresh\.js/.test(ck2.out), ck2.out);
+  e.cleanup();
+}
+
+section('「這次先不看」:這個對話不再問;收工 hook 問了之後沒有你說的話,這筆不算(規格:收工hook問危險清單 AC-3)', 'P7');
+{
+  const s = freshScene();
+  const asked = [
+    { ts: T(-10 * MIN), hook: 'UserPromptSubmit', prompt: '幫我加一個小功能' },
+    { ts: T(-9 * MIN), hook: 'PostToolUse', tool: 'Write', file: join(s.root, 'src/fresh.js') },
+    { ts: T(-8 * MIN), event: 'gate_blocked', missing: ['danger:ask', 'D'], source: 'gate' },
+  ];
+  // 收工 hook 問了之後,這個對話還沒有你說的話(只有系統通知):Claude 先記了「先不看」→ 不算,照樣問
+  s.write([...asked, { ts: T(-7 * MIN), hook: 'UserPromptSubmit', prompt: '<task-notification>背景工作做完了</task-notification>' }]);
+  const none = s.cli(['--tier-later', '先不看'], 's1');
+  check('沒有你說的話 → 記了但講「這筆不算數」、不回 0', none.code !== 0 && /這筆不算數/.test(none.out), none.out);
+  // 同一回合擋過就不再擋(契約 2),所以接著你開口、下一回合又改了程式:那筆不算數的蓋不掉,照樣問
+  const bad = { ...s.lines().find((e) => e.event === 'tier_later'), ts: T(-6 * MIN) };
+  s.write([...asked, { ts: T(-7 * MIN), hook: 'UserPromptSubmit', prompt: '<task-notification>背景工作做完了</task-notification>' }, bad,
+    { ts: T(-5 * MIN), hook: 'UserPromptSubmit', prompt: '繼續做' }, { ts: T(-4 * MIN), hook: 'PostToolUse', tool: 'Edit', file: join(s.root, 'src/a.js') }]);
+  writeFileSync(join(s.root, 'src/a.js'), '又改了\n');
+  check('不算數的那筆蓋不掉:下一回合照樣問', (s.go()?.missing ?? []).includes('danger:ask'));
+
+  // 你說了「先不看」之後 Claude 才記 → 算數:這個對話不再問;紀錄是 Claude 代記、附原話、記下哪幾個檔
+  s.write([...asked, { ts: T(-7 * MIN), hook: 'UserPromptSubmit', prompt: '先不看吧，做完再說' }]);
+  const ok = s.cli(['--tier-later', '先不看，做完再說'], 's1');
+  check('--tier-later 記下了,講這個對話不再問、換對話會再問、不是判斷過了', ok.code === 0 && /記下了/.test(ok.out) && /換一個對話/.test(ok.out) && /不是判斷過了/.test(ok.out), ok.out);
+  // 「有說話」不等於「說了先不看」:附上感測器記的那一句(不是 Claude 轉述的),給人對照(魔鬼教官第一輪,P7)
+  check('附上感測器記的、你說的最後一句給人對照(不是 Claude 附的那句)', /對照：感測器記的、使用者說的最後一句是「先不看吧，做完再說」/.test(ok.out), ok.out);
+  const rec = s.lines().find((e) => e.event === 'tier_later');
+  check('紀錄:Claude 代記、這個對話、原話、那幾個檔', rec?.via === 'claude' && rec?.by_session === 's1' && rec?.quote === '先不看，做完再說' && JSON.stringify(rec?.files) === '["src/fresh.js"]', JSON.stringify(rec));
+  writeFileSync(join(s.root, 'src/a.js'), '再改一次\n');
+  eq('這個對話之後又改了程式 → 不再問危險清單,只剩 D', (s.go()?.missing ?? []).join(','), 'D');
+  check('設定檔沒被寫(先不看不是判斷過了)', !('checked' in (JSON.parse(readFileSync(join(s.root, '.claude', 'pipeline-stages.json'), 'utf8')).tiers ?? {})));
+
+  // 之後又碰到別的新檔:只問新的那幾個,講另有幾個你說先不看
+  writeFileSync(join(s.root, 'src', 'another.js'), 'n\n');
+  const more = (s.go()?.reason ?? '').split('\n').find((l) => l.startsWith('- 危險清單')) ?? '';
+  check('又來一個新檔 → 只問新的,講另有 1 個先不看', /程式檔：src\/another\.js（另有 1 個使用者說這次先不看）/.test(more) && !/src\/fresh\.js/.test(more), more);
+  rmSync(join(s.root, 'src', 'another.js'));
+
+  // 別的對話、拿不到對話代號、沒附原話、沒有東西可以先不看
+  const all = s.lines();
+  // 別的對話(s2)自己也開了口:s1 記的「先不看」照樣不算到 s2 頭上(不看是哪個對話記的話,s2 的那句會被拿來當它的原話)
+  const s2said = { ts: T(-1 * MIN), session: 's2', cwd: s.root, hook: 'UserPromptSubmit', prompt: '我這邊繼續' };
+  eq('別的對話記的不算到這個對話頭上(那個對話自己有開口也一樣)', laterOf([...all, s2said], { session: 's2', since: T(-20 * MIN) }).covered.size, 0);
+  check('拿不到對話代號 → 不收,講要在對話裡由 Claude 代記', (() => { const x = s.cli(['--tier-later', '先不看'], null); return x.code === 1 && /拿不到對話代號/.test(x.out); })());
+  eq('沒附原話 → 不收', s.cli(['--tier-later'], 's1').code, 1);
+  s.cleanup();
+
+  // 還沒擋過就先說了(Claude 在收工前就問了你):這一輪開始之後有你說的話就算;這一輪開始之前的話不算
+  const ev = (o) => ({ session: 's1', ...o });
+  const rec2 = { ts: T(-1 * MIN), event: 'tier_later', files: ['src/x.js'], quote: '先不看', by_session: 's1' };
+  eq('沒擋過、這一輪開始之後有你說的話 → 算', laterOf([ev({ ts: T(-3 * MIN), hook: 'UserPromptSubmit', prompt: '先不看' }), rec2], { session: 's1', since: T(-5 * MIN) }).covered.has('src/x.js'), true);
+  eq('沒擋過、你的話在這一輪開始之前 → 不算', laterOf([ev({ ts: T(-9 * MIN), hook: 'UserPromptSubmit', prompt: '先不看' }), rec2], { session: 's1', since: T(-5 * MIN) }).covered.size, 0);
 }
 
 process.exit(summary());

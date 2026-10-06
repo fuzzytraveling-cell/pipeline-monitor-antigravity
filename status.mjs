@@ -25,7 +25,7 @@ import { readEvents, readProjectConfig, loadStages, lastRunPerStage, runsPerStag
 import { faultsNow, faultBanner, faultNotes, sensorNow, unreadableLine, roundStartFor } from './lib/faults.mjs';
 import { eLines, parseWalk, walkSummary, summaryLine } from './lib/verify.mjs';
 import { readChecklist, locateSpec, specPathsInNote } from './lib/checklist.mjs';
-import { buildTier, readTierConfig, writeTierConfig, proposeCodeArea, codeFileFn, computeTier, changeTimeOf, fileTimeOf, dangerSince, addedSince, missingDanger } from './lib/tier.mjs';
+import { buildTier, readTierConfig, writeTierConfig, proposeCodeArea, codeFileFn, computeTier, changeTimeOf, fileTimeOf, dangerSince, addedSince, missingDanger, checkSnapshot, laterOf, committedDanger } from './lib/tier.mjs';
 import { changeFacts, reflogOf, takeoverOf, tenureEvents } from './lib/origin.mjs';
 import { checkpointFor, writeCheckpoint } from './lib/checkpoint.mjs';
 import { changeScope } from './lib/scope.mjs';
@@ -1604,6 +1604,17 @@ function tierNotReady(cfg) {
 }
 
 /**
+ * 整個專案:清單定好(或上一次判斷)之後才新加、不在清單上、現在還在的程式檔。問不到 git → null。
+ * --tier-review 列的、--tier-checked 講「這一筆算判斷過的是哪幾個」,是同一份(老毛病 P2)。
+ */
+function freshInProject(ctx, c, since) {
+  const added = addedSince(ctx.root, since);
+  if (added === null) return null;
+  const inArea = codeFileFn(ctx.root, c);
+  return [...added].filter((f) => inArea(f) && computeTier([f], c).rank === 1 && existsSync(join(ctx.root, f))).sort();
+}
+
+/**
  * --tier-review:危險清單判斷用的事實(規格:危險清單會過期 AC-3)——清單定好(或判斷過)之後才新加、不在清單上的程式檔(整個專案,不只這一輪)、
  * 清單裡已經不在的。只列,不判斷:哪個危險是使用者決定(tier-setup 那個 skill 拿這份去問)。
  */
@@ -1623,10 +1634,7 @@ function doTierReview(ctx) {
     console.log(since.how === 'checked'
       ? `   上一次判斷：${ago(since.at)}（${who}${since.said ? `，附的話：「${since.said}」` : ''}）`
       : `   清單定好：${ago(since.at)}（git 說的：危險清單那一段從這次存檔起就是這樣）`);
-    const added = addedSince(ctx.root, since);
-    const inArea = codeFileFn(ctx.root, c);
-    const fresh = added === null ? null
-      : [...added].filter((f) => inArea(f) && computeTier([f], c).rank === 1 && existsSync(join(ctx.root, f))).sort();
+    const fresh = freshInProject(ctx, c, since);
     if (fresh === null) console.log('   問不到 git——之後新加了哪些,這裡分不出來。');
     else if (!fresh.length) console.log('   之後沒有新加不在清單上的程式檔。');
     else {
@@ -1644,8 +1652,10 @@ function doTierReview(ctx) {
 }
 
 /**
- * --tier-checked "<使用者的原話>":記下危險清單判斷過了(規格:危險清單會過期 AC-3)。寫進設定檔的 tiers.checked = { at, said },其他鍵原封不動;
- * 寫回讀出來的那一份(worktree 沒有自己的設定檔時,是主資料夾那一份)。判斷是使用者的——沒附原話不收。
+ * --tier-checked "<使用者的原話>":記下危險清單判斷過了(規格:危險清單會過期 AC-3)。寫進設定檔的 tiers.checked = { at, said, by, commit, files },
+ * 其他鍵原封不動;寫回讀出來的那一份(worktree 沒有自己的設定檔時,是主資料夾那一份)。判斷是使用者的——沒附原話不收。
+ * commit、files 是那一刻的快照(規格:收工hook問危險清單 AC-2):那時的版本、那時還沒存檔的程式檔——判斷過的就是這些,
+ * 之後存檔、再改都還是判斷過的。以前只記時間,判斷過的新檔一存檔就又被講成沒人判斷過(老毛病 P9)。
  */
 function doTierChecked(ctx, words) {
   const said = String(words ?? '').trim();
@@ -1659,10 +1669,83 @@ function doTierChecked(ctx, words) {
   const at = new Date().toISOString();
   // 在對話裡跑的(環境帶著對話代號)= Claude 代記;你自己在終端機跑的 = 你記的。你在對話框用 ! 跑的也會被標成 Claude 代記——往保守那邊錯
   const by = sessionFromEnv() ? 'claude' : 'human';
-  const r = writeTierConfig(dirname(dirname(cfg.from)), { ...data.tiers, checked: { at, said: said.slice(0, 200), by } });
+  // 這一筆記的是「整份清單判斷過了」:寫之前先算出它會蓋掉哪幾個(上一次之後新加、--tier-review 列的那一份),記完照實講——
+  // 只問了這一輪碰到的就記,別的、沒給使用者看過的新檔也會一起被當成判斷過(魔鬼教官第一輪,R1)
+  let prev = dangerSince(cfg.from, cfg.config);
+  // 清單剛改過、還沒存檔,之前又沒判斷過:git 對不上現在這份,prev 就沒有——照上一次存檔的那份清單算(--tier-review 在改之前列的就是那一份)。
+  // 不算的話,最常見的那條路(看完清單、改清單、記判斷)反而不講這一筆蓋掉哪幾個(魔鬼教官第二輪)
+  if (!prev) {
+    const before = committedDanger(cfg.from);
+    if (before) prev = dangerSince(cfg.from, { ...cfg.config, danger: before });
+  }
+  const covers = prev ? freshInProject(ctx, cfg.config, prev) : null;
+  // 快照照這個工作區拍(判斷看的就是它);問不到就只記時間——之後退回用時間算,多問,不少問
+  const snap = checkSnapshot(ctx.root, cfg.config);
+  const r = writeTierConfig(dirname(dirname(cfg.from)), { ...data.tiers, checked: { at, said: said.slice(0, 200), by, ...(snap ?? {}) } });
   if (!r.ok) { console.log(`❌ ${r.why}（${r.path}）`); return 1; }
   console.log(`✅ 記下了：危險清單判斷過（${by === 'claude' ? 'Claude 代記' : '你自己記的'}，附的話：「${said.slice(0, 200)}」）。之後只問這一刻之後才新加的程式檔。`);
+  if (covers?.length) {
+    console.log(`   這一筆把 ${covers.length} 個之後才新加的程式檔算成判斷過了：${covers.slice(0, 10).join('、')}${covers.length > 10 ? ` 等 ${covers.length} 個` : ''}`);
+    console.log('   ——每一個都要問過使用者才算數；有沒問過的，告訴使用者，請他看過之後再記一次。');
+  }
+  if (snap?.files.length) console.log(`   這一刻還沒存檔的程式檔 ${snap.files.length} 個也算判斷過了——之後存檔、再改都不會再被當成新的。`);
+  if (!snap) console.log('   ⚠️ 這一刻的版本問不到，只記了時間——之後存檔的新檔可能會被當成判斷之後才新加的，再問一次。');
   console.log(`   寫在 ${r.path}——設定檔進版控的話,記得一起存檔。`);
+  return 0;
+}
+
+/**
+ * --tier-later "<使用者的原話>":使用者說這次先不看危險清單(規格:收工hook問危險清單 AC-3)。
+ * 記一筆事件(這一輪碰到、還沒人判斷過的那幾個檔＋原話＋對話代號),這個對話的收工 hook 不再為這幾個檔問;分級卡照舊講它們沒人判斷(本來就是事實)。
+ * 算不算數跟收工 hook 同一個函式(lib/tier.mjs 的 laterOf):收工 hook 問了之後、這筆之前沒有使用者說的話 → 不算(老毛病 P7)。
+ * 「先不看」不是判斷過了——不寫設定檔。
+ */
+async function doTierLater(ctx, ev, words) {
+  const quote = String(words ?? '').trim();
+  if (!quote) {
+    console.log('要附使用者的原話：pipeline-status --tier-later "使用者的原話"——「這次先不看」是使用者說的,不是 Claude 決定的。');
+    return 1;
+  }
+  const sid = sessionFromEnv();
+  if (!sid) {
+    console.log('「這次先不看」只對一個對話有用,要在那個對話裡由 Claude 代記（拿不到對話代號）。要判斷的話：pipeline-status --tier-review');
+    return 1;
+  }
+  const f = await rerunFacts(ctx, ev);
+  const t = f?.tier ?? null;
+  if (!t || t.state !== 'ok') {
+    const cfg = readTierConfig(ctx.root, ctx.mainRoot, HERE);
+    if (cfg.state !== 'ok') return tierNotReady(cfg);
+    console.log('這一輪的分級算不出來（讀不到這一輪的改動）——沒有東西可以先不看。');
+    return 1;
+  }
+  const fresh = t.stale?.fresh ?? [];
+  if (!fresh.length) {
+    console.log('這一輪沒有碰到危險清單定好之後才新加、沒人判斷過的程式檔——沒有東西可以先不看。');
+    return 1;
+  }
+  try {
+    appendFileSync(logFileOf(LOG_DIR, ctx.project), JSON.stringify({
+      ts: new Date().toISOString(), event: 'tier_later', files: fresh, quote: cutBytes(quote, 600),
+      by_session: sid, cwd: ctx.root, head: ctx.head?.slice(0, 7), source: 'human', via: 'claude',
+    }) + '\n');
+  } catch (e) {
+    console.log(`❌ 沒記成功：${e.message}`);
+    return 1;
+  }
+  // 記完再算一次:講清楚這筆算不算數(跟收工 hook 同一個函式、同一個起點)
+  const later = laterOf(readEvents(LOG_DIR, ctx.project).events, { session: sid, since: f.view?.origin?.at ?? null });
+  const few = `${fresh.slice(0, 3).join('、')}${fresh.length > 3 ? ` 等 ${fresh.length} 個` : ''}`;
+  if (!fresh.every((x) => later.covered.has(x))) {
+    console.log(`⚠️ 記了，但這筆不算數：收工 hook 問了之後（還沒問過就是這一輪開始之後）、這筆之前，這個對話沒有使用者說的話——分不出是不是使用者說的。收工 hook 照樣會為 ${few} 問。`);
+    return 1;
+  }
+  console.log(`✅ 記下了：使用者說這次先不看 ${few}（Claude 代記，附的話：「${quote.replace(/\s+/g, ' ').slice(0, 60)}${quote.length > 60 ? '…' : ''}」）。`);
+  // 「有說話」不等於「說了先不看」:附上感測器記的、使用者在那之後說的最後一句,給人對照(跟 --decide 同一套;魔鬼教官第一輪,P7)
+  const said = later.recs.at(-1)?.said ?? null;
+  if (said) console.log(`   對照：感測器記的、使用者說的最後一句是「${said.replace(/\s+/g, ' ').slice(0, 60)}${said.length > 60 ? '…' : ''}」——對得上「先不看」才是使用者說的。`);
+  console.log('   這個對話的收工 hook 不再為這幾個檔問；之後碰到別的新檔，只問新的那幾個；換一個對話碰到它們，會再問一次。');
+  console.log('   ⚠️ 這是「先不看」，不是判斷過了——分級卡照舊講它們危不危險還沒有人判斷。');
   return 0;
 }
 
@@ -1807,6 +1890,7 @@ async function main() {
   if (at('--spec') !== -1) return doSpec(ctx, ev, after('--spec'));
   if (at('--report') !== -1) { const [id, verdict, ...note] = after('--report'); return doReport(ctx, id, verdict, note.join(' ')); }
   if (at('--decide') !== -1) return doDecide(ctx, ev, after('--decide'));
+  if (at('--tier-later') !== -1) return doTierLater(ctx, ev, after('--tier-later').join(' '));
   if (at('--round') !== -1) return doRound(ctx, ev, argv[at('--round') + 1]);
   if (at('--suggest') !== -1) {
     let stdin = '';

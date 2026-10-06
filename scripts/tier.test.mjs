@@ -347,6 +347,63 @@ section('危險清單會過期:清單定好之後才新加的程式檔、清單�
   check('網頁的分級卡照印伺服器算好的那一句(跟終端機同一句)', html.includes(esc(line)), html);
 }
 
+section('判斷過的新檔,之後存檔、再改都還是判斷過的——不拿存檔的時間當新增的時間(規格:收工hook問危險清單 AC-2)', 'P9');
+{
+  // 照真的會發生的順序走:Claude 新增一個檔 → 你判斷 → Claude 存檔 → 再改。以前只測到「判斷之後還沒存檔」(L35)
+  const NOW = Date.now();
+  const H = (h) => new Date(NOW - h * 3600_000).toISOString();
+  const r = makeRepo({ at: H(10), files: { 'src/a.js': '1\n', 'src/store.js': 's\n', '.claude/pipeline-stages.json': JSON.stringify({ tiers: { code: ['src/'], danger: ['src/store.js'] } }) } });
+  const cfgPath = join(r.dir, '.claude', 'pipeline-stages.json');
+  const logDir = mkdtempSync(join(tmpdir(), 'pm-log-')), home = mkdtempSync(join(tmpdir(), 'pm-home-'));
+  // 環境一律在這裡給(P8):對話代號拿掉 → 你自己記的,不吃跑測試那台電腦的
+  const run = (...args) => {
+    const { CLAUDE_CODE_SESSION_ID: _drop, ...env } = process.env;
+    try { return execFileSync('node', [join(ROOT, 'status.mjs'), ...args], { cwd: r.dir, encoding: 'utf8', env: { ...env, PIPELINE_MONITOR_LOG_DIR: logDir, HOME: home } }); }
+    catch (e) { return String(e.stdout ?? ''); }
+  };
+  const staleLine = (o) => o.split('\n').find((l) => l.includes('之後才新加的程式檔')) ?? '';
+  const commit = (msg) => { execFileSync('git', ['add', '-A'], { cwd: r.dir }); execFileSync('git', ['commit', '-qm', msg], { cwd: r.dir }); };
+
+  writeFileSync(join(r.dir, 'src', 'new.js'), 'n\n');                     // Claude 新增的檔,還沒存檔
+  check('判斷之前:新檔要問', staleLine(run()).includes('src/new.js'), staleLine(run()));
+  run('--tier-checked', 'new.js 只是排版，不危險');
+  const ck = JSON.parse(readFileSync(cfgPath, 'utf8')).tiers.checked ?? {};
+  const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: r.dir, encoding: 'utf8' }).trim();
+  check('--tier-checked 記下那一刻的快照:那時的版本、那時還沒存檔的程式檔', ck.commit === head && JSON.stringify(ck.files) === '["src/new.js"]', JSON.stringify(ck));
+  commit('存檔');                                                           // 你判斷完,Claude 存檔
+  check('存檔之後 --tier-review 不再列它(以前存檔的時間晚於判斷,就被當成判斷之後才新加的)', !run('--tier-review').includes('src/new.js'), run('--tier-review'));
+  writeFileSync(join(r.dir, 'src', 'new.js'), 'n2\n');                    // 存檔之後又改了一次:這一輪碰到它
+  eq('存檔之後再改:分級卡不再講它沒人判斷過', staleLine(run()), '');
+  writeFileSync(join(r.dir, 'src', 'later.js'), 'l\n');                   // 判斷之後才新建的
+  check('判斷之後才新加的照樣問,判斷過的不在裡面', staleLine(run()).includes('src/later.js') && !staleLine(run()).includes('src/new.js'), staleLine(run()));
+  rmSync(join(r.dir, 'src', 'later.js'));
+
+  // 舊的判斷紀錄(v0.20.0 寫的,只有時間)照舊用時間算;快照寫壞、記的版本找不到 → 也退回用時間算(多問,不少問),不准當成「都判斷過了」
+  const cfg = JSON.parse(readFileSync(cfgPath, 'utf8'));
+  for (const [label, extra] of [['舊紀錄只有時間', {}], ['快照的版本寫壞', { commit: '不是版本號', files: [] }], ['記的版本找不到了', { commit: 'f'.repeat(40), files: [] }]]) {
+    writeFileSync(cfgPath, JSON.stringify({ ...cfg, tiers: { ...cfg.tiers, checked: { at: H(1), said: '舊的', by: 'human', ...extra } } }));
+    commit(`${label}`);
+    writeFileSync(join(r.dir, 'src', 'old.js'), 'o\n'); commit('判斷之後才存檔的新檔');   // 存檔時間在判斷之後
+    writeFileSync(join(r.dir, 'src', 'old.js'), 'o2\n'); writeFileSync(join(r.dir, 'src', 'a.js'), `${label}\n`);   // 也碰一個判斷之前就存檔的舊檔
+    check(`${label} → 照時間算:判斷之後存檔新增的照樣問,判斷之前就在的舊檔不問(不是全部當成新的)`,
+      staleLine(run()).includes('src/old.js') && !staleLine(run()).includes('src/a.js'), staleLine(run()));
+    execFileSync('git', ['rm', '-qf', 'src/old.js'], { cwd: r.dir }); commit('拿掉');
+  }
+  for (const d of [logDir, home]) rmSync(d, { recursive: true, force: true });
+  r.cleanup();
+
+  // git 說的那一次也照版本比,不拿它的存檔時間比修改時間:rebase、amend 會把那次存檔的時間往後推(存檔的時間不是清單定好的時間)。
+  // 以前:還沒存檔的新檔,修改時間比「被改寫過的存檔時間」早,就被當成清單定好之前就在了——漏問(危險的那一邊)
+  const r4 = makeRepo({ at: H(10), files: { 'src/a.js': '1\n', '.claude/pipeline-stages.json': JSON.stringify({ tiers: { code: ['src/'], danger: [] } }) } });
+  writeFileSync(join(r4.dir, 'src', 'draft.js'), 'd\n');
+  utimesSync(join(r4.dir, 'src', 'draft.js'), new Date(NOW - 5 * 3600_000), new Date(NOW - 5 * 3600_000));   // 清單定好之後(10 小時前之後)才新建的
+  execFileSync('git', ['commit', '-q', '--amend', '--no-edit'], { cwd: r4.dir, env: { ...process.env, GIT_COMMITTER_DATE: H(1) } });   // 改寫:存檔時間變成 1 小時前
+  writeFileSync(join(r4.dir, 'src', 'a.js'), '2\n');
+  const out4 = execFileSync('node', [join(ROOT, 'status.mjs'), '--tier-review'], { cwd: r4.dir, encoding: 'utf8', env: { ...process.env, PIPELINE_MONITOR_LOG_DIR: mkdtempSync(join(tmpdir(), 'pm-log-')), HOME: mkdtempSync(join(tmpdir(), 'pm-home-')) } });
+  check('清單那次存檔被改寫過(存檔時間往後推)→ 之後新建、還沒存檔的檔照樣列出來', out4.includes('src/draft.js') && !out4.includes('src/a.js'), out4);
+  r4.cleanup();
+}
+
 section('remind.sh:只在對話開始、只在還沒設定分級時,給 Claude 一行;其他時候一個字都不出');
 {
   const remind = (payload) => {
