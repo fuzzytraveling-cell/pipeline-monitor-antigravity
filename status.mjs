@@ -24,9 +24,9 @@ import { readEvents, safeName, logFileOf, RETAIN_DAYS } from './lib/events.mjs';
 import {
   readProjectConfig, loadStages, lastRunPerStage, runsPerStage, roundView, editsOf, reportsIn, reportLogIn, decisionsIn, clearLogIn,
   perStageOfRound, specContext, sessionsOf, sessionView, rerunLine, tookLine, rerunMapOf, runMode, afterCall, reportText, unknownPromptsOf,
-  unknownPromptLine, noWords, stagesBrokenLine
+  unknownPromptLine, noWords, stagesBrokenLine, noRecordsWithin, noRecordLine
 } from './lib/rounds.mjs';
-import { faultsNow, faultBanner, faultNotes, sensorNow, unreadableLine, roundStartFor, gateHeartbeat, sensorOffLine } from './lib/faults.mjs';
+import { faultsNow, faultBanner, faultNotes, sensorNow, unreadableLine, roundStartFor, gateHeartbeat, sensorOffLine, noneHereLine } from './lib/faults.mjs';
 import { eLines, parseWalk, walkSummary, summaryLine } from './lib/verify.mjs';
 import { readChecklist, locateSpec, specPathsInNote } from './lib/checklist.mjs';
 import { buildTier, readTierConfig, writeTierConfig, proposeCodeArea, codeFileFn, computeTier, changeTimeOf, fileTimeOf, dangerSince, addedSince, missingDanger, checkSnapshot, laterOf, committedDanger } from './lib/tier.mjs';
@@ -37,7 +37,7 @@ import { monitorHome } from './lib/paths.mjs';
 import { skillAvailable, commandFor, pluginName } from './lib/skills.mjs';
 import { installService, uninstallService, restartService, describeService, openDashboard } from './lib/service.mjs';
 import {
-  mount, unmount, mountState, mountFix, pluginState, installPlugin, uninstallPlugin, optIn, optOut, hookPathsIn,
+  mount, unmount, mountState, mountFix, pluginState, installPlugin, uninstallPlugin, optIn, optOut, optOutState, hookPathsIn,
 } from './lib/mount.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -162,13 +162,15 @@ function describeCheckpoint({ cp, rel, dirty, files, now = new Date() }) {
  * @param lastSeen ISO 時間,或 null(只算感測器自己寫的紀錄——--report、按鈕寫的不算,見 renderSensor)
  * @param now      這台電腦的感測器現在怎樣(lib/faults.mjs 的 sensorNow):'broken' 時「掛上之後要開新的對話才會開始記」不是真的,
  *                 照做永遠等不到(規格:agent回報與故障記號 AC-3);'flaky' 時那句照舊,另外講時好時壞(魔鬼教官第一輪)
+ * @param hasLog   這個專案有沒有紀錄檔(readEvents 不是 no-file)。有的話就是記過——這裡沒有紀錄可能是超過保留期限清掉了,
+ *                 只講得出「N 天內沒有」,不准講「還沒有」;不知道就照「N 天內沒有」講(lib/faults.mjs 的 noneHereLine;規格:90天清空之後的說法 AC-4)
  */
-function describeSensor({ mount, lastSeen, now = null }) {
+function describeSensor({ mount, lastSeen, now = null, hasLog }) {
   const L = [];
   const seen = lastSeen ? `最後一筆來自這裡的紀錄：${ago(lastSeen)}` : null;
   if (mount.state === 'off' && mount.optedOut) {
     // 人自己按的退出。照實說「退出了」,不說「沒掛上」——那是兩件事
-    L.push(sensorOffLine({ mount, lastSeen, now, here: '上面那一行' }));
+    L.push(sensorOffLine({ mount, lastSeen, now, here: '上面那一行', days: RETAIN_DAYS }));
     if (seen) L.push(`         ${seen}`);
     L.push('         重新加入：pipeline-status --on,或儀表板的「重新加入記錄」按鈕');
   } else if (mount.state === 'broken') {
@@ -183,12 +185,14 @@ function describeSensor({ mount, lastSeen, now = null }) {
       : mount.where === 'main' ? '（用的是主資料夾的設定）'
       : mount.where === 'user' ? '（用的是你帳號層級的設定）' : '';
     L.push(`感測器：已掛上${where}`);
-    L.push(`         ${seen ?? (now === 'broken' ? '還沒有來自這裡的紀錄——這台電腦的感測器現在記不到東西（原因與修法見上面那一行），開新的對話也不會開始記'
-      : `還沒有來自這裡的紀錄（設定是對話開始時讀的,掛上之後要開新的對話才會開始記${now === 'flaky' ? '；這台電腦的感測器時好時壞，開了也不一定記得到，見上面那一行' : ''}）`)}`);
+    // 「還沒有」還是「N 天內沒有」:跟儀表板同一句(lib/faults.mjs);後面的說明只有終端機有
+    const none = noneHereLine({ hasLog, days: RETAIN_DAYS });
+    L.push(`         ${seen ?? (now === 'broken' ? `${none}——這台電腦的感測器現在記不到東西（原因與修法見上面那一行），開新的對話也不會開始記`
+      : `${none}（設定是對話開始時讀的,掛上之後要開新的對話才會開始記${now === 'flaky' ? '；這台電腦的感測器時好時壞，開了也不一定記得到，見上面那一行' : ''}）`)}`);
     if (mount.alsoLegacy) L.push('         ⚠️ 這個專案的設定檔裡還有舊的接法,會記兩次。拆掉：pipeline-status --on');
   } else if (seen) {
     // 設定裡找不到、紀錄卻有 → 它在記(感測器現在記不到的話只到最後那一筆為止,R1)。跟儀表板同一句(lib/faults.mjs)
-    L.push(sensorOffLine({ mount, lastSeen, now, here: '上面那一行' }));
+    L.push(sensorOffLine({ mount, lastSeen, now, here: '上面那一行', days: RETAIN_DAYS }));
   } else {
     L.push('感測器：沒掛上（打 pipeline-status --on 掛上）');
   }
@@ -321,7 +325,7 @@ function renderSensor(ctx, ev, faults) {
   if (odd) console.log(odd);
   // 「最後一筆來自這裡的紀錄」只算感測器自己寫的(有 hook 欄位):--report、按鈕寫的紀錄,感測器壞了照樣寫得進去(AC-5)
   const mine = ev.events.filter((e) => e.cwd === ctx.root && e.hook).map((e) => e.ts).filter(Boolean).sort();
-  const lines = describeSensor({ mount: mountState(ctx.root, ctx.mainRoot), lastSeen: mine.at(-1) ?? null, now: sensorNow(faults) });
+  const lines = describeSensor({ mount: mountState(ctx.root, ctx.mainRoot), lastSeen: mine.at(-1) ?? null, now: sensorNow(faults), hasLog: ev.state !== 'no-file' });
   for (const line of lines) console.log(line);
   console.log(`         ${describeGate()}`);
 }
@@ -485,11 +489,15 @@ function renderStages(ctx, ev, facts, info = {}) {
     console.log('      所以不會說「五關都沒跑」。');
     return;
   }
-  if (state === 'no-events') {
-    console.log('   ⚠️ 感測器可能沒在運作:紀錄檔存在,但裡面沒有東西。');
-    if (now === 'broken') console.log('      這台電腦的感測器現在記不到東西（見最上面那一行）。');
-    if (shaky) console.log(shaky);
-    console.log('      ⚠️ 這**不是**「五關都沒跑」——是我沒問到。');
+  // 90 天內一筆都沒有(清完之後的空檔、或全部過期還沒清／清不掉):以前清完之後說「感測器可能沒在運作」、清的那一次說「沒有一筆來自這個 worktree」——
+  // 多半其實是三個月沒用、照規矩清掉了。也不准反過來講死是過期:空檔看不出是清空的、還是從來沒寫進去,兩種都講。
+  // 跟儀表板的對話那一區同一句(lib/rounds.mjs 的 noRecordLine;規格:90天清空之後的說法 AC-1、AC-2)
+  if (noRecordsWithin(ev)) {
+    // 感測器掛得怎樣跟儀表板看同一種證據(lib/mount.mjs):掛壞了、沒掛上就照講,不講「沒開過對話就沒事」
+    const mount = mountState(ctx.root, ctx.mainRoot);
+    console.log(`   🔍 ${noRecordLine({ now, here: '最上面那一行', optedOut: !!optOutState(ctx.root, ctx.mainRoot) || !!mount.optedOut,
+                                       mount: mount.state === 'ok' ? null : mount.state, fix: mountFix(mount) })}`);
+    console.log('      所以不會說「五關都沒跑」。');
     return;
   }
   // ⚠️ D2:故障記號是全機一份,而且只代表「那幾次沒記到」,不准把整區蓋成「紀錄檔裡沒有東西」——紀錄照畫。
@@ -507,8 +515,9 @@ function renderStages(ctx, ev, facts, info = {}) {
   // 畫面卻理直氣壯寫著「A 沒跑過」。
   // 只算感測器自己寫的(有 hook 欄位):--report、按鈕記的那一筆不代表感測器從那時候就在記
   const firstTs = events.filter((e) => e.cwd === ctx.root && e.hook).map((e) => e.ts).sort()[0];
+  // 「沒有一筆」只講得出保留期限內的:這個資料夾更早的紀錄可能過期清掉了,不是從來沒記過(規格:90天清空之後的說法 AC-2)
   if (!sawAnyEventHere) {
-    console.log('   🔍 有紀錄,但沒有一筆來自這個 worktree。');
+    console.log(`   🔍 有紀錄,但 ${RETAIN_DAYS} 天內沒有一筆來自這個 worktree。`);
     console.log(`      （目前在 ${ctx.branch}）`);
     return;
   }

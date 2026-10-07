@@ -426,7 +426,11 @@ function statTier(c, p) {
 /** 感測器那一行(誠實修補 D3):「掛在哪」看設定,「活著嗎」看紀錄。跟終端機版說同一句話。 */
 function sensorLine(c) {
   const m = c.sensor?.mount, seen = c.sensor?.lastSeen;
-  const last = seen ? `最後一筆來自這裡的紀錄：${ago(seen)}` : '還沒有來自這裡的紀錄';
+  // 沒有來自這裡的紀錄時那一句,伺服器照終端機同一個函式給(lib/faults.mjs 的 noneHereLine):記過的專案只講得出「N 天內沒有」——
+  // 以前這裡寫死「還沒有」,清空之後像剛裝好、從沒記過(規格:90天清空之後的說法 AC-4)。舊的服務沒給 → 不猜是哪一種,講服務還在跑舊的程式(AC-5)
+  const none = c.sensor && 'noneLine' in c.sensor ? c.sensor.noneLine ?? ''
+    : '沒有來自這裡的紀錄（儀表板的服務還在跑舊的程式，分不出是還沒記過、還是超過保留期限清掉了；重啟它：pipeline-status --serve-restart）';
+  const last = seen ? `最後一筆來自這裡的紀錄：${ago(seen)}` : none;
   if (m?.state === 'broken') {
     // ⚠️ 最危險的一種:設定看起來好好的,紀錄卻安靜地停了(LESSONS L13)。終端機講了,網頁以前沒講。
     // 修法是伺服器給的那一句(lib/mount.mjs 的 mountFix,跟終端機、--on 同一句;規格:agent回報與故障記號 AC-6)——
@@ -509,7 +513,9 @@ function workflow(c) {
       : st.available === false ? `找不到 /${st.skill ?? ''} 這個指令（這個專案的 .claude/ 和 ~/.claude 都沒有）`
       // 上一輪的不畫線,只講一句——線多了會干擾判斷(Oscar 2026-09-15)
       : st.prevRanAt ? `這一輪還沒跑（上一輪 ${ago(st.prevRanAt)}跑過）`
-      : (c.sensor?.state === 'ok' ? '這一輪還沒跑' : '感測器沒有資料');
+      // 紀錄檔讀不到東西的時候(實測走不到:清空之後一個對話都不剩,這一頁打不開)也不准講「感測器沒有資料」——
+      // 講伺服器給的那一句(記過的專案是「N 天內沒有來自這裡的紀錄」;規格:90天清空之後的說法 AC-3)
+      : (c.sensor?.state === 'ok' ? '這一輪還沒跑' : c.sensor?.noneLine ?? '沒有紀錄');
     const saidArgs = st.args
       ? `<div class="said">「${esc(st.args.slice(0, 90))}${st.args.length > 90 ? '…' : ''}」</div>` : '';
     const notes = specNotes(st).map((n) => `<div class="said">${esc(n)}</div>`).join('');
@@ -580,17 +586,20 @@ function overview(p) {
   const { session: focus, card } = focusOf(p);
   const subject = focus ? `最近在動：${(focus.title ?? '（還沒有標題）').slice(0, 16)}` : card ? '主資料夾' : null;
 
+  // 「N 天內」:紀錄只留這麼久(天數只住 lib/events.mjs,伺服器給)。更早結案的對話、更早的紀錄已經清掉——不准講成「還沒有」(規格:90天清空之後的說法 AC-3)
+  const within = Number.isFinite(latest?.retainDays) ? `${latest.retainDays} 天內` : '';
   const chip = (s) => `<a class="ochip" href="#/p/${encodeURIComponent(p.name)}/s/${encodeURIComponent(s.id)}">
       <span class="odot"></span>${esc((s.title ?? '（還沒有標題）').slice(0, 22))}</a>`;
 
   // ⚠️ 資料夾不見了的卡沒有任何數字——不能拿 undefined 印成「都存好了」(R1)
+  // 一張卡都沒有、90 天內一筆紀錄都沒有:連資料夾在哪都不知道——是清空了,不是「還沒有資料」(AC-3)。其他找不到卡的情況照舊
   const mid = card?.gone ? ['那個資料夾已經不在了'] : card?.notGit ? ['這個資料夾不是 git 專案'] : card ? [
     card.ladder?.uncommitted === null ? '問不到有沒有沒存的檔案'
       : card.ladder?.uncommitted ? `${card.ladder.uncommitted} 個檔案沒存` : '都存好了',
     !card.checkpoint ? '還沒有還原點' : cpOk(card) ? `還原點 ${ago(card.checkpoint.at)}` : '還原點失效',
     // 0 有兩種意思(老毛病 P5):存檔過的看不到的時候,不准寫「沒有待檢查的檔案」——對話頁那張卡寫的是「看不全」
     card.files?.total ? `${card.files.total} 個檔案還沒檢查` : card.scope?.emptyBlind ? '看不全：這一輪存檔過的看不到' : '沒有待檢查的檔案',
-  ] : ['還沒有資料'];
+  ] : [p.noRecords && !p.cards?.length && within ? `${within}沒有紀錄，也沒有還原點` : '還沒有資料'];
 
   return `<div class="ov">
     <div class="ov-col">
@@ -603,7 +612,7 @@ function overview(p) {
     </div>
     <div class="ov-col ov-right">
       <div class="ov-h">已結案</div>
-      ${done.length ? done.map(chip).join('') : '<div class="muted">還沒有結案的對話</div>'}
+      ${done.length ? done.map(chip).join('') : `<div class="muted">${within}沒有結案的對話</div>`}
     </div>
     <svg class="ov-wires" preserveAspectRatio="none" viewBox="0 0 100 100">
       ${[22, 38, 50, 62, 78].map((y) =>
@@ -617,6 +626,14 @@ function overview(p) {
 /* ═══ 第二層:一個案件底下的對話清單 ═══ */
 function sessionList(p) {
   if (!p.sessions.length) {
+    // 紀錄檔在、90 天內沒有任何對話(多半是三個月沒用、照規矩清掉了):伺服器照終端機五關同一句算好給的(lib/rounds.mjs 的 noRecordLine)。
+    // 以前一律寫「還沒有任何對話紀錄,去掛上感測器」——清空之後感測器明明掛著(規格:90天清空之後的說法 AC-3)。
+    // 舊的服務沒給這一欄 → 不自己湊一句,講服務還在跑舊的程式(AC-5,跟 appCardsSince 同一個做法)
+    if (!('emptyLine' in p)) {
+      return `<div class="block"><p class="muted">這個專案沒有對話可以列——儀表板的服務還在跑舊的程式，分不出是從來沒記過、還是超過保留期限清掉了。
+        重啟它：<code>pipeline-status --serve-restart</code></p></div>`;
+    }
+    if (p.emptyLine) return `<div class="block"><p class="muted">${esc(p.emptyLine)}</p></div>`;
     return `<div class="block"><p class="muted">這個案件還沒有任何對話紀錄。<br>
       在那個資料夾跑 <code>pipeline-status --on</code> 掛上感測器,
       之後的對話就會出現在這裡。</p></div>`;
@@ -765,7 +782,11 @@ function suggestionsBlock(p) {
 function optOutLine(p) {
   if (!p.mainRoot) return '';
   if (p.optedOut) {
-    return `<p class="section-note">這個專案已退出記錄${p.optedOut.at ? `（${esc(ago(p.optedOut.at))}）` : ''}。之前的紀錄還在。
+    // 那一句是伺服器給的,跟終端機感測器那一行同一句(lib/faults.mjs 的 optedOutLine)。以前寫「之前的紀錄還在」——
+    // 退出之後不再記,舊的照樣滿 90 天清掉,那句遲早變假的(規格:90天清空之後的說法 AC-4)。舊的服務沒給 → 講服務還在跑舊的程式(AC-5)
+    const line = 'optedOutLine' in p ? esc(p.optedOutLine ?? '')
+      : `這個專案已退出記錄${p.optedOut.at ? `（${esc(ago(p.optedOut.at))}）` : ''}。（儀表板的服務還在跑舊的程式，重啟它：<code>pipeline-status --serve-restart</code>）`;
+    return `<p class="section-note">${line}
       <button class="mini-btn" data-optout="${esc(p.mainRoot)}" data-undo="1">重新加入記錄</button></p>`;
   }
   return `<p class="section-note">感測器會記這個專案的每個對話（只在這台電腦上）。

@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { detectChecks, describeCheckpoint, describeSensor, describeCheckFailure } from '../status.mjs';
 import { gitContext, changeScale, changeHealth, ago, uncommitted, checkpointRelation } from '../lib/git.mjs';
+import { RETAIN_DAYS } from '../lib/events.mjs';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -213,8 +214,14 @@ section('D：感測器那一行——「掛在哪」看設定,「活著嗎」看
   check('設定沒有、紀錄也沒有 → 沒掛上', offNone.includes('沒掛上'), offNone);
   const okMain = t({ mount: { state: 'ok', where: 'main', paths: [] }, lastSeen: now });
   check('用主資料夾的設定 → 講明,而且給最後一筆', okMain.includes('主資料夾') && okMain.includes('最後一筆'), okMain);
-  const okNone = t({ mount: { state: 'ok', where: 'here', paths: [] }, lastSeen: null });
-  check('掛上了但還沒有紀錄 → 說「還沒有來自這裡的紀錄」,不說在記', okNone.includes('還沒有來自這裡的紀錄'), okNone);
+  // 「還沒有」只在這個專案連紀錄檔都沒有時講;有紀錄檔就是記過,這裡的可能超過保留期限清掉了(規格:90天清空之後的說法 AC-4)
+  const okNone = t({ mount: { state: 'ok', where: 'here', paths: [] }, lastSeen: null, hasLog: false });
+  check('掛上了、這個專案連紀錄檔都沒有 → 說「還沒有來自這裡的紀錄」,不說在記', okNone.includes('還沒有來自這裡的紀錄'), okNone);
+  const okGone = t({ mount: { state: 'ok', where: 'here', paths: [] }, lastSeen: null, hasLog: true });
+  check(`掛上了、紀錄檔在、這裡 ${RETAIN_DAYS} 天內沒有 → 「${RETAIN_DAYS} 天內沒有」,不說「還沒有」(更早的可能清掉了)`,
+    okGone.includes(`${RETAIN_DAYS} 天內沒有來自這裡的紀錄`) && !okGone.includes('還沒有'), okGone);
+  const okUnknown = t({ mount: { state: 'ok', where: 'here', paths: [] }, lastSeen: null });
+  check('不知道有沒有紀錄檔 → 講永遠是真的那句(N 天內沒有)', okUnknown.includes(`${RETAIN_DAYS} 天內沒有來自這裡的紀錄`), okUnknown);
   const broken = t({ mount: { state: 'broken', where: 'here', paths: ['/x/hook.sh'] }, lastSeen: now });
   check('壞掉 → 紀錄已經停了 + 找不到的路徑 + 最後一筆之後就沒了',
         broken.includes('紀錄已經停了') && broken.includes('/x/hook.sh') && broken.includes('從那之後'), broken);

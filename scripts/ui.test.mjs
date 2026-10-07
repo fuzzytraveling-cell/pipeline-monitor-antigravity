@@ -15,6 +15,7 @@ import { describeFreshness, STALE_AFTER_SECONDS } from '../lib/freshness.mjs';
 import { createApp } from '../server.mjs';
 import { SUGGEST_TOOL } from '../lib/rounds.mjs';
 import { changeScope } from '../lib/scope.mjs';
+import { RETAIN_DAYS } from '../lib/events.mjs';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -476,7 +477,8 @@ section('分級卡與未檢查清單:只看得到還沒存的時候不畫「沒�
   // 案件首頁(Oscar 第一個看到的畫面)也不准把「看不全」講成「沒有待檢查的檔案」
   const ovSrc = [pick('focusOf', 'p'), pick('overview', 'p')];
   check('從 ui/app.js 拿得出 focusOf、overview', ovSrc.every(Boolean));
-  const ov = ovSrc.every(Boolean) ? new Function('esc', 'ago', 'cpOk', `${ovSrc.join('\n')}; return overview;`)(esc, ago, cpOk) : null;
+  // overview 要讀伺服器給的保留天數(「N 天內沒有結案的對話」;規格:90天清空之後的說法 AC-3)
+  const ov = ovSrc.every(Boolean) ? new Function('esc', 'ago', 'cpOk', 'latest', `${ovSrc.join('\n')}; return overview;`)(esc, ago, cpOk, { retainDays: RETAIN_DAYS }) : null;
   const ovCard = { path: '/x', ladder: { uncommitted: 0 }, checkpoint: null, files: empty, scope: blind.scope };
   const ovHtml = ov?.({ name: 'p', mainRoot: '/x', cards: [ovCard], sessions: [{ id: 's1', title: '調標籤', lastTs: '2026-09-22T01:00:00Z', closedAt: null, card: ovCard }] }) ?? '';
   check('案件首頁:看不全,不寫「沒有待檢查的檔案」', /看不全/.test(ovHtml) && !/沒有待檢查的檔案/.test(ovHtml), ovHtml.slice(0, 600));
