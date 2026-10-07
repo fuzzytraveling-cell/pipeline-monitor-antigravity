@@ -117,14 +117,14 @@ document.addEventListener('toggle', (e) => {
 /** 結論說明的第一行(清單放在後面幾行) */
 const noteHead = (st) => String(st.report?.note ?? '').split('\n')[0].trim();
 /** B 的清單進度一句話:「3/5 對過,1 條待討論,1 條還沒對」。沒有清單就空字串。分批做的規格只數這一批(施工對話認規格 AC-8)。
- *  好幾份規格:講幾份、共幾條,讀不到的另外講(規格:多份規格與新資料夾的起點 AC-2、AC-5)——跟終端機(status.mjs 的 clProg)同一句 */
+ *  好幾份規格:講幾份、共幾條,讀不到的另外講(規格:多份規格與新資料夾的起點 AC-2、AC-5)——跟終端機(lib/cliStages.mjs 的 clProg)同一句 */
 // ⚠️ 寫成一行:測試(rerun／verify 的 workflow 那段)照「const 名字 = 一整行」從這個檔案拿出來真的跑
 const clProg = (cl) => (!cl?.parsed ? '' : `${cl.multi ? `${cl.specs} 份規格共 ${cl.total} 條：${cl.checked} 條對過` : `清單${cl.batch ? '這一批' : ''} ${cl.checked}/${cl.total} 對過`}${cl.pending ? `,${cl.pending} 條待討論` : ''}${cl.unmarked ? `,${cl.unmarked} 條還沒對` : ''}${cl.multi && cl.unreadable?.length ? `（另有 ${cl.unreadable.length} 份讀不到，條數不在裡面）` : ''}`);
-/** Claude 對完清單之後那一句的括號:好幾份規格才有——跟終端機(status.mjs 的 clDoneNote)同一句 */
+/** Claude 對完清單之後那一句的括號:好幾份規格才有——跟終端機(lib/cliStages.mjs 的 clDoneNote)同一句 */
 const clDoneNote = (cl) => (cl?.multi ? `（${cl.specs} 份規格共 ${cl.total} 條${cl.unreadable?.length ? `；另有 ${cl.unreadable.length} 份讀不到，條數不在裡面` : ''}）` : '');
-/** 「照別的對話寫的規格 X（Claude 說的）」——跟終端機(status.mjs 的 linkLine)同一句,改一邊要改另一邊 */
+/** 「照別的對話寫的規格 X（Claude 說的）」——跟終端機(lib/cliStages.mjs 的 linkLine)同一句,改一邊要改另一邊 */
 const linkLine = (lk) => `照別的對話寫的規格 ${lk.name}（Claude 說的${lk.how === 'only' ? '；沒記到對話代號，這個工作區只有這個對話' : ''}）`;
-/** B 為什麼還不算寫完——跟終端機(status.mjs 的 checklistWhy)同一句 */
+/** B 為什麼還不算寫完——跟終端機(lib/cliStages.mjs 的 checklistWhy)同一句 */
 function checklistWhy(cl) {
   if (cl?.batchMissing?.length) return `這一批記的 ${cl.batchMissing.join('、')} 在規格裡找不到了（可能改過號），要重記 --spec`;
   // 連上之前就有的勾,分不出是誰打的:施工的對話常常先對清單、收工時才記 --spec(魔鬼教官第二輪 2026-09-22,R1)——不准斷言「這個對話沒對過」

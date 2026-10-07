@@ -652,12 +652,12 @@ const aWrote = (root, { sid = 's1', spec = 'docs/規劃中/新功能.md', bash =
   { ts: T(-5 * MIN), hook: 'UserPromptSubmit', session: sid, prompt: '點頭，開工', prompt_id: `${sid}-p2` },
   { ts: T(-4 * MIN), hook: 'PostToolUse', tool: 'Edit', session: sid, file: join(root, 'src/danger.js'), prompt_id: `${sid}-p2` },
 ];
-/** 把 status.mjs 與 ui/app.js 的 specNotes **原封不動**拿出來跑(L20:畫面的程式跑在瀏覽器裡,測試沒真的跑過就等於沒測)。ago 兩邊餵同一個 */
+/** 把 lib/cliStages.mjs 與 ui/app.js 的 specNotes **原封不動**拿出來跑(L20:畫面的程式跑在瀏覽器裡,測試沒真的跑過就等於沒測)。ago 兩邊餵同一個 */
 const notesOf = (file) => {
   const m = readFileSync(join(ROOT, file), 'utf8').match(/^function specNotes\(st\) \{\n[\s\S]*?\n\}\n/m);
   return m ? new Function('ago', `${m[0]}; return specNotes;`)((ts) => `〈${ts}〉`) : null;
 };
-const cliNotes = notesOf('status.mjs'), webNotes = notesOf('ui/app.js');
+const cliNotes = notesOf('lib/cliStages.mjs'), webNotes = notesOf('ui/app.js');
 const fiveOf = (term) => term.split('━━ 五關')[1] ?? '';
 
 section('規格搬家 AC-1、AC-2:這個對話用 A 寫的規格,開工照規矩搬到進行中 → 清單照畫、B 照樣帶進度、收工 hook 照樣要求對清單,而且指的是新位置', 'P6');
@@ -724,7 +724,7 @@ section('規格搬家 AC-3:找到的位置跟記的不一樣,畫面講一句「�
 }
 {
   // 兩份旁白各抄一份(終端機、網頁),以前沒有任何測試對過:每一種情況都餵兩邊,輸出要一字不差
-  check('從 status.mjs、ui/app.js 都拿得出 specNotes(拿不出來這一段就什麼都沒測到)', typeof cliNotes === 'function' && typeof webNotes === 'function');
+  check('從 lib/cliStages.mjs、ui/app.js 都拿得出 specNotes(拿不出來這一段就什麼都沒測到)', typeof cliNotes === 'function' && typeof webNotes === 'function');
   const cases = {
     搬了: { specPlace: { found: 'here', name: 'x', rel: 'docs/進行中/x.md', given: 'docs/規劃中/x.md', moved: true } },
     沒搬: { specPlace: { found: 'here', name: 'x', rel: 'docs/規劃中/x.md', given: 'docs/規劃中/x.md', moved: false } },
@@ -1262,10 +1262,10 @@ section('魔鬼教官第一輪:「N 份規格共幾條」那一句終端機與�
 {
   const fnOf = (src, name) => src.match(new RegExp(`^function ${name}\\([^)]*\\) \\{\\n[\\s\\S]*?\\n\\}\\n`, 'm'))?.[0] ?? null;
   const constOf = (src, name) => src.match(new RegExp(`^const ${name} = .*;$`, 'm'))?.[0] ?? null;
-  const cliSrc = readFileSync(join(ROOT, 'status.mjs'), 'utf8'), webSrc = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8');
+  const cliSrc = readFileSync(join(ROOT, 'lib', 'cliStages.mjs'), 'utf8'), webSrc = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8');
   const cli = fnOf(cliSrc, 'clProg') && fnOf(cliSrc, 'clDoneNote') ? new Function(`${fnOf(cliSrc, 'clProg')}\n${fnOf(cliSrc, 'clDoneNote')}; return { clProg, clDoneNote };`)() : null;
   const web = constOf(webSrc, 'clProg') && constOf(webSrc, 'clDoneNote') ? new Function(`${constOf(webSrc, 'clProg')}\n${constOf(webSrc, 'clDoneNote')}; return { clProg, clDoneNote };`)() : null;
-  check('從 status.mjs、ui/app.js 都拿得出 clProg、clDoneNote(拿不出來這一段就什麼都沒測到)', !!cli && !!web);
+  check('從 lib/cliStages.mjs、ui/app.js 都拿得出 clProg、clDoneNote(拿不出來這一段就什麼都沒測到)', !!cli && !!web);
   const cases = {
     一份: { parsed: true, checked: 3, total: 5, pending: 1, unmarked: 1 },
     分批: { parsed: true, batch: ['AC-1'], checked: 0, total: 1, pending: 0, unmarked: 1 },

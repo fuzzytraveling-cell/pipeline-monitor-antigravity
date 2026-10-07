@@ -12,7 +12,7 @@ import process from 'node:process';
 import {
   readTierConfig, computeTier, manualTier, requirementStatus, candidateFiles, buildTier, proposeCodeArea, RANKS, staleLines,
 } from '../lib/tier.mjs';
-import { describeTier } from '../status.mjs';
+import { describeTier } from '../lib/cliTier.mjs';
 import { rerunOf } from '../lib/rounds.mjs';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 

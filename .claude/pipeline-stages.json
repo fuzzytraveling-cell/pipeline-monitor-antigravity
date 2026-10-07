@@ -21,12 +21,19 @@
       "lib/checkpoint.mjs"
     ],
     "checked": {
-      "at": "2026-10-06T07:21:48.573Z",
+      "at": "2026-10-07T07:05:36.593Z",
       "said": "好，開工",
       "by": "claude",
-      "commit": "f468818632e5c612c79602839f8fc1e6c5610dd7",
+      "commit": "d96081a56b82ef69cab03e2d967111518a948af2",
       "files": [
-        "lib/rounds.mjs"
+        "lib/cliFacts.mjs",
+        "lib/cliOnOff.mjs",
+        "lib/cliReport.mjs",
+        "lib/cliRerun.mjs",
+        "lib/cliStages.mjs",
+        "lib/cliStamp.mjs",
+        "lib/cliTier.mjs",
+        "lib/cliView.mjs"
       ]
     }
   }

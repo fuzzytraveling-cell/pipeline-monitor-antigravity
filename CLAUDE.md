@@ -98,7 +98,7 @@
 | 犯過的錯**又**出現、想知道有哪些老毛病 | [FAILURE-PATTERNS](docs/FAILURE-PATTERNS.md)——測試的 `section()` 用它的代號標記，紅的時候會印出來 |
 | 要動使用者看得到的文案 | 上面三條紅線，逐條套過一次 |
 | 做畫面／碰顏色、字體、間距 | [DESIGN](docs/DESIGN.md)（token 在 `ui設計規格/`，**畫面直接 import，不抄數值進程式碼**）；畫面做什麼、不做什麼：[pipeline-ui](docs/升級摘要/pipeline-ui.md) |
-| 改還原點、改動體檢、「回去」指令、專案名→檔名 | [pipeline-status](docs/升級摘要/pipeline-status.md)、[誠實修補](docs/升級摘要/誠實修補.md) |
+| 改還原點、改動體檢、「回去」指令、專案名→檔名；終端機哪個指令住哪一支 | [pipeline-status](docs/升級摘要/pipeline-status.md)、[誠實修補](docs/升級摘要/誠實修補.md)、[終端機照指令拆開](docs/升級摘要/終端機照指令拆開.md) |
 | 改感測器（`hook.sh`、`lib/events.mjs`）、90 天清理 | [pipeline-sensor](docs/升級摘要/pipeline-sensor.md)、[90天清理不丟紀錄](docs/升級摘要/90天清理不丟紀錄.md)、[紀錄與判斷分家](docs/升級摘要/紀錄與判斷分家.md)；清完之後畫面怎麼講：[90天清空之後的說法](docs/升級摘要/90天清空之後的說法.md) |
 | 裝到新的專案 | 裝成 plugin 一次就好（`pipeline-status --install`），不想記的專案 `--off`：[plugin](docs/升級摘要/plugin.md)；舊接法：[sensor-install](docs/升級摘要/sensor-install.md) |
 | 改收工 hook（`gate.mjs`）、五關怎麼辨識與結案 | [五關自動結案](docs/升級摘要/五關自動結案.md) |
@@ -156,5 +156,5 @@ npm test        # 文件索引 + status 的誠實不變條件 + 感測器的三�
 - ❌ **把程式的內部值印給使用者看**（`null`、例外訊息、檔案路徑以外的技術名詞）
 - ❌ **讓 `hook.sh` 回傳非零、或輸出任何東西** —— 它會拖累使用者跟 Claude 的對話（提醒是 `remind.sh` 的事，而且只准一行、只在對話開始）
 - ❌ **依賴 TutorPod 的任何檔案、腳本或設定** —— 它是試驗場，不是相依
-- ❌ **在 `status.mjs` 裡寫死任何專案專屬的字串**（`spec`／`cleanup`／`chaos-check`
+- ❌ **在 `status.mjs` 與它拆出去的 `lib/cli*.mjs` 裡寫死任何專案專屬的字串**（`spec`／`cleanup`／`chaos-check`
   只准出現在 `stages.json`）
