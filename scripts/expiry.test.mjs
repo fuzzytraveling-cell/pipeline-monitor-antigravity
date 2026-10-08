@@ -18,6 +18,7 @@ import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 import { readEvents, safeName, RETAIN_DAYS } from '../lib/events.mjs';
 import { noRecordLine } from '../lib/rounds.mjs';
 import { noneHereLine, optedOutLine } from '../lib/faults.mjs';
+import { stageLine } from '../lib/stageLines.mjs';
 import { collectAll } from '../lib/collect.mjs';
 import { optOut, mountFix } from '../lib/mount.mjs';
 
@@ -303,10 +304,13 @@ section('舊的服務(合併之後還沒 --serve-restart)少了新欄位:畫面�
 
 section('「感測器沒有資料」那一格(實測走不到:清空之後一個對話都不剩)——照樣不准說謊;那幾句不准把 undefined 印到畫面上');
 {
-  const ui = uiOf({ projects: [], retainDays: RETAIN_DAYS });
-  const cell = ui.workflow({ path: '/x', stages: [{ id: 'C', name: '打掃', skill: 'cleanup', state: 'none' }],
-                             sensor: { state: 'no-events', noneLine: noneHereLine({ hasLog: true, days: RETAIN_DAYS }) } });
-  check('紀錄檔讀不到東西的那一格:不寫「感測器沒有資料」,寫伺服器給的那一句', !cell.includes('感測器沒有資料') && cell.includes(`${RETAIN_DAYS} 天內沒有來自這裡的紀錄`), text(cell));
+  // 那一句住 lib/stageLines.mjs(規格:終端機與網頁說同一句):伺服器把感測器那一句當成「沒有紀錄」時要講的,算好放進那一格;網頁照印
+  const none = noneHereLine({ hasLog: true, days: RETAIN_DAYS });
+  const st = { id: 'C', name: '打掃', skill: 'cleanup', state: 'none' };
+  const line = stageLine(st, { noRecord: none });
+  const ui = uiOf({ projects: [], retainDays: RETAIN_DAYS, sharedLines: 1 });
+  const cell = ui.workflow({ path: '/x', stages: [{ ...st, line }], sensor: { state: 'no-events', noneLine: none } });
+  check('紀錄檔讀不到東西的那一格:不寫「感測器沒有資料」,寫伺服器給的那一句', line === none && !cell.includes('感測器沒有資料') && cell.includes(`${RETAIN_DAYS} 天內沒有來自這裡的紀錄`), text(cell));
   check('noneHereLine 沒給天數:講「保留期限內」,不印 undefined', !/undefined|NaN/.test(noneHereLine({ hasLog: true })), noneHereLine({ hasLog: true }));
   check('optedOutLine 沒給天數、沒有時間:不印 undefined', !/undefined|NaN|null/.test(optedOutLine({ at: null })), optedOutLine({ at: null }));
 }

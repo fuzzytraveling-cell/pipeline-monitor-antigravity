@@ -96,7 +96,7 @@
 | 整體要往哪走、六個死法是什麼 | [ROADMAP](docs/ROADMAP.md) |
 | 「為什麼要寫成這樣？」 | [LESSONS](docs/LESSONS.md)——先搜關鍵字再問 |
 | 犯過的錯**又**出現、想知道有哪些老毛病 | [FAILURE-PATTERNS](docs/FAILURE-PATTERNS.md)——測試的 `section()` 用它的代號標記，紅的時候會印出來 |
-| 要動使用者看得到的文案 | 上面三條紅線，逐條套過一次 |
+| 要動使用者看得到的文案 | 上面三條紅線，逐條套過一次；終端機與網頁都會講的句子只寫一份、住哪：[終端機與網頁說同一句](docs/升級摘要/終端機與網頁說同一句.md) |
 | 做畫面／碰顏色、字體、間距 | [DESIGN](docs/DESIGN.md)（token 在 `ui設計規格/`，**畫面直接 import，不抄數值進程式碼**）；畫面做什麼、不做什麼：[pipeline-ui](docs/升級摘要/pipeline-ui.md) |
 | 改還原點、改動體檢、「回去」指令、專案名→檔名；終端機哪個指令住哪一支 | [pipeline-status](docs/升級摘要/pipeline-status.md)、[誠實修補](docs/升級摘要/誠實修補.md)、[終端機照指令拆開](docs/升級摘要/終端機照指令拆開.md) |
 | 改感測器（`hook.sh`、`lib/events.mjs`）、90 天清理 | [pipeline-sensor](docs/升級摘要/pipeline-sensor.md)、[90天清理不丟紀錄](docs/升級摘要/90天清理不丟紀錄.md)、[紀錄與判斷分家](docs/升級摘要/紀錄與判斷分家.md)；清完之後畫面怎麼講：[90天清空之後的說法](docs/升級摘要/90天清空之後的說法.md) |

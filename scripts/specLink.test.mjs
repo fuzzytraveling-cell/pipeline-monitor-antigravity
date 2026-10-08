@@ -26,6 +26,7 @@ import { collectAll } from '../lib/collect.mjs';
 import { safeName, PROMPT_CAP } from '../lib/events.mjs';
 import { linkOwner, roundOf, specContext, sessionView } from '../lib/rounds.mjs';
 import { specHint, batchOf, parseChecklist, locateSpec } from '../lib/checklist.mjs';
+import { specNotes, clProg, clDoneNote } from '../lib/stageLines.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const PLUGIN = JSON.parse(readFileSync(join(ROOT, '.claude-plugin', 'plugin.json'), 'utf8')).name;
@@ -534,8 +535,9 @@ section('魔鬼教官 2026-09-21 第一輪:連上一份別的對話已經全部�
   check('終端機講「分不出是不是這個對話打的」', term.includes('清單的勾在連上這份之前就打好了，分不出是不是這個對話打的'), term.split('━━ 五關')[1]?.slice(0, 900));
   // 施工的對話常常先對清單、收工時才記 --spec:勾是誰打的分不出來,不准斷言「這個對話沒對過」(魔鬼教官第二輪 2026-09-22,R1)
   check('不講「這個對話還沒回頭對過」', !/還沒回頭對過/.test(term) && !/還沒回頭對過/.test(g?.reason ?? ''), term.split('━━ 五關')[1]?.slice(0, 900));
-  const app = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8');
-  check('網頁也不講「還沒回頭對過」,跟終端機同一句', !/還沒回頭對過/.test(app) && app.includes('分不出是不是這個對話打的'));
+  // 網頁的 B 那一行是伺服器給的那一句(lib/stageLines.mjs,跟終端機同一句)——網頁自己不寫
+  const bLine = s.by(s.sessionOf('s1')?.stages)?.B?.line ?? '';
+  check('網頁也不講「還沒回頭對過」,跟終端機同一句', !/還沒回頭對過/.test(bLine) && bLine.includes('清單的勾在連上這份之前就打好了，分不出是不是這個對話打的'), bLine);
   // 這個對話回頭對了(改了檔案,重標日期)→ 才算對完
   writeFileSync(join(s.root, 'docs/進行中/pipeline-ui.md'), specText('pipeline-ui', 4, Object.fromEntries(Array.from({ length: 4 }, (_, i) => [i + 1, ' ✅ 對過 2026-09-21']))));
   const soon = new Date(Date.now() + 2000); utimesSync(join(s.root, 'docs/進行中/pipeline-ui.md'), soon, soon);
@@ -652,12 +654,13 @@ const aWrote = (root, { sid = 's1', spec = 'docs/規劃中/新功能.md', bash =
   { ts: T(-5 * MIN), hook: 'UserPromptSubmit', session: sid, prompt: '點頭，開工', prompt_id: `${sid}-p2` },
   { ts: T(-4 * MIN), hook: 'PostToolUse', tool: 'Edit', session: sid, file: join(root, 'src/danger.js'), prompt_id: `${sid}-p2` },
 ];
-/** 把 lib/cliStages.mjs 與 ui/app.js 的 specNotes **原封不動**拿出來跑(L20:畫面的程式跑在瀏覽器裡,測試沒真的跑過就等於沒測)。ago 兩邊餵同一個 */
-const notesOf = (file) => {
-  const m = readFileSync(join(ROOT, file), 'utf8').match(/^function specNotes\(st\) \{\n[\s\S]*?\n\}\n/m);
-  return m ? new Function('ago', `${m[0]}; return specNotes;`)((ts) => `〈${ts}〉`) : null;
-};
-const cliNotes = notesOf('lib/cliStages.mjs'), webNotes = notesOf('ui/app.js');
+/**
+ * 寫規格那一關的旁白只寫一份(lib/stageLines.mjs 的 specNotes;規格:終端機與網頁說同一句):終端機照預設印(指去儀表板);
+ * 伺服器帶給網頁的是 notes 那一欄(網頁照印)——儀表板算出來的那一格就看那一欄,自己造的那一格照伺服器的做法算一次。ago 兩邊餵同一個
+ */
+const FAKE_AGO = (ts) => `〈${ts}〉`;
+const webNotes = (st) => (Array.isArray(st?.notes) ? st.notes : specNotes(st, { ago: FAKE_AGO, seePages: '看各對話的頁面' }));
+const cliNotes = (st) => specNotes(st, Array.isArray(st?.notes) ? {} : { ago: FAKE_AGO });
 const fiveOf = (term) => term.split('━━ 五關')[1] ?? '';
 
 section('規格搬家 AC-1、AC-2:這個對話用 A 寫的規格,開工照規矩搬到進行中 → 清單照畫、B 照樣帶進度、收工 hook 照樣要求對清單,而且指的是新位置', 'P6');
@@ -719,12 +722,14 @@ section('規格搬家 AC-3:找到的位置跟記的不一樣,畫面講一句「�
   const moved = '規格搬到了 docs/進行中/app建議卡.md（記的是 docs/規劃中/app建議卡.md）';
   const five = fiveOf(s.cli([], { session: 's1' }).out);
   check('終端機講「規格搬到了」', five.includes(moved), five.slice(0, 500));
-  check('網頁的旁白(真的跑 ui/app.js 的 specNotes,餵儀表板給它的同一份資料)講同一句', (webNotes?.(a) ?? []).includes(moved), JSON.stringify(webNotes?.(a)));
+  check('網頁的旁白(伺服器帶給網頁的那一份,網頁照印)講同一句', (webNotes?.(a) ?? []).includes(moved), JSON.stringify(webNotes?.(a)));
   s.cleanup();
 }
 {
-  // 兩份旁白各抄一份(終端機、網頁),以前沒有任何測試對過:每一種情況都餵兩邊,輸出要一字不差
-  check('從 lib/cliStages.mjs、ui/app.js 都拿得出 specNotes(拿不出來這一段就什麼都沒測到)', typeof cliNotes === 'function' && typeof webNotes === 'function');
+  // 以前兩份旁白各抄一份(終端機、網頁);現在只住 lib/stageLines.mjs。每一種情況都餵兩邊(終端機那一種、帶給網頁那一種),輸出要一字不差
+  const app = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8'), cli = readFileSync(join(ROOT, 'lib', 'cliStages.mjs'), 'utf8');
+  check('旁白只有一份:網頁與終端機都不再自己寫(沒有自己的 specNotes),終端機從 lib/stageLines.mjs 拿',
+    !/function specNotes\(/.test(app) && !/function specNotes\(/.test(cli) && /from '\.\/stageLines\.mjs'/.test(cli));
   const cases = {
     搬了: { specPlace: { found: 'here', name: 'x', rel: 'docs/進行中/x.md', given: 'docs/規劃中/x.md', moved: true } },
     沒搬: { specPlace: { found: 'here', name: 'x', rel: 'docs/規劃中/x.md', given: 'docs/規劃中/x.md', moved: false } },
@@ -949,7 +954,8 @@ const webWorkflow = (() => {
   const src = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8');
   const fn = (name) => src.match(new RegExp(`^function ${name}\\([^)]*\\) \\{\\n[\\s\\S]*?\\n\\}\\n`, 'm'))?.[0] ?? null;
   const one = (name) => src.match(new RegExp(`^const ${name} = .*;$`, 'm'))?.[0] ?? null;
-  const parts = [one('stageState'), one('tookTail'), one('prevSaid'), one('noteHead'), one('clProg'), one('clDoneNote'), one('linkLine'), fn('checklistWhy'), fn('specNotes'), fn('workflow')];
+  // 那一句、旁白、清單的那幾句都是伺服器給的(規格:終端機與網頁說同一句):畫面只剩 workflow 與它的小幫手
+  const parts = [one('stageState'), one('OLD_LINE'), fn('workflow')];
   const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   return parts.every(Boolean) ? new Function('esc', 'ago', 'ROLE', 'foldOpen', `${parts.join('\n')}; return workflow;`)(esc, (t) => (t ? '5 分鐘前' : ''), {}, () => true) : null;
 })();
@@ -1258,26 +1264,31 @@ section('魔鬼教官第一輪:好幾份規格、有一條待討論 → B 不結
   s.cleanup();
 }
 
-section('魔鬼教官第一輪:「N 份規格共幾條」那一句終端機與網頁各寫一份——真的跑兩邊,每一種情況一字不差', 'P2');
+section('「N 份規格共幾條」那一句只寫一份(lib/stageLines.mjs):終端機印的、伺服器帶給網頁的,是同一個函式;網頁照印,不自己算(規格:終端機與網頁說同一句 AC-1、AC-6)', 'P2');
 {
-  const fnOf = (src, name) => src.match(new RegExp(`^function ${name}\\([^)]*\\) \\{\\n[\\s\\S]*?\\n\\}\\n`, 'm'))?.[0] ?? null;
-  const constOf = (src, name) => src.match(new RegExp(`^const ${name} = .*;$`, 'm'))?.[0] ?? null;
-  const cliSrc = readFileSync(join(ROOT, 'lib', 'cliStages.mjs'), 'utf8'), webSrc = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8');
-  const cli = fnOf(cliSrc, 'clProg') && fnOf(cliSrc, 'clDoneNote') ? new Function(`${fnOf(cliSrc, 'clProg')}\n${fnOf(cliSrc, 'clDoneNote')}; return { clProg, clDoneNote };`)() : null;
-  const web = constOf(webSrc, 'clProg') && constOf(webSrc, 'clDoneNote') ? new Function(`${constOf(webSrc, 'clProg')}\n${constOf(webSrc, 'clDoneNote')}; return { clProg, clDoneNote };`)() : null;
-  check('從 lib/cliStages.mjs、ui/app.js 都拿得出 clProg、clDoneNote(拿不出來這一段就什麼都沒測到)', !!cli && !!web);
+  // 以前終端機一份、網頁一份(魔鬼教官第一輪抓到兩份要真的跑兩邊才對得起來);現在網頁不准再有自己的一份
+  const app = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8'), cli = readFileSync(join(ROOT, 'lib', 'cliStages.mjs'), 'utf8');
+  check('網頁與終端機都不再自己寫 clProg、clDoneNote、checklistWhy、linkLine', !/\b(const|function) (clProg|clDoneNote|checklistWhy|linkLine)\b/.test(app + cli));
   const cases = {
-    一份: { parsed: true, checked: 3, total: 5, pending: 1, unmarked: 1 },
-    分批: { parsed: true, batch: ['AC-1'], checked: 0, total: 1, pending: 0, unmarked: 1 },
-    好幾份: { parsed: true, multi: true, specs: 2, checked: 4, total: 5, pending: 1, unmarked: 0, unreadable: [] },
-    好幾份有一份讀不到: { parsed: true, multi: true, specs: 2, checked: 3, total: 3, pending: 0, unmarked: 0, unreadable: ['丙'] },
-    沒有清單: { parsed: false },
+    一份: [{ parsed: true, checked: 3, total: 5, pending: 1, unmarked: 1 }, '清單 3/5 對過,1 條待討論,1 條還沒對', ''],
+    分批: [{ parsed: true, batch: ['AC-1'], checked: 0, total: 1, pending: 0, unmarked: 1 }, '清單這一批 0/1 對過,1 條還沒對', ''],
+    好幾份: [{ parsed: true, multi: true, specs: 2, checked: 4, total: 5, pending: 1, unmarked: 0, unreadable: [] }, '2 份規格共 5 條：4 條對過,1 條待討論', '（2 份規格共 5 條）'],
+    好幾份有一份讀不到: [{ parsed: true, multi: true, specs: 2, checked: 3, total: 3, pending: 0, unmarked: 0, unreadable: ['丙'] },
+      '2 份規格共 3 條：3 條對過（另有 1 份讀不到，條數不在裡面）', '（2 份規格共 3 條；另有 1 份讀不到，條數不在裡面）'],
+    沒有清單: [{ parsed: false }, null, ''],
   };
-  for (const [k, cl] of Object.entries(cases)) {
-    eq(`${k}:進度那一句兩邊一樣`, web?.clProg(cl) ?? 'x', cli?.clProg(cl) ?? '');
-    eq(`${k}:對完那一句的括號兩邊一樣`, web?.clDoneNote(cl) ?? 'x', cli?.clDoneNote(cl) ?? 'y');
+  for (const [k, [cl, prog, done]] of Object.entries(cases)) {
+    eq(`${k}:進度那一句`, clProg(cl), prog);
+    eq(`${k}:對完那一句的括號`, clDoneNote(cl), done);
   }
-  check('對照組:有一份讀不到時兩邊都講(不然上面的一字不差可能只是兩邊都沒講)', /另有 1 份讀不到/.test(web?.clProg(cases.好幾份有一份讀不到) ?? '') && /另有 1 份讀不到/.test(cli?.clDoneNote(cases.好幾份有一份讀不到) ?? ''));
+  // 網頁照印伺服器給的那一句:給一句跟事實對不上的字,畫面就印那一句——證明它沒有自己再算一次(AC-6)
+  const fake = '〈伺服器給的 B 那一句〉';
+  const page = webWorkflow?.({ path: '/x', sensor: { state: 'ok' }, stages: [{ id: 'B', name: '寫程式', type: 'main-conversation', state: 'current', ranAt: T(-60),
+    checklist: cases.好幾份[0], line: fake }] }) ?? '';
+  check('網頁照印伺服器給的那一句,不從清單自己算', page.includes(fake) && !page.includes('2 份規格共 5 條'), page.slice(0, 800));
+  // 舊的服務沒給那一句(合併之後還沒 --serve-restart):不自己拼、不空白、不壞(AC-5)
+  const old = webWorkflow?.({ path: '/x', sensor: { state: 'ok' }, stages: [{ id: 'B', name: '寫程式', type: 'main-conversation', state: 'current', ranAt: T(-60), checklist: cases.好幾份[0] }] }) ?? '';
+  check('舊的服務沒給那一句:講服務還在跑舊的程式,不自己拼「2 份規格共 5 條」,不印 undefined', /服務還在跑舊的程式/.test(old) && !old.includes('2 份規格共 5 條') && !/undefined|null/.test(old), old.slice(0, 800));
 }
 
 process.exit(summary());

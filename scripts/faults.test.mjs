@@ -15,7 +15,7 @@ import { join, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
-import { faultState, faultsNow, faultBanner, faultNotes, sensorNow, unreadableLine, hookTimesIn, roundStartFor, sensorOffLine } from '../lib/faults.mjs';
+import { faultState, faultsNow, faultBanner, faultNotes, sensorNow, unreadableLine, hookTimesIn, roundStartFor, sensorOffLine, sensorParts } from '../lib/faults.mjs';
 import { readEvents, safeName, RETAIN_DAYS } from '../lib/events.mjs';
 import { collectAll } from '../lib/collect.mjs';
 import { installPlugin, mountState, mountFix, mount, hookPathsIn } from '../lib/mount.mjs';
@@ -255,17 +255,24 @@ section('畫面:每一頁最上面畫伺服器給的那一句;舊的服務沒給
   const stub = (n) => () => `<${n}>`;
   const s1 = { id: 's1', title: 't', prompts: 1, lastTs: H(1), closedAt: null, stages: [], cwd: '/w', sharesCwd: false, movedOn: null,
                card: { path: '/w', branch: 'b', stages: [] }, unknownNote: '⚠️ 這個對話有 1 則不是你打的 <x>', faultNotes: ['⚠️ 感測器在 3 小時前記不到'] };
-  const page = sp ? new Function('latest', 'esc', 'ago', 'workflow', 'statRestore', 'statLadder', 'statChanges', 'statTier', 'sensorLine', 'stagesNoteLine', `${sp}; return sessionPage;`)(
+  const oldLine = src.match(/^const OLD_LINE = .*;$/m)?.[0] ?? '';   // 「叫了不等於通過」那一句是伺服器給的;舊的服務沒給時用這一句
+  const page = sp ? new Function('latest', 'esc', 'ago', 'workflow', 'statRestore', 'statLadder', 'statChanges', 'statTier', 'sensorLine', 'stagesNoteLine', `${oldLine}\n${sp}; return sessionPage;`)(
     { projects: [{ name: 'p', sessions: [s1] }] }, esc, ago, stub('workflow'), stub('r'), stub('l'), stub('c'), stub('t'), stub('sensor'), stub('stagesNote')) : null;
   const html = page?.('p', 's1') ?? '';
   check('對話頁畫「沒算成你說的話」那一句與「感測器記不到」那一句(跳脫過)', html.includes('1 則不是你打的 &lt;x&gt;') && html.includes('感測器在 3 小時前記不到'), html);
 
   const sl = pick('sensorLine', 'c');
-  check('從 ui/app.js 拿得出 sensorLine', !!sl);
-  const line = (c, latest = { faults: { banner: [], blind: false } }) => (sl ? new Function('latest', 'esc', 'ago', `${sl}; return sensorLine;`)(latest, esc, ago)(c) : '');
+  const markSrc = src.match(/^const mark = .*;$/m)?.[0] ?? null;
+  check('從 ui/app.js 拿得出 sensorLine(與標粗體的小幫手)', !!sl && !!markSrc);
+  const line = (c, latest = { faults: { banner: [], blind: false } }) => (sl && markSrc ? new Function('latest', 'esc', 'ago', `${markSrc}\n${sl}; return sensorLine;`)(latest, esc, ago)(c) : '');
+  // 伺服器做的事:已掛上、最後一筆、掛壞了、沒掛上那幾句照 lib/faults.mjs 的 sensorParts 算好放進 lines(終端機同一句;規格:終端機與網頁說同一句)
+  const linesOf = (mount, lastSeen) => sensorParts({ mount, lastSeen, gate: null, ago, notMountedHow: '。在那個資料夾跑 pipeline-status --on。' });
   const dangling = { state: 'broken', where: 'plugin', paths: ['/h/.claude/skills/pipeline-monitor'], dangling: true };
-  const out = line({ sensor: { mount: dangling, lastSeen: H(2), fix: mountFix(dangling) } });
+  const out = line({ sensor: { mount: dangling, lastSeen: H(2), fix: mountFix(dangling), lines: linesOf(dangling, H(2)) } });
   check('捷徑壞了 → 畫伺服器給的修法(跟終端機同一句),不再叫你跑 --on', out.includes('node status.mjs --install') && !out.includes('--on'), out);
+  check('捷徑壞了 → 紀錄已經停了(粗體)、最後一筆之後就沒有了', out.includes('<b>紀錄已經停了,而且不會有任何徵兆</b>') && out.includes('從那之後就沒有了'), out);
+  const oldBroken = line({ sensor: { mount: dangling, lastSeen: H(2), fix: mountFix(dangling) } });
+  check('舊的服務沒給那幾句:照講掛壞了、講服務還在跑舊的程式,不自己拼', /指向的檔案不存在/.test(oldBroken) && /還在跑舊的程式/.test(oldBroken) && !/從那之後/.test(oldBroken), oldBroken);
   // 設定裡沒掛上的那兩種:網頁照印伺服器算好的那一句(lib/faults.mjs 的 sensorOffLine,跟終端機同一個函式)——以前網頁自己拼一份,結尾跟終端機不一樣(P2)
   const offMount = { state: 'off', where: null, paths: [] };
   const offLineOf = (now, mount = offMount) => sensorOffLine({ mount, lastSeen: H(2), now, here: '最上面那一條', ago });
@@ -280,8 +287,15 @@ section('畫面:每一頁最上面畫伺服器給的那一句;舊的服務沒給
   // 舊的服務沒給那一句 → 不自己拼(那就是第二份),講服務還在跑舊的程式、叫你重啟
   const oldSrv = line({ sensor: { mount: offMount, lastSeen: H(2) } });
   check('舊的服務沒給那一句 → 不自己拼「它在記」,叫你重啟服務', !/它在記/.test(oldSrv) && /還在跑舊的程式/.test(oldSrv) && /--serve-restart/.test(oldSrv), oldSrv);
-  const none = line({ sensor: { mount: offMount, lastSeen: null, offLine: null } });
-  check('沒掛上、也沒有紀錄 → 沒掛上', /沒掛上/.test(none), none);
+  // 已掛上那一行:網頁照印伺服器給的那幾段(掛在哪、最後一筆、收工 hook)——給一句跟事實對不上的字,畫面就印那一句,證明它沒有自己再拼一次(規格:終端機與網頁說同一句 AC-6)
+  const okMount = { state: 'ok', where: 'plugin', paths: [] };
+  const okLines = { ...linesOf(okMount, H(2)), mounted: '〈伺服器給的掛在哪〉', gate: '〈伺服器給的收工 hook〉' };
+  const okLine = line({ sensor: { mount: okMount, lastSeen: H(2), noneLine: null, lines: okLines } });
+  check('已掛上:照印伺服器給的那幾段,不自己拼', okLine.includes('〈伺服器給的掛在哪〉') && okLine.includes('最後一筆來自這裡的紀錄：3 小時前') && okLine.includes('〈伺服器給的收工 hook〉'), okLine);
+  const okReal = line({ sensor: { mount: okMount, lastSeen: H(2), noneLine: null, lines: linesOf(okMount, H(2)) } });
+  check('已掛上:跟終端機同一句(plugin 那半句、「收工 hook：」)', okReal.includes('感測器：已掛上（plugin,每個專案都會記）') && okReal.includes('收工 hook：還沒跑過（裝好 plugin 之後要開新對話'), okReal);
+  const none = line({ sensor: { mount: offMount, lastSeen: null, offLine: null, lines: linesOf(offMount, null) } });
+  check('沒掛上、也沒有紀錄 → 沒掛上,叫你在那個資料夾跑 --on(終端機那一半給指令)', /感測器：沒掛上。在那個資料夾跑 <code>pipeline-status --on<\/code>。/.test(none), none);
 }
 
 section('AC-6:外掛的捷徑壞了——照畫面那句修法做一次就修好;--on 不准回「本來就在記錄中」', 'P3');
@@ -403,12 +417,13 @@ section('魔鬼教官第一輪:三種頁面最上面都接了故障橫條(真的
   check('從 ui/app.js 拿得出 route、render', code.every(Boolean));
   const $app = { innerHTML: '' }, $crumb = { innerHTML: '' }, location = { hash: '' };
   const stub = (n) => () => `<${n}>`;
-  const render = code.every(Boolean) ? new Function('$app', '$crumb', 'location', 'latest', 'esc', 'projectList', 'projectPage', 'sessionPage', 'faultBanner',
-    `${code.join('\n')}; return render;`)($app, $crumb, location, { projects: [] }, (v) => String(v ?? ''), stub('list'), stub('project'), stub('session'), stub('BANNER')) : null;
+  // 舊的服務那一條(規格:終端機與網頁說同一句 AC-5)也在每一頁最上面,接在故障橫條後面
+  const render = code.every(Boolean) ? new Function('$app', '$crumb', 'location', 'latest', 'esc', 'projectList', 'projectPage', 'sessionPage', 'faultBanner', 'oldServerBanner',
+    `${code.join('\n')}; return render;`)($app, $crumb, location, { projects: [] }, (v) => String(v ?? ''), stub('list'), stub('project'), stub('session'), stub('BANNER'), stub('OLD')) : null;
   for (const [hash, what] of [['', '案件列表'], ['#/p/x', '對話清單'], ['#/p/x/s/s1', '對話頁']]) {
     location.hash = hash;
     render?.();
-    check(`${what}:最上面是故障橫條`, $app.innerHTML.startsWith('<BANNER>'), $app.innerHTML);
+    check(`${what}:最上面是故障橫條,接著是舊的服務那一條`, $app.innerHTML.startsWith('<BANNER><OLD>'), $app.innerHTML);
   }
 }
 

@@ -15,6 +15,8 @@ import { describeFreshness, STALE_AFTER_SECONDS } from '../lib/freshness.mjs';
 import { createApp } from '../server.mjs';
 import { SUGGEST_TOOL } from '../lib/rounds.mjs';
 import { changeScope } from '../lib/scope.mjs';
+import { tierLines } from '../lib/tier.mjs';
+import { cardLines } from '../lib/collect.mjs';
 import { RETAIN_DAYS } from '../lib/events.mjs';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 
@@ -450,21 +452,25 @@ section('分級卡與未檢查清單:只看得到還沒存的時候不畫「沒�
   // 跟 suggestionsBlock 同一種做法:原封不動拿出來跑,補上它們用到的外部名字。拿不出來要紅——不准安靜地跳過(L20)
   const src = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8');
   const pick = (name, sig) => src.match(new RegExp(`^function ${name}\\(${sig}\\) \\{\\n[\\s\\S]*?\\n\\}\\n`, 'm'))?.[0] ?? null;
-  const code = [pick('scopeOfOldServer', 'c'), pick('statChanges', 'c'), pick('statTier', 'c, p')];
+  const one = (name) => src.match(new RegExp(`^const ${name} = .*;$`, 'm'))?.[0] ?? null;
+  const code = [one('OLD_LINE'), one('mark'), pick('scopeOfOldServer', 'c'), pick('statChanges', 'c'), pick('statTier', 'c, p')];
   check('從 ui/app.js 拿得出 scopeOfOldServer、statChanges、statTier(拿不出來這一段就什麼都沒測到)', code.every(Boolean));
   const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const ago = (iso) => (iso ? '3 分鐘前' : '');
   const cpOk = (c) => !!c?.checkpoint && c?.checkpointRelation?.state === 'ok';
   const ui = code.every(Boolean) ? new Function('esc', 'ago', 'cpOk', `${code.join('\n')}; return { statChanges, statTier };`)(esc, ago, cpOk) : null;
   const empty = { total: 0, newCount: 0, uncommittedCount: 0, groups: [] };
+  // 分級卡的那幾句是伺服器照 lib/tier.mjs 的 tierLines 算好的(lines;規格:終端機與網頁說同一句)——這裡照伺服器的做法附上
+  const unseen = { state: 'unseen', basis: { kind: 'head', why: 'not-found', origin: null } };
   const blind = { path: '/x', files: empty, scope: changeScope({ kind: 'head', why: 'not-found', origin: null }, ago),
-                  tier: { state: 'unseen', basis: { kind: 'head', why: 'not-found', origin: null } } };
+                  tier: { ...unseen, lines: tierLines(unseen, { ago }) } };
   const tierHtml = ui?.statTier(blind, { name: 'p' }) ?? '';
   const filesHtml = ui?.statChanges(blind) ?? '';
   check('分級卡:看不全、不是安全的綠臉、不寫「沒有改動」', /看不全/.test(tierHtml) && !/data-tone="safe"/.test(tierHtml) && !/沒有改動/.test(tierHtml), tierHtml);
   check('未檢查清單:看不全、講存檔過的看不到', /看不全/.test(filesHtml) && /存檔過的看不到/.test(filesHtml) && !/沒有改動/.test(filesHtml), filesHtml);
   const own = changeScope({ kind: 'origin', why: null, origin: { at: '2026-09-22T01:00:00Z', from: 'prompt', sessions: 1 } }, ago);
-  const ownHtml = ui?.statChanges({ path: '/x', scope: own, files: { total: 2, newCount: 0, uncommittedCount: 1,
+  // 還沒存的有幾個、比例尺那一句:伺服器照 lib/scope.mjs 算好放進卡片(lines;規格:終端機與網頁說同一句)——這裡照伺服器的做法附上
+  const ownHtml = ui?.statChanges({ path: '/x', scope: own, lines: cardLines({ unsaved: 1 }), files: { total: 2, newCount: 0, uncommittedCount: 1,
     groups: [{ dir: 'src', items: [{ name: 'a.js', isNew: false, uncommitted: true }, { name: 'b.js', isNew: false, uncommitted: false }] }] } }) ?? '';
   check('從起點算:標「這一輪改過的檔案(含已存檔的)」、講從哪一刻算起,每個檔照舊標還沒存',
     /這一輪改過的檔案（含已存檔的）/.test(ownHtml) && /這個對話第一句話/.test(ownHtml) && /其中 <b>1 個還沒存/.test(ownHtml), ownHtml);
@@ -472,7 +478,8 @@ section('分級卡與未檢查清單:只看得到還沒存的時候不畫「沒�
   const movedHtml = ui?.statChanges(moved) ?? '';
   check('這一輪中間切過分支、現在跟開始時一樣:看不全,不寫「沒有改動」', /看不全/.test(movedHtml) && /切過分支/.test(movedHtml) && !/沒有改動/.test(movedHtml), movedHtml);
   const eight = changeScope({ kind: 'origin', why: null, commits: 8, origin: { at: '2026-09-22T01:00:00Z', from: 'A' } }, ago);
-  const scaleHtml = ui?.statChanges({ path: '/x', scope: eight, scale: { median: 2, max: 20 }, files: { total: 22, newCount: 0, uncommittedCount: 0, groups: [] } }) ?? '';
+  const scaleHtml = ui?.statChanges({ path: '/x', scope: eight, scale: { median: 2, max: 20 }, lines: cardLines({ scale: { median: 2, max: 20 }, commitsNote: eight.commitsNote }),
+    files: { total: 22, newCount: 0, uncommittedCount: 0, groups: [] } }) ?? '';
   check('比例尺講「一次存檔」,而且講這裡是 8 次存檔加起來的(L6)', /一次存檔（commit）通常 2 個/.test(scaleHtml) && /8 次存檔加起來/.test(scaleHtml), scaleHtml);
   // 案件首頁(Oscar 第一個看到的畫面)也不准把「看不全」講成「沒有待檢查的檔案」
   const ovSrc = [pick('focusOf', 'p'), pick('overview', 'p')];
@@ -504,8 +511,9 @@ section('上一手的對話頁:講明資料夾換人了,不畫資料夾現在的
     sess({ id: 's1', title: '新對話', closedAt: null, movedOn: null, sharesCwd: false }),
   ] }] };
   // workflow 換成會講出它拿到哪個資料夾的替身:E 那一格「你說驗收過了」的按鈕是按資料夾記的,path 在就會畫
+  const oldLine = src.match(/^const OLD_LINE = .*;$/m)?.[0] ?? '';   // 「叫了不等於通過」那一句是伺服器給的;舊的服務沒給時用這一句
   const page = code ? new Function('latest', 'esc', 'ago', 'workflow', 'statRestore', 'statLadder', 'statChanges', 'statTier', 'sensorLine', 'stagesNoteLine',
-    `${code}; return sessionPage;`)(latest, esc, ago, (c) => `<workflow path=${c.path}>`, stub('restore'), stub('ladder'), stub('changes'), stub('tier'), stub('sensor'), stub('stagesNote')) : null;
+    `${oldLine}\n${code}; return sessionPage;`)(latest, esc, ago, (c) => `<workflow path=${c.path}>`, stub('restore'), stub('ladder'), stub('changes'), stub('tier'), stub('sensor'), stub('stagesNote')) : null;
   const old = page?.('p', 's0') ?? '';
   check('上一手:講這個資料夾 N 前換到另一條分支、給別的對話用了', /2 天前換到另一條分支、給別的對話用了/.test(old), old);
   check('上一手:不畫還原點、三階梯、改動、分級(那是下一手的)', !/<restore>|<ladder>|<changes>|<tier>/.test(old), old);

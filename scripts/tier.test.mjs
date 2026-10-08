@@ -10,7 +10,7 @@ import { join, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import {
-  readTierConfig, computeTier, manualTier, requirementStatus, candidateFiles, buildTier, proposeCodeArea, RANKS, staleLines,
+  readTierConfig, computeTier, manualTier, requirementStatus, candidateFiles, buildTier, proposeCodeArea, RANKS, staleLines, tierLines,
 } from '../lib/tier.mjs';
 import { describeTier } from '../lib/cliTier.mjs';
 import { rerunOf } from '../lib/rounds.mjs';
@@ -356,14 +356,23 @@ section('危險清單會過期:清單定好之後才新加的程式檔、清單�
   check('已經是最高那一級 → 不講「這次其實是」', !staleLines(s0, { dangerId: LEVELS.danger.id, already: true, ago: () => '3 小時前' })[0].includes('其實是'));
   const src = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8');
   const pick = (name, sig) => src.match(new RegExp(`^function ${name}\\(${sig}\\) \\{\\n[\\s\\S]*?\\n\\}\\n`, 'm'))?.[0] ?? null;
-  const code = [pick('scopeOfOldServer', 'c'), pick('statTier', 'c, p')];
-  check('從 ui/app.js 拿得出 statTier', code.every(Boolean));
+  const one = (name) => src.match(new RegExp(`^const ${name} = .*;$`, 'm'))?.[0] ?? null;
+  const code = [one('OLD_LINE'), one('mark'), pick('statTier', 'c, p')];
+  check('從 ui/app.js 拿得出 statTier(與它的小幫手)', code.every(Boolean));
   const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const statTier = code.every(Boolean) ? new Function('esc', 'ago', `${code.join('\n')}; return statTier;`)(esc, () => '3 小時前') : null;
   const line = staleLines(s0, { dangerId: LEVELS.danger.id, ago: () => '3 小時前' })[0];
-  const html = statTier?.({ path: '/x', scope: { blind: false }, tier: { state: 'ok', machine: { rank: 1, id: LEVELS.code.id, hits: { danger: [], code: ['src/x.js'] } }, manual: null,
-    final: { id: LEVELS.code.id }, requirements: [], candidates: [], upgradable: [], staleNotes: [line] } }, { name: 'p' }) ?? '';
-  check('網頁的分級卡照印伺服器算好的那一句(跟終端機同一句)', html.includes(esc(line)), html);
+  const t = { state: 'ok', machine: { rank: 1, id: LEVELS.code.id, hits: { danger: [], code: ['src/x.js'] } }, manual: null, basis: null,
+    final: { id: LEVELS.code.id }, requirements: [], candidates: [], upgradable: [], staleNotes: [line] };
+  // 伺服器做的事:分級卡的那幾句照 lib/tier.mjs 的 tierLines 算好放進 lines(終端機同一句;規格:終端機與網頁說同一句)
+  const html = statTier?.({ path: '/x', tier: { ...t, lines: tierLines(t, { ago: () => '3 小時前' }) } }, { name: 'p' }) ?? '';
+  check('網頁的分級卡照印伺服器算好的那一句(跟終端機同一句)', html.includes(esc(line)) && html.includes('碰到程式區 1 個檔') && html.includes('為了程式碼安全，分級只能往上調。'), html);
+  // 終端機印的是同一個函式的同一句
+  const term = describeTier(t).join('\n');
+  check('終端機的分級卡:機器為什麼算這一級、只能往上調,跟網頁同一句', term.includes(`${LEVELS.code.id}（碰到程式區 1 個檔）`) && term.includes('為了程式碼安全，分級只能往上調。'), term);
+  // 舊的服務沒給那幾句(合併之後還沒 --serve-restart):不自己拼、不壞(AC-5)
+  const old = statTier?.({ path: '/x', tier: t }, { name: 'p' }) ?? '';
+  check('舊的服務沒給那幾句:講服務還在跑舊的程式,不自己拼「碰到程式區」', /還在跑舊的程式/.test(old) && !old.includes('碰到程式區'), old);
 }
 
 section('判斷過的新檔,之後存檔、再改都還是判斷過的——不拿存檔的時間當新增的時間(規格:收工hook問危險清單 AC-2)', 'P9');

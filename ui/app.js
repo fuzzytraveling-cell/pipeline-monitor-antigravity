@@ -6,6 +6,8 @@
  *
  * ⚠️ 不能妥協的還是 AC-1／AC-2:畫面必須隨時說出資料多新,斷線時整頁承認。
  *    判斷在 lib/freshness.mjs(純函式,被測試釘住),這裡只負責畫。
+ * ⚠️ 終端機也講的句子,這裡不寫第二份:句子住 lib,伺服器算好帶過來,這裡照印(規格:終端機與網頁說同一句;老毛病 P2)。
+ *    這裡只管放在哪、粗體、大字、按鈕。舊的服務沒給那一句時講服務還在跑舊的程式,不自己拼。
  */
 import { describeFreshness, STALE_AFTER_SECONDS } from '/freshness.mjs';
 
@@ -100,10 +102,19 @@ const clock = (iso) => {
 // 畫面上 current 沿用「ran」的樣式(亮),passed 是劃掉變淡,done 是劃掉但深色(你說處理完了)。
 // stale(要處理:D 之後又改了程式、要不要再跑你決定;B 清單沒對完)與 held(你說不用再跑:擱著,不劃掉、不打勾)照原樣給 CSS
 const stageState = (st) => st.state === 'current' ? 'ran' : (st.state ?? 'none');
-/** 結論會過期的關(D)的兩句話,伺服器照 lib/rounds.mjs 算好給的(D 多輪先問人 AC-9、AC-13)——這裡不另寫一份。舊的服務沒給就不印 */
-const tookTail = (st) => (st.rerun?.took ? `（${st.rerun.took}）` : '');
-// 上一次 Claude 說了什麼:只在「要不要再跑」與「你說不用再跑」時補一句——找到問題那一句本身就帶著結論,不重複
-const prevSaid = (st) => (noteHead(st) && (st.rerun?.state === 'ask' || st.rerun?.state === 'skipped') ? ` · 上一次 Claude 說：${noteHead(st)}` : '');
+/**
+ * 終端機也講的句子(五關每一格那一句、寫規格那一關的旁白、清單的那幾句…)都是伺服器照 lib 算好帶過來的,這裡只畫——
+ * 以前這裡各寫一份翻譯,改一邊要記得改另一邊(老毛病 P2;規格:終端機與網頁說同一句)。
+ * 舊的服務(合併之後還沒 --serve-restart)沒給那一句:不自己拼、不留空白,講服務還在跑舊的程式(AC-5)。
+ */
+const OLD_LINE = '（服務還在跑舊的程式）';
+/** 伺服器給的句子裡把一段標起來(粗體、指令的樣子)。找不到那一段就照原樣——只影響長相,不影響字 */
+const mark = (text, part, tag = 'b') => { const t = esc(text), m = esc(part ?? ''); return m && t.includes(m) ? t.replace(m, () => `<${tag}>${m}</${tag}>`) : t; };
+/** 舊的服務一頁講一次怎麼修;每個缺字的地方只放上面那句短的 */
+function oldServerBanner() {
+  return latest && !('sharedLines' in latest)
+    ? '<p class="fault" data-tone="amber">🟡 儀表板的服務還在跑舊的程式，有幾句畫不出來——跑 <code>pipeline-status --serve-restart</code></p>' : '';
+}
 /** 清單收合的狀態:key 是「工作區|關」。沒記過就用 dflt(驗收清單預設展開;收起來的建議卡預設收著);記在 localStorage,重新整理也記得。畫面每幾秒重畫一次,不能靠 DOM 記 */
 const FOLD_KEY = 'pm-fold';
 function foldStore() { try { return JSON.parse(localStorage.getItem(FOLD_KEY) ?? '{}'); } catch { return {}; } }
@@ -114,64 +125,6 @@ document.addEventListener('toggle', (e) => {
   const d = e.target;
   if (d instanceof HTMLDetailsElement && d.dataset.fold) rememberFold(d.dataset.fold, d.open);
 }, true);
-/** 結論說明的第一行(清單放在後面幾行) */
-const noteHead = (st) => String(st.report?.note ?? '').split('\n')[0].trim();
-/** B 的清單進度一句話:「3/5 對過,1 條待討論,1 條還沒對」。沒有清單就空字串。分批做的規格只數這一批(施工對話認規格 AC-8)。
- *  好幾份規格:講幾份、共幾條,讀不到的另外講(規格:多份規格與新資料夾的起點 AC-2、AC-5)——跟終端機(lib/cliStages.mjs 的 clProg)同一句 */
-// ⚠️ 寫成一行:測試(rerun／verify 的 workflow 那段)照「const 名字 = 一整行」從這個檔案拿出來真的跑
-const clProg = (cl) => (!cl?.parsed ? '' : `${cl.multi ? `${cl.specs} 份規格共 ${cl.total} 條：${cl.checked} 條對過` : `清單${cl.batch ? '這一批' : ''} ${cl.checked}/${cl.total} 對過`}${cl.pending ? `,${cl.pending} 條待討論` : ''}${cl.unmarked ? `,${cl.unmarked} 條還沒對` : ''}${cl.multi && cl.unreadable?.length ? `（另有 ${cl.unreadable.length} 份讀不到，條數不在裡面）` : ''}`);
-/** Claude 對完清單之後那一句的括號:好幾份規格才有——跟終端機(lib/cliStages.mjs 的 clDoneNote)同一句 */
-const clDoneNote = (cl) => (cl?.multi ? `（${cl.specs} 份規格共 ${cl.total} 條${cl.unreadable?.length ? `；另有 ${cl.unreadable.length} 份讀不到，條數不在裡面` : ''}）` : '');
-/** 「照別的對話寫的規格 X（Claude 說的）」——跟終端機(lib/cliStages.mjs 的 linkLine)同一句,改一邊要改另一邊 */
-const linkLine = (lk) => `照別的對話寫的規格 ${lk.name}（Claude 說的${lk.how === 'only' ? '；沒記到對話代號，這個工作區只有這個對話' : ''}）`;
-/** B 為什麼還不算寫完——跟終端機(lib/cliStages.mjs 的 checklistWhy)同一句 */
-function checklistWhy(cl) {
-  if (cl?.batchMissing?.length) return `這一批記的 ${cl.batchMissing.join('、')} 在規格裡找不到了（可能改過號），要重記 --spec`;
-  // 連上之前就有的勾,分不出是誰打的:施工的對話常常先對清單、收工時才記 --spec(魔鬼教官第二輪 2026-09-22,R1)——不准斷言「這個對話沒對過」
-  if (cl?.preMarked) return '清單的勾在連上這份之前就打好了，分不出是不是這個對話打的';
-  return '清單沒對完';
-}
-/** 寫規格那一關的旁白(施工對話認規格):規格在哪、另寫了一份、第一句話的提示、分不出是誰記的。都只是講,不算 A、不擋人。跟終端機的 specNotes 同一份文案 */
-function specNotes(st) {
-  const L = [];
-  const lk = st.link;
-  // 規格在哪(規格搬家 AC-3、AC-4):別的對話寫的連結、這個對話 A 寫的,兩條路都讀 specPlace 這一份——同一個地方判斷、同一句話
-  const where = (at) => {
-    // 資料夾不在了(worktree 清掉了):工作區裡沒辦法找,不准講成「都沒有同名的」(R1,魔鬼教官 2026-09-22)
-    if (at?.gone) return at.found === 'main' ? `這個對話的資料夾已經不在了；規格在主資料夾：${at.rel ?? `${at.name}.md`}` : `這個對話的資料夾已經不在了，找不到記的規格檔（${at.given ?? `${at.name}.md`}）`;
-    // 記在主資料夾的(worktree 的對話把規格寫進了主資料夾):講寫在那裡,不講「可能還沒併進來」
-    if (at?.found === 'main') return at.recordedIn === 'main' ? `規格寫在主資料夾（${at.rel ?? `${at.name}.md`}），不在這個工作區——不會叫 Claude 去那裡打勾` : '規格在主資料夾，不在這個工作區（可能還沒併進來）——不會叫 Claude 去那裡打勾';
-    if (at?.found === 'missing') return `找不到規格檔 ${at.name}.md${!at.given ? '' : at.recordedIn === 'main' ? `（記的是主資料夾的 ${at.given}；主資料夾的規劃中／進行中／升級摘要都沒有同名的）` : `（記的是 ${at.given}；規劃中／進行中／升級摘要都沒有同名的）`}`;
-    // 同名的那一份比記的那份還舊:分不出是不是同一份,不拿它的勾(R2,魔鬼教官 2026-09-22);證據只到「比較舊」,不講「是別份」(第二輪)
-    if (at?.found === 'older') return `記的規格檔 ${at.name}.md 不在記的位置（${at.given}）；工作區裡同名的 ${at.rel} 比記的那份還舊，分不出是不是同一份——不畫它的清單`;
-    // 記的位置不在這個工作區、也不在主資料夾:不拿工作區裡同名的另一份頂替(P6,魔鬼教官 2026-09-22)
-    if (at?.found === 'outside') return `記的規格檔 ${at.name}.md 不在這個工作區，也不在主資料夾——不會叫 Claude 去那裡打勾`;
-    if (at?.found === 'ambiguous') return `工作區裡叫 ${at.name}.md 的規格不只一份（${(at.where ?? []).join('、')}），分不出是哪一份`;
-    if (at?.moved) return `規格搬到了 ${at.rel}（記的是 ${at.given}）`;
-    return null;
-  };
-  // 一次 A 寫了好幾份(規格:多份規格與新資料夾的起點 AC-5):一份一句,前面標是哪一份——讀不到的那份不准安靜消失
-  const many = Array.isArray(st.specPlaces) && st.specPlaces.length > 1;
-  for (const at of many ? st.specPlaces : [st.specPlace]) {
-    const line = where(at);
-    if (line) L.push(many ? `${at.name}：${line}` : line);
-  }
-  if (st.side) L.push(!st.side.name ? `${ago(st.side.ts)}又叫了寫規格那一關（寫了哪份看不到）；施工清單還是 ${lk?.name ?? '原本那份'}`
-    : st.side.count > 1 ? `另寫了 ${st.side.count} 份規格 ${st.side.name}（等你點頭）` : `另寫了一份規格 ${st.side.name}（等你點頭）`);
-  // 連著一份規格又記了另一份(AC-7):換掉可以,安靜換掉不行。這一輪自己叫 A 寫的被 --spec 換掉也一樣
-  if (st.replaced) L.push(st.replaced.own ? `原本照 ${(st.replaced.fromNames ?? [st.replaced.from]).map((n) => `${n}.md`).join('、')}（這個對話叫 A 寫的），後來換成 ${st.replaced.to}.md`
-    : `原本照 ${st.replaced.from}.md，後來換成 ${st.replaced.to}.md`);
-  // 這一輪之前叫 A 寫的、還有沒對完的(同一個對話叫第二次 A,一輪從後來那次算):收工 hook 不會再要它的清單,講出來
-  for (const e of st.earlierSpecs ?? []) L.push(`${e.name}.md 是這一輪之前叫 A 寫的，還有 ${e.unmarked} 條沒對——這一輪從後來那次 A 算起，收工 hook 不會要它的清單`);
-  // 記過、現在哪裡都找不到的(改名、刪了):不算進這一輪的規格,講一句
-  if (st.ghostSpecs?.length) L.push(`記過 ${st.ghostSpecs.map((n) => `${n}.md`).join('、')}，現在找不到（可能改名或刪了）——不算進這一輪的規格`);
-  if (st.hint) L.push(`從你第一句話看，可能是照 ${st.hint.name} 施工（Claude 還沒確認${st.hint.cut ? '；感測器只記第一句話的開頭，後面有沒有提到別份看不到' : ''}）`);
-  if (st.unsure) L.push(`有一筆規格連結（${st.unsure.name}）分不出是哪個對話記的——不算數`);
-  if (st.shared) L.push('這個工作區這一輪有好幾個對話；規格連結只算記它的那個對話，看各對話的頁面');
-  // 這一輪還動了別的規格檔、沒記到它是不是這一輪的(AC-6):講一句,不擋收工(Oscar 2026-10-05:會多講話,可以)
-  if (st.extraSpecs?.length) L.push(`這一輪還動了 ${st.extraSpecs.map((n) => `${n}.md`).join('、')}，沒記到${st.extraSpecs.length > 1 ? '它們' : '它'}是不是這一輪的規格`);
-  return L;
-}
 /** 感測器看得到的關(有 skill 或 tools 的)。B 是你在講話的那個對話、未建的關,都不算分母。 */
 const sensed = (st) => st.type !== 'main-conversation' && st.type !== 'not-built';
 
@@ -244,23 +197,23 @@ const cpOk = (c) => !!c?.checkpoint && c?.checkpointRelation?.state === 'ok';
 
 function statRestore(c) {
   const cp = c.checkpoint;
+  // 終端機也講的那幾句是伺服器照 lib/scope.mjs 算好的(c.lines);舊的服務沒給 → 講舊的程式(規格:終端機與網頁說同一句)
+  const q = c.lines ?? null;
+  const say = (v) => esc(q ? v ?? '' : OLD_LINE);
   if (!cp) return `<div class="stat" data-tone="restore">
     <h3 class="ctitle">還原點</h3><div class="label">你回得去哪裡</div>
     <div class="big">還沒有</div>
-    <div class="sub">這不代表你沒有好版本,只代表還沒看過你跑檢查。</div>
+    <div class="sub">${say(q?.notStamped)}</div>
     <div class="hint">在那個資料夾跑 <code>pipeline-status --checkpoint</code></div></div>`;
 
   // ⚠️ L14:章指的版本不在這條分支上(歷史被改寫過)時,這張卡**不給**回去的指令。
   //    2026-09-11 主資料夾就是這樣:章指著清歷史之前的版本,複製回去會跳到另一條歷史。
   const rel = c.checkpointRelation;
   if (!cpOk(c)) {
-    const why = rel?.state === 'gone' ? '它指的版本已經不存在了。'
-      : rel?.state === 'off-branch' ? '它指的版本不在目前這條分支的歷史上（歷史被改寫過，或分支換過）。'
-      : '問不到它跟現在的版本是什麼關係。';
     return `<div class="stat" data-tone="restore">
     <h3 class="ctitle">還原點</h3><div class="label">你回得去哪裡</div>
     <div class="big">失效</div>
-    <div class="sub">${ago(cp.at)}蓋的章已經不能用：${esc(why)}</div>
+    <div class="sub">${ago(cp.at)}蓋的章已經不能用：${say(q?.broken)}</div>
     <div class="hint">⚠️ 所以這裡<b>不給</b>回去的指令。重新蓋一個：<code>pipeline-status --checkpoint</code></div></div>`;
   }
 
@@ -278,7 +231,7 @@ function statRestore(c) {
     <div class="big">${esc(c.cpVersion ? `v${c.cpVersion}` : clock(cp.at))}</div>
     <div class="sub">${ago(cp.at)}存的${c.cpVersion ? `（${esc(clock(cp.at))}）` : ''}</div>
     <div class="pills">${pills}</div>
-    <div class="hint">上面這幾項當時全綠。<span class="muted">⚠️ 檢查全綠不等於功能正確。</span></div>
+    <div class="hint">上面這幾項當時全綠。<span class="muted">${say(q?.green)}</span></div>
     <button class="copy" data-copy="${esc(cmd)}">複製回去的指令</button>
     <div class="hint">⚠️ 這個網頁<b>不會</b>幫你還原。複製出來的指令<b>已經含 cd</b>,
       貼到終端機或直接貼給 Claude 都可以——貼給 Claude 的話它會先問過你才動手。
@@ -335,6 +288,9 @@ function statChanges(c) {
   // 字是伺服器用 lib/scope.mjs 算好的(c.scope),終端機與收工 hook 同一句——這裡不 import 那支:常駐服務只送它啟動那一刻白名單裡的檔案,
   // 多一個新檔,更新後還沒重啟的那段時間整個畫面會載不進來。舊的服務沒給 scope,那時它算的就是「還沒存檔的」,照舊的字畫
   const sc = c.scope ?? scopeOfOldServer(c);
+  // 還沒存的有幾個、比例尺:伺服器照 lib/scope.mjs 算好的那一句(c.lines),跟終端機同一句;舊的服務沒給 → 講舊的程式
+  const q = c.lines ?? null;
+  const say = (v) => esc(q ? v ?? '' : OLD_LINE);
   const label = sc.label;
   const note = sc.note ? `<div class="hint">${esc(sc.note)}。</div>` : '';
   if (!f) return `<div class="stat" data-tone="change"><h3 class="ctitle">未檢查清單</h3><div class="label">${label}</div>
@@ -354,60 +310,47 @@ function statChanges(c) {
     <h3 class="ctitle">未檢查清單</h3><div class="label">${label}</div>
     <div class="big"><span class="num">${f.total}</span><span class="unit">個檔案</span></div>
     ${note}
-    ${f.uncommittedCount === null ? '<div class="sub">問不到哪些還沒存。</div>'
-      : f.uncommittedCount > 0 ? `<div class="sub">其中 <b>${f.uncommittedCount} 個還沒存進保險箱（commit）</b>${f.newCount ? `,${f.newCount} 個是新建的` : ''}。</div>`
+    ${f.uncommittedCount === null ? `<div class="sub">${say(q?.unsavedUnknown)}</div>`
+      : f.uncommittedCount > 0 ? `<div class="sub">${q ? `${mark(q.unsaved ?? '', `${f.uncommittedCount} 個還沒存進保險箱（commit）`)}${f.newCount ? `,${f.newCount} 個是新建的` : ''}。` : say()}</div>`
       : `<div class="sub">都已經存了（commit）${cpOk(c) ? ',只是蓋章之後改的,還沒重新檢查。要檢查：<code>pipeline-status --checkpoint</code>' : ''}。</div>`}
     <div class="files">${groups}</div>
-    ${c.scale ? `<div class="hint">參考:這個專案一次存檔（commit）通常 ${c.scale.median} 個檔案,
-      最多到過 ${c.scale.max} 個${sc.commitsNote ? `；${esc(sc.commitsNote)}` : ''}。</div>` : ''}
+    ${c.scale ? `<div class="hint">${q ? `參考:${esc(q.scale ?? '')}。` : say()}</div>` : ''}
   </div>`;
 }
 
-/* ═══ 分級:伺服器(lib/tier.mjs)算好,這裡只畫。跟終端機的 describeTier 說同一句話。 ═══ */
+/* ═══ 分級:伺服器(lib/tier.mjs)算好,這裡只畫。那幾句是伺服器照 tierLines 算好的(tier.lines),跟終端機的 describeTier 同一句 ═══ */
 function statTier(c, p) {
   const t = c.tier;
   if (!t) return '';
+  const q = t.lines ?? null;   // 舊的服務沒給 → 每一句講舊的程式,不自己拼(規格:終端機與網頁說同一句 AC-5)
+  const say = (v) => esc(q ? v ?? '' : OLD_LINE);
   const card = (tone, big, sub, extra = '') => `<div class="stat" data-tone="${tone}">
     <h3 class="ctitle">分級</h3><div class="label">這次要多小心</div>
     <div class="big">${big}</div>${sub ? `<div class="sub">${sub}</div>` : ''}${extra}</div>`;
-  const hint = '在這個專案的對話裡說「<b>幫我設定分級</b>」，Claude 會提清單給你確認；不需要的話說「這個專案不用分級」。';
-  // ⚠️ 沒設定 ≠ T0(R1);讀不懂 ≠ 沒設定。四種各自一張臉。
-  if (t.state === 'unset') return card('change', '還沒設定', hint);
-  if (t.state === 'off') return card('change', '不分級',
-    `你${t.off?.at ? ago(t.off.at) : ''}說這個專案不用分級${t.off?.why ? `（${esc(t.off.why)}）` : ''}。要恢復：<code>pipeline-status --tier-init</code>`);
-  if (t.state === 'broken') return card('alert', '讀不懂', `分級設定讀不懂：${esc(t.why ?? '')}。為了不亂分，這次不分級。`);
-  if (t.state === 'no-base') return card('change', '沒有基準', '這個專案還沒有任何 commit，沒有基準可以算「這次改動」。先 git commit 一次。');
-  if (t.state === 'unknown') return card('change', '問不到', '問不到改動，分不了級。');
-  const emptyWarn = t.dangerEmpty
-    ? `<div class="hint">⚠️ 危險清單是空的，所以永遠不會出現 ${esc(t.levels?.danger?.id ?? '第三級')}。在對話裡說「幫我設定分級」可以補。</div>` : '';
-  if (t.state === 'no-change') return card('safe', '沒有改動', '這次沒有改動，沒有東西要分級。', emptyWarn);
+  // ⚠️ 沒設定 ≠ T0(R1);讀不懂 ≠ 沒設定。四種各自一張臉——大字是畫面自己的,底下那句是伺服器給的
+  if (t.state === 'unset') return card('change', '還沒設定', q ? mark(q.setupHint, '幫我設定分級') : say());
+  if (t.state === 'off') return card('change', '不分級', q ? mark(q.main, 'pipeline-status --tier-init', 'code') : say());
+  if (t.state === 'broken') return card('alert', '讀不懂', q ? esc(`${q.main}。${q.tail}`) : say());
+  if (t.state === 'no-base') return card('change', '沒有基準', say(q?.main));
+  if (t.state === 'unknown') return card('change', '問不到', say(q?.main));
+  const emptyWarn = q?.emptyWarn ? `<div class="hint">${esc(q.emptyWarn)}</div>` : '';
+  if (t.state === 'no-change') return card('safe', '沒有改動', say(q?.main), emptyWarn);
   // 同一個 0 的另一種意思(老毛病 P5):只看得到還沒存的,而還沒存的沒有——不是那張安全的綠臉(規格:這一輪的起點 AC-4)
-  const sc = c.scope ?? scopeOfOldServer(c);
-  if (t.state === 'unseen') return card('change', '看不全', `${esc(sc.empty)}所以這次分不了級。`);
+  if (t.state === 'unseen') return card('change', '看不全', q ? esc(`${q.main}${q.tail}`) : say());
+  if (t.state !== 'ok') return card('change', '讀不懂', say(q?.main));
 
-  const { machine, manual, final } = t;
-  const dh = machine.hits.danger;
-  const why = machine.rank === 2 ? `碰到危險清單：${dh.slice(0, 3).map(esc).join('、')}${dh.length > 3 ? `…共 ${dh.length} 個` : ''}`
-    : machine.rank === 1 ? `碰到程式區 ${machine.hits.code.length} 個檔` : '沒碰到程式區';
-  // 只算得到還沒存的:存檔過的看不到,實際可能更高(跟終端機同一句,lib/scope.mjs)
-  const blind = sc.blind ? `<div class="hint">⚠️ ${esc(sc.short)}。存檔過的看不到，實際可能更高。</div>` : '';
-  const sub = manual
-    ? `機器算 ${esc(machine.id)}（${why}），<b>你說 ${esc(manual.id)}</b>（理由：${esc(manual.why)}）· ${ago(manual.ts)}`
-    : why;
+  const { manual, final } = t;
+  // 機器為什麼算這一級／你調高的那一句;只算得到還沒存的:存檔過的看不到,實際可能更高——都是伺服器給的那一句
+  const sub = !q ? say() : manual ? mark(q.main, `你說 ${manual.id}`) : esc(q.why);
+  const blind = q?.blind ? `<div class="hint">${esc(q.blind)}</div>` : '';
   // ✅ 有紀錄而且結案了(Claude 說／你說);⏸ 有紀錄沒結案;⚠️ 沒有紀錄;❔ 問不到／不適用;🔗 規格是別的對話寫的(Claude 說照哪份施工)。沒有「通過」這種狀態(R2)。
-  const reqs = t.requirements.length
-    ? `<ul class="reqs">${t.requirements.map((r) => {
-        const mark = r.state === 'ok' ? '✅' : r.state === 'ran' ? '⏸' : r.state === 'missing' ? '⚠️' : r.state === 'linked' ? '🔗' : '❔';
-        return `<li data-state="${r.state}">${mark} ${esc(r.label)}：${r.ts ? ago(r.ts) : ''}${esc(r.detail)}</li>`;
-      }).join('')}</ul>`
+  const reqs = q?.reqs?.length
+    ? `<ul class="reqs">${q.reqs.map((r) => `<li data-state="${esc(r.state)}">${esc(r.mark)} ${esc(r.label)}：${esc(r.text)}</li>`).join('')}</ul>`
     : '';
-  const cand = t.candidates.length
-    ? `<div class="hint">⚠️ 這次動到的檔案裡，有 ${t.candidates.length} 個名字像會存東西、但不在危險清單：${
-        t.candidates.slice(0, 3).map(esc).join('、')}。只是提醒，改錯會靜默丟資料的話再加進去。</div>` : '';
+  const cand = q?.candidates ? `<div class="hint">${esc(q.candidates)}</div>` : '';
   // 危險清單可能過期了(規格:危險清單會過期):句子是伺服器算好的(lib/tier.mjs,跟終端機同一句),這裡只畫。舊的服務沒給就不畫
   const stale = (t.staleNotes ?? []).map((x) => `<div class="hint">${esc(x)}</div>`).join('');
-  const ignored = t.manualIgnored
-    ? `<div class="hint">你${ago(t.manualIgnored.ts)}說的 ${esc(t.manualIgnored.id)} 沒有比機器算的高，不採用。</div>` : '';
+  const ignored = q?.ignored ? `<div class="hint">${esc(q.ignored)}</div>` : '';
   // 調高:只列比機器算的高的等級,理由必填。收回:只收回你自己調的,回到機器算的——沒有任何按鈕能低於機器算的。
   const control = manual
     ? `<button class="mini-btn" data-tier-retract data-proj="${esc(p.name)}" data-cwd="${esc(c.path)}">收回</button>`
@@ -420,39 +363,32 @@ function statTier(c, p) {
   const tone = t.requirements.some((r) => r.state === 'missing') ? 'alert' : 'safe';
   return card(tone, esc(manual ? manual.id : final.id), sub,
     `${blind}${reqs}${ignored}${emptyWarn}${cand}${stale}
-    <div class="hint muted">為了程式碼安全，分級只能往上調。</div>${control}`);
+    <div class="hint muted">${say(q?.upOnly)}</div>${control}`);
 }
 
-/** 感測器那一行(誠實修補 D3):「掛在哪」看設定,「活著嗎」看紀錄。跟終端機版說同一句話。 */
+/**
+ * 感測器那一行(誠實修補 D3):「掛在哪」看設定,「活著嗎」看紀錄。字都是伺服器給的,跟終端機同一句——
+ * 已掛上、最後一筆、掛壞了、收工 hook、沒掛上(c.sensor.lines,lib/faults.mjs 的 sensorParts)、沒有紀錄(noneLine)、設定裡沒掛上的那兩種(offLine)、修法(fix)。
+ * 舊的服務沒給:不在這裡猜(證據在手上時不准說「沒掛上」,R1),講服務還在跑舊的程式(規格:終端機與網頁說同一句 AC-5)。
+ */
 function sensorLine(c) {
-  const m = c.sensor?.mount, seen = c.sensor?.lastSeen;
-  // 沒有來自這裡的紀錄時那一句,伺服器照終端機同一個函式給(lib/faults.mjs 的 noneHereLine):記過的專案只講得出「N 天內沒有」——
-  // 以前這裡寫死「還沒有」,清空之後像剛裝好、從沒記過(規格:90天清空之後的說法 AC-4)。舊的服務沒給 → 不猜是哪一種,講服務還在跑舊的程式(AC-5)
-  const none = c.sensor && 'noneLine' in c.sensor ? c.sensor.noneLine ?? ''
-    : '沒有來自這裡的紀錄（儀表板的服務還在跑舊的程式，分不出是還沒記過、還是超過保留期限清掉了；重啟它：pipeline-status --serve-restart）';
-  const last = seen ? `最後一筆來自這裡的紀錄：${ago(seen)}` : none;
+  const m = c.sensor?.mount, q = c.sensor?.lines ?? null;
+  const restart = '（儀表板的服務還在跑舊的程式，重啟它：<code>pipeline-status --serve-restart</code>）';
   if (m?.state === 'broken') {
-    // ⚠️ 最危險的一種:設定看起來好好的,紀錄卻安靜地停了(LESSONS L13)。終端機講了,網頁以前沒講。
-    // 修法是伺服器給的那一句(lib/mount.mjs 的 mountFix,跟終端機、--on 同一句;規格:agent回報與故障記號 AC-6)——
-    // 以前這裡一律寫「跑 --on」,plugin 的捷徑壞了時照做,回你「本來就在記錄中」。舊的服務沒給 → 叫你看終端機,不猜
-    const fix = c.sensor?.fix ?? '修法：跑 pipeline-status 看終端機的感測器那一行（儀表板的服務還在跑舊的程式）';
-    return `<p class="section-note">🔴 感測器掛著,但它指向的檔案不存在——<b>紀錄已經停了,而且不會有任何徵兆</b>${
-      seen ? `（${esc(last)}）` : ''}。${esc(fix)}</p>`;
+    // ⚠️ 最危險的一種:設定看起來好好的,紀錄卻安靜地停了(LESSONS L13)
+    if (!q) return `<p class="section-note">🔴 感測器掛著,但它指向的檔案不存在${restart}。</p>`;
+    return `<p class="section-note">${mark(q.broken, q.em)}${q.stopped ? `（${esc(q.stopped)}）` : ''}。${esc(c.sensor?.fix ?? '')}</p>`;
   }
   if (m?.state === 'ok') {
-    const where = m.where === 'main' ? '（用的是主資料夾的設定）' : m.where === 'user' ? '（用的是帳號層級的設定）' : '';
+    if (!q || !('noneLine' in c.sensor)) return `<p class="section-note">感測器：已掛上${restart}</p>`;
     // 收工 hook 活著沒:看心跳,不看設定——「掛著」不等於「活著」(L13)
-    const gate = c.sensor?.gate?.ts ? `收工 hook 最後一次跑 ${ago(c.sensor.gate.ts)}` : '收工 hook 還沒跑過（要開新對話;一直沒跑就是沒被觸發,不是沒事）';
-    return `<p class="section-note">感測器：已掛上${esc(where)} · ${esc(last)} · ${esc(gate)}</p>`;
+    return `<p class="section-note">${esc(q.mounted)} · ${esc(q.seen ?? c.sensor.noneLine ?? '')} · ${esc(q.gate)}</p>`;
   }
-  // 設定裡沒掛上的那兩種(你退出了、設定裡找不到但紀錄還有 → 它在記):伺服器照終端機同一個函式算好給的那一句
-  // (lib/faults.mjs 的 sensorOffLine)——這裡不另寫一份。以前兩邊各寫一份,結尾已經不一樣(老毛病 P2)
-  if (c.sensor && 'offLine' in c.sensor) {
-    return c.sensor.offLine ? `<p class="section-note">${esc(c.sensor.offLine)}</p>`
-      : '<p class="section-note">感測器：沒掛上。在那個資料夾跑 <code>pipeline-status --on</code>。</p>';
+  // 設定裡沒掛上的那兩種(你退出了、設定裡找不到但紀錄還有 → 它在記):伺服器照終端機同一個函式算好給的那一句(lib/faults.mjs 的 sensorOffLine)
+  if (c.sensor && 'offLine' in c.sensor && (c.sensor.offLine || q)) {
+    return `<p class="section-note">${c.sensor.offLine ? esc(c.sensor.offLine) : mark(q.notMounted, 'pipeline-status --on', 'code')}</p>`;
   }
-  // 舊的服務沒給那一句:不在這裡猜(證據在手上時不准說「沒掛上」,R1)——叫你看終端機
-  return `<p class="section-note">感測器：設定裡找不到${seen ? `,但 ${esc(ago(seen))}還有來自這裡的紀錄` : ''}——細節跑 <code>pipeline-status</code> 看（儀表板的服務還在跑舊的程式，重啟它：<code>pipeline-status --serve-restart</code>）。</p>`;
+  return `<p class="section-note">感測器：設定裡找不到——細節跑 <code>pipeline-status</code> 看${restart}。</p>`;
 }
 
 /** 專案自己寫的關卡讀不懂、先照內建的五關畫:伺服器給的那一句(跟終端機同一句,lib/rounds.mjs)。沒有就不畫 */
@@ -469,10 +405,6 @@ function workflow(c) {
     const s = stageState(st);
     const r = ROLE[st.id] ?? { icon: '·', house: '', does: '' };
     const last = i === c.stages.length - 1;
-    // 瀏覽器那一關記的是「開了瀏覽器做動作」——12 個動作不等於驗收通過,文案只講跑過
-    // 「被叫」的證據有兩種:你自己打的斜線指令(不經過 Skill 工具,L19)、或 Claude 自己去叫。字要跟證據一樣大:叫了,不是跑完了
-    const verb = st.type === 'browser' ? `開瀏覽器跑過一輪${st.count ? `（${st.count} 個動作）` : ''}`
-      : st.via === 'typed' ? `你叫了 /${esc(st.calledAs ?? '')}` : `Claude 叫了 /${esc(st.calledAs ?? st.skill ?? '')}`;
     const said = st.type === 'browser' ? '驗收過了' : '處理完了';
     // 只有驗收那一關有按鈕(五關自動結案 AC-10):其他關由儀表板自動辨識——按鈕多了會被忽略跳過(Oscar)。跟 CLI 的 --clear 同一種紀錄(source:human)
     // E 還沒被你說驗收過(只開過瀏覽器、Claude 走過一遍等你查核、你說過了之後又改了程式、你說不用再走)都給按鈕;按了是你說的(source:human)
@@ -484,41 +416,12 @@ function workflow(c) {
     const eList = el?.items?.length
       ? `<ul class="acl">${el.items.map((it) => `<li data-verdict="${esc(it.verdict)}"><span class="mark">${esc(it.mark)}</span>
           <span>${it.id ? `<b>${esc(it.id)}</b> ` : ''}${esc(it.body)}${it.note ? `<span class="muted">${esc(it.note)}</span>` : ''}</span></li>`).join('')}</ul>` : '';
-    const status =
-      // B(對話本身):改到程式檔就算在動,印最後一次改檔的時間;不數檔案——那要看 git(未檢查清單那張卡)
-      st.type === 'main-conversation'
-        ? (s === 'ran' ? `最後一次改程式檔 ${ago(st.ranAt)}${st.via === 'git' ? '（感測器沒看到改檔,是 git 說的——可能是用 Bash 寫的）' : ''}——現在在這一關${clProg(st.checklist) ? `（${clProg(st.checklist)}${st.checklist?.batchMissing?.length || st.checklist?.preMarked ? `；${checklistWhy(st.checklist)}` : ''}）` : ''}`
-          // 清單沒對完:不劃掉,用「要處理」的樣子(AC-6)
-          : s === 'stale' ? `改過程式檔（最後一次 ${ago(st.ranAt)}）,${clProg(st.checklist)}——${checklistWhy(st.checklist)},不算寫完`
-          : s === 'done' ? `改過程式檔（最後一次 ${ago(st.ranAt)}）,${ago(st.doneAt)}Claude 對完清單${clDoneNote(st.checklist)}`
-          : s === 'passed' ? `改過程式檔（最後一次 ${ago(st.ranAt)}）${st.closedBy === 'checklist' ? `,Claude 對完清單${clDoneNote(st.checklist)}` : ''}——已走過`
-          : '就是你在講話的那個對話（這一輪還沒改到程式檔）')
-      : s === 'notbuilt' ? '這一關還沒建'
-      // A 的結案是你點頭開工(之後第一次改到程式檔):講出來,不然像是憑空劃掉的
-      // 已走過的關,結論還是要講一句(誰說的、說了什麼),不然像是憑空劃掉的
-      // 照別的對話寫的規格施工(施工對話認規格 AC-1):連結不是 A 的一次呼叫,沒有「叫了」的時間,講照哪份、誰說的
-      : s === 'passed' && st.closedBy === 'link' && st.link ? `已走過：${linkLine(st.link)}`
-      : s === 'passed' ? `${ago(st.ranAt)}${verb}${st.closedBy === 'nod' ? `,${ago(st.nodAt)}開始改程式檔,算你點頭開工了` : st.closedBy === 'claude' && noteHead(st) ? `,Claude 說：${noteHead(st)}` : st.closedBy === 'human' ? `,你說${said}` : ''}——已走過${tookTail(st)}`
-      // 結論會過期的關(D):D 之後又改了程式檔——要不要再跑由你決定(D 多輪先問人 AC-2),不是「要再跑」;叫了沒記結論也是這個樣子。不劃掉、不打勾
-      : s === 'stale' ? `${ago(st.ranAt)}${verb},${st.rerun?.line ?? '之後又改了程式檔——要再跑一次'}${prevSaid(st)}${tookTail(st)}`
-      // 你說不用再跑(AC-4):附你在 D 之後說的最後一句(感測器記的,不是 Claude 轉述的)與時間,讓你自己對得出來。擱著,不是驗過了
-      : s === 'held' ? `${ago(st.ranAt)}${verb},${st.rerun?.line ?? '你說不用再跑'}${prevSaid(st)}${tookTail(st)}`
-      // 結案要說得出是誰說的(AC-11):Claude 記的結論、或你說(E 驗收、舊紀錄)
-      : s === 'done' ? `${ago(st.ranAt)}${verb},${ago(st.doneAt ?? st.clearedAt)}${st.closedBy === 'claude' ? `Claude 說${noteHead(st) ? `：${noteHead(st)}` : '沒問題'}` : `你說${said}`}${tookTail(st)}`
-      : s === 'ran' ? `${ago(st.ranAt)}${verb},${st.report?.verdict === 'found' ? `Claude 說找到問題${noteHead(st) ? `：${noteHead(st)}` : ''}——還沒處理完${tookTail(st)}`
-          : st.type === 'browser' ? `還沒有人說${said}` : (c.stages.find((v) => v.skill)?.id === st.id ? '等你點頭開工' : st.rerun?.line ?? 'Claude 還沒記結論')}`
-      // 開過瀏覽器 ≠ 驗收過(Oscar 2026-09-15:截圖儀表板也會讓 E 亮)。講去了哪,不亮,算不算由人按
-      : s === 'seen' ? `${ago(st.ranAt)}開過瀏覽器（${st.count} 個動作${st.hosts?.length ? `,去了 ${st.hosts.slice(0, 3).join('、')}` : ''}）——算不算驗收你說了算`
-      // 「沒有紀錄」跟「這裡根本沒有這個指令」是兩件事——Forma Pro 沒有 /spec,那一關永遠不會有紀錄
-      : st.available === false ? `找不到 /${st.skill ?? ''} 這個指令（這個專案的 .claude/ 和 ~/.claude 都沒有）`
-      // 上一輪的不畫線,只講一句——線多了會干擾判斷(Oscar 2026-09-15)
-      : st.prevRanAt ? `這一輪還沒跑（上一輪 ${ago(st.prevRanAt)}跑過）`
-      // 紀錄檔讀不到東西的時候(實測走不到:清空之後一個對話都不剩,這一頁打不開)也不准講「感測器沒有資料」——
-      // 講伺服器給的那一句(記過的專案是「N 天內沒有來自這裡的紀錄」;規格:90天清空之後的說法 AC-3)
-      : (c.sensor?.state === 'ok' ? '這一輪還沒跑' : c.sensor?.noneLine ?? '沒有紀錄');
+    // 那一句是伺服器照 lib/stageLines.mjs 算好的,跟終端機同一句(B 改到程式檔沒、A 等你點頭、D 要不要再跑由你決定…)。這裡只畫
+    const status = 'line' in st ? st.line ?? '' : OLD_LINE;
     const saidArgs = st.args
       ? `<div class="said">「${esc(st.args.slice(0, 90))}${st.args.length > 90 ? '…' : ''}」</div>` : '';
-    const notes = specNotes(st).map((n) => `<div class="said">${esc(n)}</div>`).join('');
+    // 寫規格那一關的旁白(規格在哪、另寫了一份…):伺服器給的,跟終端機同一句。舊的服務沒給:那一格的狀態列已經講了舊的程式
+    const notes = (Array.isArray(st.notes) ? st.notes : []).map((n) => `<div class="said">${esc(n)}</div>`).join('');
     // A 的清單就是規格檔裡的 AC,照檔案畫(AC-5)。解析不了就照原文、找不到就說找不到——不假裝
     // 只有 A 帶完整的清單(有 items);B 只帶進度摘要,進度已經寫在狀態列,這裡不畫——畫下去就是 undefined 的 .map(2026-09-16 實際炸過一次)
     const cl = st.checklist && Array.isArray(st.checklist.items) ? st.checklist : null;
@@ -529,18 +432,20 @@ function workflow(c) {
     // 預設展開;你收起來就記住,資料每幾秒重畫一次也不會蓋掉你的選擇(Oscar 2026-09-16:一重畫就縮回去,很干擾)
     const aclBox = (key, summary, inner) => `<details class="acl-box" data-fold="${esc(key)}"${foldOpen(key) ? ' open' : ''}><summary>${summary}</summary>
         ${inner}</details>`;
+    // 清單上面那一句、收合的標題、為什麼還不算寫完、好幾份時每一份那一句:伺服器照 lib/stageLines.mjs 算好的(cl.lines),跟終端機同一句
+    const L = cl?.lines ?? null;
+    const lineOf = (v) => (L ? v ?? '' : OLD_LINE);
     const clHtml = !cl ? ''
       // 一輪寫了好幾份(規格:多份規格與新資料夾的起點 AC-1、AC-2、AC-5):一份一個清單,各寫各的條數;總數只加讀得到的,讀不到的講出來。
-      // 「全部 N 條」只在一份的時候出現——只算一份卻長得像全部,就是 2026-10-02 那個「全部 5 條其實 15 條」。不在這個工作區的那一份,在哪、為什麼,旁白講了
-      : cl.multi ? `<div class="acl">這一輪寫了 ${cl.parts.length} 份規格，共 ${cl.total} 條${cl.unreadable?.length ? `（另有 ${cl.unreadable.length} 份讀不到，條數不在裡面）` : ''}</div>`
-        + cl.parts.map((p) => (!p.checklist ? ''
-          : !p.checklist.parsed ? `<div class="acl muted">${esc(p.name)}：${p.checklist.missing ? '找不到規格檔' : '規格檔裡沒有照格式寫的 AC'}</div>`
-          : aclBox(`${c.path ?? ''}|${st.id}|${p.name}`, `驗收清單 · ${esc(p.name)}：${esc(clProg(p.checklist).replace(/^清單 /, ''))}（這份 ${p.checklist.total} 條）`, aclItems(p.checklist)))).join('')
-      : cl.missing ? `<div class="acl muted">清單：找不到這一輪的規格檔${cl.file ? `（${esc(String(cl.file).split('/').slice(-3).join('/'))}）` : ''}</div>`
-      : !cl.parsed ? `<div class="acl muted">清單：規格檔裡沒有照格式寫的 AC${cl.head ? `，開頭是：${esc(cl.head.slice(0, 80))}` : ''}</div>`
+      // 不在這個工作區的那一份,在哪、為什麼,旁白講了
+      : cl.multi ? `<div class="acl">${esc(lineOf(L?.head))}</div>`
+        + cl.parts.map((p, i) => (!p.checklist ? ''
+          : !p.checklist.parsed ? `<div class="acl muted">${esc(lineOf(L?.parts?.[i]))}</div>`
+          : aclBox(`${c.path ?? ''}|${st.id}|${p.name}`, `驗收清單 · ${esc(lineOf(L?.parts?.[i]))}`, aclItems(p.checklist)))).join('')
+      : cl.missing || !cl.parsed ? `<div class="acl muted">${esc(lineOf(L?.head))}</div>`
       // 分批做的規格(施工對話認規格 AC-8):整份照畫,不在這一批的標出來、淡一點——收工前只要求這一批
-      : aclBox(`${c.path ?? ''}|${st.id}`, `驗收清單：${clProg(cl).replace(/^清單(這一批)? /, cl.batch ? '這一批 ' : '')}（全部 ${cl.allTotal ?? cl.total} 條${cl.batch ? `，這一批只對 ${esc(cl.batch.join('、'))}` : ''}）`,
-        `${cl.batchMissing?.length || cl.preMarked ? `<div class="said">⚠️ ${esc(checklistWhy(cl))}</div>` : ''}
+      : aclBox(`${c.path ?? ''}|${st.id}`, esc(lineOf(L?.title)),
+        `${L?.why ? `<div class="said">⚠️ ${esc(L.why)}</div>` : ''}
         ${aclItems(cl)}`);
     // 結論的說明有清單(多行)時,一行一條列在卡上——C 的建議、D 的發現就住在這裡
     const noteLines = String(st.report?.note ?? '').split('\n').map((l) => l.trim()).filter(Boolean);
@@ -851,7 +756,7 @@ function sessionPage(name, sid) {
     <div class="block">
       <h2 class="section serif">My Agent work flow</h2>
       <p class="section-note">五個工班跑到哪了,工作進度監視。<br>
-        ⚠️「跑過」不等於「通過」——感測器只看得到指令被呼叫,看不到結果。</p>
+        ${esc(latest?.sharedLines?.calledNotPassed ?? OLD_LINE)}</p>
       ${sensorLine(c)}
       ${stagesNoteLine(c)}
       ${workflow({ ...c, stages: s.stages })}
@@ -882,19 +787,19 @@ function render() {
   const link = (href, t) => `<a href="${href}">${esc(t)}</a><span class="sep">/</span>`;
   if (r.view === 'projects') {
     $crumb.innerHTML = '<span>案件</span>';
-    $app.innerHTML = faultBanner() + projectList();
+    $app.innerHTML = faultBanner() + oldServerBanner() + projectList();
   } else if (r.view === 'project') {
     // 路由用的是檔名(safeName 過的);麵包屑給人看,要用真的資料夾名
     const p = latest?.projects?.find((x) => x.name === r.project);
     $crumb.innerHTML = link('#/', '案件') + `<span>${esc(p?.displayName ?? r.project)}</span>`;
-    $app.innerHTML = faultBanner() + projectPage(r.project);
+    $app.innerHTML = faultBanner() + oldServerBanner() + projectPage(r.project);
   } else {
     const p = latest?.projects?.find((x) => x.name === r.project);
     const s = p?.sessions.find((x) => x.id === r.session);
     $crumb.innerHTML = link('#/', '案件')
       + link(`#/p/${encodeURIComponent(r.project)}`, p?.displayName ?? r.project)
       + `<span>${esc((s?.title ?? '對話').slice(0, 20))}</span>`;
-    $app.innerHTML = faultBanner() + sessionPage(r.project, r.session);
+    $app.innerHTML = faultBanner() + oldServerBanner() + sessionPage(r.project, r.session);
   }
 }
 

@@ -21,6 +21,7 @@ import { decide } from '../gate.mjs';
 import { collectAll } from '../lib/collect.mjs';
 import { safeName } from '../lib/events.mjs';
 import { sessionsOf, firstPromptsOf, saidByHuman, promptKind, rerunOf, rerunLine, tookLine, pairRuns } from '../lib/rounds.mjs';
+import { stageLine } from '../lib/stageLines.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const PLUGIN = JSON.parse(readFileSync(join(ROOT, '.claude-plugin', 'plugin.json'), 'utf8')).name;
@@ -404,29 +405,37 @@ section('AC-3、AC-13:從叫到記結論幾分鐘——紀錄算的、只算一�
   s.cleanup();
 }
 
-section('網頁的 D 那一格:擱著(held)的樣子、伺服器給的那一句與花了多久(真的跑 ui/app.js 的 workflow)');
+section('D 那一格:擱著(held)的樣子、那一句與花了多久——句子住 lib/stageLines.mjs(終端機與伺服器同一個函式),網頁照印(真的跑 ui/app.js 的 workflow)');
 {
   const src = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8');
   const fn = (name, sig) => src.match(new RegExp(`^function ${name}\\(${sig}\\) \\{\\n[\\s\\S]*?\\n\\}\\n`, 'm'))?.[0] ?? null;
   const constLine = (name) => src.match(new RegExp(`^const ${name} = .*$`, 'm'))?.[0] ?? null;
-  const parts = [constLine('stageState'), constLine('noteHead'), constLine('tookTail'), constLine('prevSaid'), constLine('clProg'), constLine('clDoneNote'), constLine('linkLine'),
-                 fn('checklistWhy', 'cl'), fn('specNotes', 'st'), fn('workflow', 'c')];
+  // 那一句、旁白都是伺服器給的(規格:終端機與網頁說同一句):畫面只剩 workflow 與它的小幫手
+  const parts = [constLine('stageState'), constLine('OLD_LINE'), fn('workflow', 'c')];
   check('從 ui/app.js 拿得出 workflow 與它用到的那幾個(拿不出來這一段就什麼都沒測到)', parts.every(Boolean), parts.map((p, i) => (p ? '' : i)).join(','));
   const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const ago = (iso) => (iso ? '5 分鐘前' : '');
   const wf = parts.every(Boolean) ? new Function('esc', 'ago', 'ROLE', 'foldOpen', `${parts.join('\n')}; return workflow;`)(esc, ago, {}, () => true) : null;
   const D = (o) => ({ id: 'D', name: '魔鬼教官', skill: 'chaos-check', ranAt: T(-10 * MIN), via: 'skill', calledAs: `${PLUGIN}:chaos-check`, report: { verdict: 'found', note: '找到 3 條\n- [R1] 一條', ts: T(-9 * MIN) }, ...o });
   // 第一個指令關是寫規格那一關(A):D 不能是第一個,不然「還沒記結論」會被畫成「等你點頭開工」
-  const card = (st) => ({ path: '/x', sensor: { state: 'ok' }, stages: [{ id: 'A', name: '寫規格', skill: 'spec', state: 'none' }, st] });
-  const held = wf?.(card(D({ state: 'held', rerun: { state: 'skipped', line: 'Claude 記下：你說不用再跑（你說：「不用跑了」，3 分鐘前）', took: '上一輪從叫到記結論 1 分鐘' } }))) ?? '';
-  check('擱著:data-state="held"、印伺服器給的那一句、上一次 Claude 說了什麼、花了多久', /data-state="held"/.test(held) && /你說：「不用跑了」，3 分鐘前/.test(held) && /上一次 Claude 說：找到 3 條/.test(held) && /上一輪從叫到記結論 1 分鐘/.test(held), held);
+  const card = (st) => ({ path: '/x', sensor: { state: 'ok' }, stages: [{ id: 'A', name: '寫規格', skill: 'spec', state: 'none', line: '這一輪還沒跑' }, st] });
+  // 伺服器做的事:用原本的 rerun(決定、你說的話、花了多久)算那一句,放進 line——終端機印的是同一個函式算的同一句
+  const screen = (st) => ({ ...st, line: stageLine(st, { ago }) });
+  const raw = (state, rerun, o = {}) => D({ state, rerun: { stage: { id: 'D', verb: '跑' }, ...rerun }, ...o });
+  const heldSt = raw('held', { state: 'skipped', decision: { said: { text: '不用跑了', ts: T(-3 * MIN) } }, concluded: true, took: { latest: true, minutes: 1 } });
+  const heldLine = stageLine(heldSt, { ago });
+  check('擱著那一句:附你在 D 之後說的最後一句、上一次 Claude 說了什麼、花了多久', /D 之後你說的最後一句：「不用跑了」/.test(heldLine) && /上一次 Claude 說：找到 3 條/.test(heldLine) && /上一輪從叫到記結論 1 分鐘/.test(heldLine), heldLine);
+  const held = wf?.(card(screen(heldSt))) ?? '';
+  check('擱著:data-state="held"、照印伺服器給的那一句', /data-state="held"/.test(held) && held.includes(esc(heldLine)), held);
   check('擱著的燈講「是你的決定,不是驗過了」', /是你的決定,不是驗過了/.test(held), held);
-  const ask = wf?.(card(D({ state: 'stale', rerun: { state: 'ask', line: '之後又改了程式檔，還沒再跑——要不要再跑由你決定', took: null } }))) ?? '';
-  check('要不要再跑:印伺服器給的那一句,不是「要再跑一次」', /要不要再跑由你決定/.test(ask) && !/要再跑一次/.test(ask), ask);
+  const askLine = stageLine(raw('stale', { state: 'ask', decision: null }), { ago });
+  check('要不要再跑:講「要不要再跑由你決定」,不是「要再跑一次」', /要不要再跑由你決定/.test(askLine) && !/要再跑一次/.test(askLine), askLine);
   const old = wf?.(card(D({ state: 'stale', report: null }))) ?? '';
-  check('舊的服務沒給那一句:照舊的字畫,不當掉、不印 undefined', /之後又改了程式檔——要再跑一次/.test(old) && !/undefined|null/.test(old), old);
-  const running = wf?.(card(D({ state: 'current', report: null, rerun: { state: 'no-report', line: 'Claude 還沒記結論（可能還在跑，也可能收尾忘了記）', took: null } }))) ?? '';
-  check('還沒記結論:照實講可能還在跑、也可能忘了記,不印花了多久', /可能還在跑，也可能收尾忘了記/.test(running) && !/從叫到記結論/.test(running), running);
+  check('舊的服務沒給那一句:不自己拼(不寫「之後又改了程式檔——要再跑一次」)、不當掉、不印 undefined,講服務還在跑舊的程式',
+    /服務還在跑舊的程式/.test(old) && !old.includes('之後又改了程式檔——要再跑一次') && !/undefined|null/.test(old), old);
+  check('沒有 rerun 的那一格(舊紀錄):句子照舊「之後又改了程式檔——要再跑一次」', stageLine(D({ state: 'stale', report: null }), { ago }).includes('之後又改了程式檔——要再跑一次'));
+  const runningLine = stageLine(raw('current', { state: 'no-report' }, { report: null }), { ago });
+  check('還沒記結論:照實講可能還在跑、也可能忘了記,不印花了多久', /可能還在跑，也可能收尾忘了記/.test(runningLine) && !/從叫到記結論/.test(runningLine), runningLine);
 }
 
 section('AC-1:skill 裡不准再叫 Claude 自己重跑——修完先問人(先寫一句必須抓到、一句必須放過)', 'P4');

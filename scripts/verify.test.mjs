@@ -408,7 +408,8 @@ section('畫面:E 那一格畫三句話與逐條的清單;Claude 走完沒有打
   const src = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8');
   const fn = (name) => src.match(new RegExp(`^function ${name}\\([^)]*\\) \\{\\n[\\s\\S]*?\\n\\}\\n`, 'm'))?.[0] ?? null;
   const one = (name) => src.match(new RegExp(`^const ${name} = .*;$`, 'm'))?.[0] ?? null;
-  const parts = [one('stageState'), one('tookTail'), one('prevSaid'), one('noteHead'), one('clProg'), one('clDoneNote'), one('linkLine'), fn('checklistWhy'), fn('specNotes'), fn('workflow')];
+  // 那一句、旁白、清單的那幾句都是伺服器給的(規格:終端機與網頁說同一句):畫面只剩 workflow 與它的小幫手
+  const parts = [one('stageState'), one('OLD_LINE'), fn('workflow')];
   check('從 ui/app.js 拿得出 workflow 與它用到的小函式(拿不出來這一段就什麼都沒測到)', parts.every(Boolean), parts.map((p, i) => (p ? '' : i)).join(','));
   const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const wf = parts.every(Boolean) ? new Function('esc', 'ago', 'ROLE', 'foldOpen', `${parts.join('\n')}; return workflow;`)(esc, ago, {}, () => true) : null;
