@@ -66,6 +66,11 @@ done
 # ⚠️ 瀏覽器工具只記**主機名**(url_host),不記整個網址:E 驗收要講得出「去了哪」,才分得出是在測專案還是在看儀表板。
 # ⚠️ E3(2026-09-11):worktree 對話的第一則訊息前面會被系統附加一段 <system-reminder>…</system-reminder>,
 #    截 200 字之後使用者打的字整個不見。先剝掉那段再截——記的是「使用者說了什麼」,不是系統塞了什麼。
+# ⚠️ 同一個形狀第二次(2026-10-25,規格:建議卡開的對話認得出已開始):在 app 按建議卡開出來的對話,第一句話被 app 包一層
+#    「Background (from the session that started this one):」＋背景說明＋「\n\nTask:\n」＋要貼的話。背景吃掉前 200 字,
+#    要貼的話剩不到 60 字,儀表板就認不出這個對話是照卡開的。所以剝完系統提醒之後,再剝掉**開頭**那一層才截。
+#    只認整段開頭(\A,不用 ^:有的 jq 版本 ^ 也認每一行的開頭)那一整句標頭;找不到「\n\nTask:\n」(格式變了)就整段照記,不剝、不猜。
+#    有剝的那一筆記 prompt_wrap:"task"——那一句其實是別的對話寫的(老毛病 P7),讀取端之後要分辨才有證據;這裡照舊不判斷誰說的。
 # ⚠️ app 建議卡(2026-09-17):Claude 在 app 裡叫「建議新開對話」的卡時,工具參數的 title／tldr／prompt／cwd 都記——
 #    在 app 按叉叉那張卡就永久消失,儀表板要留得住。欄位叫 in_*(tool_input 的):title、prompt、cwd 這三個名字
 #    已經是「對話標題」「使用者說的話」「對話在哪個資料夾」,混用的話讀取端會把對話改名成卡的標題。
@@ -102,6 +107,10 @@ def cut($max):
 (.tool_input.reason | cut(300))  as $r |
 (.tool_input.initiation  | cut(40)) as $i |
 (.tool_input.proposal_id | cut(80)) as $o |
+((.prompt // null) | if type=="string"
+   then gsub("<system-reminder>[\\s\\S]*?</system-reminder>\\s*"; "") else . end) as $said |
+($said | if type=="string"
+   then sub("\\ABackground \\(from the session that started this one\\):\\n[\\s\\S]*?\\n\\nTask:\\n"; "") else . end) as $task |
 {
   ts:        (now | todateiso8601),
   hook:       .hook_event_name,
@@ -116,8 +125,8 @@ def cut($max):
   file:       (.tool_input.file_path // .tool_input.notebook_path // null),
   url_host:   ([(.tool_input.url // "") | if type=="string" then . else "" end
                  | capture("^[a-zA-Z]+://(?<h>[^/?#]+)")] | .[0].h // null),
-  prompt:     ((.prompt // null)        | if type=="string"
-                 then (gsub("<system-reminder>[\\s\\S]*?</system-reminder>\\s*"; "") | .[0:200]) else . end),
+  prompt:     ($task | if type=="string" then .[0:200] else . end),
+  prompt_wrap: (if $task != $said then "task" else null end),
   title:      .session_title,
   in_title:   $t,
   in_tldr:    $l,

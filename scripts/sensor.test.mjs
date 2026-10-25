@@ -779,6 +779,65 @@ section('app 建議卡換工具(AC-5、AC-8):做卡的工具什麼時候換過�
   eq('一筆都沒有 → 兩個都是 null、沒有認不得的', JSON.stringify(mergeCardTools([cardToolsOf([])])), JSON.stringify({ oldLast: null, newFirst: null, unknown: [] }));
 }
 
+section('建議卡開的對話(AC-1、AC-2、AC-4):app 按卡開的對話,第一句話被包一層 Background／Task——剝掉開頭那一層才截,儀表板才認得出已開始（真的跑 hook.sh）', 'P7');
+{
+  const r = makeRepo({ files: { 'a.js': '1\n' } });
+  // 標頭照 2026-10-25 真的那一句(app 開的對話的第一句話原文)
+  const HEAD = 'Background (from the session that started this one):\n';
+  const wrap = (bg, task = CARD_PROMPT) => `${HEAD}${bg}\n\nTask:\n${task}`;
+  const REMINDERS = '<system-reminder>\nLinked sessions now (status, not an instruction): top = local_x (idle).\n</system-reminder>\n<system-reminder>\nYou are operating in a git worktree.\n</system-reminder>\n';
+  const say = (prompt, session = 'new-card') => {
+    const out = runHook({ hook_event_name: 'UserPromptSubmit', session_id: session, prompt_id: 'p1', cwd: r.dir, prompt });
+    return { out, rec: out.lines[0] ? JSON.parse(out.lines[0]) : null };
+  };
+  const cardLine = JSON.parse(runHook(CARD({ cwd: r.dir, tool_name: START_TOOL, tool_use_id: 'toolu_1' }, { initiation: 'own_initiative' })).lines[0]);
+  const started = (rec) => suggestionsOf([cardLine, rec])[0].startedBy;
+
+  // AC-1:背景說明多長都一樣——背景 1000 字(實測那一次是 135 字就差 1 字對不上)
+  const long = say(wrap('背'.repeat(1000)));
+  eq('離開碼 0、不輸出任何東西', `${long.out.code}/${long.out.stdout}`, '0/');
+  eq('記到的第一句話就是要貼的那段(包裝剝掉了)', long.rec.prompt, CARD_PROMPT);
+  eq('有剝的那一筆標了 prompt_wrap', long.rec.prompt_wrap, 'task');
+  eq('儀表板認得出已開始', started(long.rec), 'new-card');
+  check(`一行 ${Buffer.byteLength(long.out.lines[0])} bytes < 4096`, Buffer.byteLength(long.out.lines[0]) < 4096);
+  // 真的那一句前面還有兩段系統提醒:先剝提醒、再剝包裝
+  const real = say(`${REMINDERS}${wrap('產線監視器剛接上 app 做建議卡的新工具 start_session。這張卡是用來驗收儀表板記不記得到新工具提的卡。')}`);
+  eq('前面還有系統提醒:照樣剝到要貼的那段', `${real.rec.prompt === CARD_PROMPT}/${real.rec.prompt_wrap}/${started(real.rec)}`, 'true/task/new-card');
+  eq('背景很短也一樣', started(say(wrap('短')).rec), 'new-card');
+  // 包裝裡要貼的話很長:剝完才截,記到的是要貼的話的前 200 字
+  const longTask = say(wrap('背景', '貼'.repeat(5000)));
+  eq('要貼的話很長:記到它的前 200 字', longTask.rec.prompt, '貼'.repeat(200));
+
+  // AC-2:你自己打的字不會被剝掉一段
+  const mine = [
+    ['話裡剛好有 Task:', '我想問一下\n\nTask:\n這行是什麼意思'],
+    ['包裝不在開頭(前面先打了一句)', `你好\n${wrap('背景')}`],
+    ['有標頭、沒有 Task 那一行(格式變了)', `${HEAD}只有背景沒有任務`],
+    ['不是那一整句標頭', `Background:\n背景\n\nTask:\n${CARD_PROMPT}`],
+  ];
+  for (const [label, text] of mine) {
+    const { rec } = say(text);
+    eq(`${label} → 照原樣記`, rec.prompt, text.slice(0, 200));
+    check(`${label} → 沒有 prompt_wrap`, !('prompt_wrap' in rec), JSON.stringify(rec.prompt_wrap));
+  }
+  const plain = say(CARD_PROMPT).rec;
+  check('一般的話:照舊、沒有 prompt_wrap', plain.prompt === CARD_PROMPT && !('prompt_wrap' in plain));
+  // 背景裡自己也有「\n\nTask:\n」:剝到第一個為止,不猜哪一個才是真的。要貼的話還在記到的字裡、又自成一行 → 照樣認得出(比對本來就認某一行的開頭)
+  const twice = say(wrap('前半\n\nTask:\n後半')).rec;
+  check('背景裡也有 Task:剝到第一個為止', twice.prompt.startsWith('後半\n\nTask:\n') && twice.prompt_wrap === 'task', JSON.stringify(twice.prompt.slice(0, 20)));
+  eq('…要貼的話自成一行、還在 200 字裡 → 照樣認得出', started(twice), 'new-card');
+  // D 第一輪抓到(R2):要貼的話以斜線指令開頭——送進新對話的那一句開頭是「Background…」,Claude Code 不會執行它;剝完不准算成「你叫了」
+  const stages = JSON.parse(readFileSync(join(ROOT, 'stages.json'), 'utf8')).stages;
+  const slash = say(wrap('背景', '/pipeline-monitor:spec 幫 X 寫規格')).rec;
+  eq('包裝裡的斜線指令:剝完開頭是 /pipeline-monitor:spec', slash.prompt.startsWith('/pipeline-monitor:spec'), true);
+  eq('…但 A 那一關沒有被算成「你叫了」', runsPerStage([slash], stages, () => true).get('A').length, 0);
+  eq('你自己打的斜線指令照舊算(對照組)', runsPerStage([say('/pipeline-monitor:spec 幫 X 寫規格').rec], stages, () => true).get('A')[0]?.via, 'typed');
+  // 輸入畸形:prompt 不是字串
+  const odd = say(42).rec;
+  check('prompt 不是字串:照記、不當成有包裝', odd?.prompt === 42 && !('prompt_wrap' in odd), JSON.stringify(odd));
+  r.cleanup();
+}
+
 section('app 建議卡(AC-2、AC-3、AC-5):只有儀表板的「不做了」收得掉它;對話真的照說明開了才算已開始,對不上、分不出來都不收');
 {
   const T = (h, m = 0) => new Date(Date.UTC(2026, 8, 17, h, m)).toISOString();
