@@ -621,6 +621,13 @@ function suggestionsBlock(p) {
       const next = s.dismissedAt || s.startedBy ? '' : '，過時的話按「不做了」';
       lines.push(`⚠️ Claude 後來在這個對話裡叫過 ${wd.length} 次收回建議卡，理由：${reasons}${wd.length > 3 ? ` 等 ${wd.length} 次` : ''}——分不出收回的是不是這一張${next}`);
     }
+    // Claude 後來在這個對話裡照你的話開了之前提的某一張(只帶代號的那一次,規格:app建議卡換工具 AC-4):一樣分不出是哪一張,照實講、不收卡。
+    // 記到的是「Claude 叫了開卡」,不是「開成了」(R2)
+    const op = Array.isArray(s.opens) ? s.opens : [];
+    if (op.length) {
+      const next = s.dismissedAt || s.startedBy ? '' : '，是這一張的話按「不做了」';
+      lines.push(`⚠️ Claude 後來在這個對話裡照你的話叫過 ${op.length} 次開先前提的建議卡——分不出要開的是不是這一張、也看不到有沒有開成${next}`);
+    }
     // 收起來的理由:看得到的事實優先(真的有對話這樣開頭),再來才是你按的
     if (s.startedBy) {
       const where = s.startedProject ? `（在 ${esc(s.startedProject.name ?? s.startedProject.project)}）` : '';
@@ -652,7 +659,17 @@ function suggestionsBlock(p) {
     ? '⚠️ 儀表板的服務還在跑舊的程式,它不認得 app 對話裡的建議卡——那種卡就算記到了,這裡現在也看不到。跑一次 <code>pipeline-status --serve-restart</code>,再重新整理這一頁。'
     : p.appCardsSince
       ? `app 對話裡的建議卡從 ${clock(p.appCardsSince)} 開始有紀錄;更早跳過的、還沒重開的對話裡跳的,這裡不會有。`
-      : `紀錄裡沒有 app 對話裡的建議卡——不代表沒跳過:接上這個功能之前跳的、還沒重開的對話裡跳的、超過保留期限${days}的,這裡都看不到。`;
+      : `紀錄裡沒有 app 對話裡的建議卡——不代表沒跳過:接上這個功能之前跳的、還沒重開的對話裡跳的、app 換了做卡的工具而感測器還沒接上時跳的、超過保留期限${days}的,這裡都看不到。`;
+  // app 換過做卡的工具(2026-10-25 實際發生:新卡安靜地一張都進不來)、或記到認不得的 app 對話工具(下次再換的時候):照紀錄裡查得到的時間講,不編換工具的日期(R3)。
+  // 兩個日期是整台電腦所有專案一起算的(換工具是整個 app 的事)。欄位不在 = 服務還在跑舊的程式,講不出這一段——照實說(規格:app建議卡換工具 AC-5、AC-8)
+  const tools = latest?.appCardTools;
+  const toolNote = p.appCardsSince === undefined ? ''
+    : tools === undefined ? '（app 換過做卡的工具那一段，服務還在跑舊的程式、講不出來：跑一次 <code>pipeline-status --serve-restart</code>）'
+    : !tools || typeof tools !== 'object' ? ''
+    : [tools.oldLast && tools.newFirst ? `app 換過做建議卡的工具：這台電腦最後一次記到舊的是 ${clock(tools.oldLast)}、第一次記到新的是 ${clock(tools.newFirst)}，中間跳的卡可能沒記到。`
+        : tools.oldLast ? `app 換過做建議卡的工具，感測器還沒記到新的那一種：最後一次記到舊的是 ${clock(tools.oldLast)}，之後跳的卡可能都沒記到。` : '',
+       ...(Array.isArray(tools.unknown) ? tools.unknown : []).map((u) =>
+         `⚠️ 感測器記到 app 一個認不得的工具 <code>${esc(u.tool)}</code>（第一次 ${clock(u.first)}）——可能是 app 又換了做建議卡的工具，那種卡這裡看不到。`)].join('');
   // 卡掛在提建議的那個專案那一頁;要開在**這個**專案的卡,在這一頁指路——不然這一頁說沒有,別頁卻掛著要開在這裡的卡(P5)
   const incoming = (p.incomingSuggestions ?? []).map((x) =>
     `別的專案的對話提了 ${x.count} 張要開在這裡的建議卡,掛在 <a href="#/p/${encodeURIComponent(x.project)}">${esc(x.name ?? x.project)}</a> 那一頁。`).join('');
@@ -660,7 +677,7 @@ function suggestionsBlock(p) {
   if (!all.length) {
     return `<div class="block">
       <h2 class="section serif">建議新增的對話</h2>
-      <p class="section-note">Claude 覺得該另開一個對話做的事會放在這裡。這個專案的對話提的建議,紀錄裡現在一張都沒有。${since}</p>
+      <p class="section-note">Claude 覺得該另開一個對話做的事會放在這裡。這個專案的對話提的建議,紀錄裡現在一張都沒有。${since}${toolNote}</p>
       ${incomingNote}
     </div>`;
   }
@@ -676,7 +693,7 @@ function suggestionsBlock(p) {
       <p class="section-note">Claude 覺得該另開一個對話做的事。這裡開不了對話——<b>複製說明</b>，在 app 開新對話，貼進第一句。
         有對話真的照這段說明開了，這張會自己收到最下面（點開看得到是哪個對話）；不想做了按<b>不做了</b>。</p>
       <p class="section-note">這一區看不到卡在 app 裡是怎麼不見的（你按掉、或被後來的新卡擠掉）——那種卡在這裡會繼續掛著。
-        Claude 自己在對話裡叫了收回（做完了、前提變了、換了一張新的），會標在那個對話先前提的卡上，但分不出收回的是哪一張；過時的要自己按「不做了」。${since}</p>
+        Claude 自己在對話裡叫了收回（做完了、前提變了、換了一張新的）、或照你的話叫了開先前提的某一張，會標在那個對話先前提的卡上，但分不出是哪一張；過時的要自己按「不做了」。${since}${toolNote}</p>
       ${incomingNote}
       ${open.length ? `<div class="slist">${open.map(row).join('')}</div>` : '<p class="section-note">現在沒有還沒處理的建議。</p>'}
       ${foldedBox}

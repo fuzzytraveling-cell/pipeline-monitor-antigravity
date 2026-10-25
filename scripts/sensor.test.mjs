@@ -11,7 +11,7 @@ import process from 'node:process';
 import { readEvents, safeName, prepareSweep, finishSweep, drainSweep } from '../lib/events.mjs';
 import {
   loadStages, sessionsOf, lastRunPerStage, runsPerStage, roundView, sessionView, suggestionsOf, firstPromptsOf, perStageOfRound, SUGGEST_TOOL,
-  WITHDRAW_TOOL
+  WITHDRAW_TOOL, START_TOOL, SUGGEST_TOOLS, KNOWN_SESSION_TOOLS, cardToolsOf, mergeCardTools
 } from '../lib/rounds.mjs';
 import { collectAll } from '../lib/collect.mjs';
 import { parseChecklist } from '../lib/checklist.mjs';
@@ -694,6 +694,89 @@ section('app 建議卡:讀取端認的兩個工具名(提卡、收回),感測器
   check('收回卡的工具:那一筆跑的是感測器 hook.sh', hits(WITHDRAW_TOOL)[0]?.hooks?.[0]?.command?.endsWith('/hook.sh"') === true);
   check('hook.sh 裡也沒有寫死收回卡的工具名', !readFileSync(join(ROOT, 'hook.sh'), 'utf8').includes(WITHDRAW_TOOL));
   check('提卡那一筆不會順便接到收回(兩個工具各記各的,不會一次記兩筆)', hits(SUGGEST_TOOL)[0] !== hits(WITHDRAW_TOOL)[0]);
+}
+
+/** Claude Code 在這台電腦上怎麼比 matcher(2026-10-25 看過 2.1.308 的程式):只有英數、底線、| 的 → 照 | 拆開、一字不差;
+ *  其他的 → new RegExp(matcher).test(工具名),**不錨定**。舊的測試用錨定的比法,排除寫法(?!…)在兩種比法下結果要一樣才放心,所以兩種都比。 */
+const ccMatch = (m, tool) => (/^[a-zA-Z0-9_|]+$/.test(m) ? m.split('|').includes(tool) : new RegExp(m).test(tool));
+const anchored = (m, tool) => new RegExp(`^(?:${m})$`).test(tool);
+
+section('app 建議卡換工具(AC-1、AC-8):新工具有自己那一筆;認不得的 app 對話工具剛好被最後那一筆接到;同一個工具不會被兩筆接到', 'P6');
+{
+  const pre = JSON.parse(readFileSync(join(ROOT, 'hooks', 'hooks.json'), 'utf8')).hooks.PreToolUse;
+  for (const [how, fn] of [['照 Claude Code 的比法', ccMatch], ['錨定的比法', anchored]]) {
+    const hits = (tool) => pre.filter((e) => fn(e.matcher, tool));
+    for (const t of [...SUGGEST_TOOLS, WITHDRAW_TOOL]) {
+      eq(`${how}:${t} 剛好一筆接到(兩筆就會記兩次)`, hits(t).length, 1);
+      eq(`${how}:${t} 那一筆是它自己的(獨立一筆)`, hits(t)[0]?.matcher, t);
+    }
+    for (const t of KNOWN_SESSION_TOOLS.filter((x) => !SUGGEST_TOOLS.includes(x) && x !== WITHDRAW_TOOL)) {
+      eq(`${how}:跟卡無關、認得的 ${t} 不接(換章節之類每次都跑一次感測器,白費)`, hits(t).length, 0);
+    }
+    const fresh = 'mcp__ccd_session__propose_task';
+    eq(`${how}:認不得的 ${fresh} 剛好一筆接到`, hits(fresh).length, 1);
+    check(`${how}:那一筆跑的是感測器 hook.sh`, hits(fresh)[0]?.hooks?.[0]?.command?.endsWith('/hook.sh"') === true);
+    eq(`${how}:別的開頭(mcp__ccd_session_mgmt__)不接`, hits('mcp__ccd_session_mgmt__list_sessions').length, 0);
+    eq(`${how}:名字只是包含已知的(spawn_task_v2)也算認不得,要接到`, hits('mcp__ccd_session__spawn_task_v2').length, 1);
+  }
+  // 排除清單跟讀取端認得的清單是同一份:對不上的話,不是有工具被接了卻被畫成「認不得」,就是有工具沒接、也沒人講(P2)
+  const catchAll = pre.find((e) => e.matcher.startsWith('mcp__ccd_session__(?!'));
+  const listed = (catchAll?.matcher.match(/\(\?:([^)]*)\)/)?.[1] ?? '').split('|').map((n) => `mcp__ccd_session__${n}`);
+  eq('最後那一筆的排除清單 = lib/rounds.mjs 的 KNOWN_SESSION_TOOLS', JSON.stringify([...listed].sort()), JSON.stringify([...KNOWN_SESSION_TOOLS].sort()));
+  check('舊工具那一筆還在(舊紀錄要讀得到、還沒更新的 app 也還會叫它)', pre.some((e) => e.matcher === SUGGEST_TOOL));
+  check('hook.sh 裡沒有寫死新工具名', !readFileSync(join(ROOT, 'hook.sh'), 'utf8').includes(START_TOOL));
+}
+
+section('app 建議卡換工具(AC-1、AC-3、AC-4、AC-6):真的跑 hook.sh 餵新工具的每一種叫法,讀取端變成對的卡', 'P6');
+{
+  const r = makeRepo({ files: { 'a.js': '1\n' } });
+  const call = (id, input, tool = START_TOOL) => ({ ...CARD({ cwd: r.dir, tool_name: tool, tool_use_id: id }), tool_input: input });
+  const rec = (payload) => { const out = runHook(payload); return { out, row: out.lines[0] ? JSON.parse(out.lines[0]) : null }; };
+  const own = rec(call('toolu_own', { initiation: 'own_initiative', title: '修徽章', prompt: CARD_PROMPT, background: '剛剛看到徽章指到舊的網址。' }));
+  eq('離開碼 0、不輸出任何東西', `${own.out.code}/${own.out.stdout}`, '0/');
+  eq('initiation 記到了', own.row.in_init, 'own_initiative');
+  eq('背景說明放進 tldr 那一格', own.row.in_tldr, '剛剛看到徽章指到舊的網址。');
+  const offer = rec(call('toolu_offer', { initiation: 'offer', title: '當場問的' })).row;
+  const asked = rec(call('toolu_asked', { initiation: 'user_asked', title: '你叫它開的', prompt: '直接開' })).row;
+  const pick = rec(call('toolu_pick', { proposal_id: 'prop_3' })).row;
+  eq('只帶代號的那一次:代號記到了', pick.in_proposal, 'prop_3');
+  const old = rec(call('toolu_old', { title: '舊工具的卡', tldr: '舊的說明', prompt: '舊的要貼的話' }, SUGGEST_TOOL)).row;
+  const noInit = rec(call('toolu_noinit', { title: '沒帶 initiation', prompt: '有要貼的話' })).row;
+  const oddInit = rec(call('toolu_odd', { initiation: 'scheduled', title: '沒見過的叫法', prompt: '有要貼的話' })).row;
+  const ts = (row, m) => ({ ...row, ts: new Date(Date.UTC(2026, 9, 25, 2, m)).toISOString() });
+  const rows = [ts(old, 0), ts(own.row, 1), ts(offer, 2), ts(asked, 3), ts(noInit, 4), ts(oddInit, 5), ts(pick, 6)];
+  const cards = Object.fromEntries(suggestionsOf(rows).map((c) => [c.id, c]));
+  eq('掛著的卡:舊工具的、own_initiative、沒帶 initiation、沒見過的叫法(寧可多掛一張)', Object.keys(cards).sort().join(','), 'toolu_noinit,toolu_odd,toolu_old,toolu_own');
+  check('offer、user_asked 不是待辦卡', !cards.toolu_offer && !cards.toolu_asked);
+  check('只帶代號的那一次不是一張新卡', !cards.toolu_pick);
+  eq('新工具的卡:說明是背景說明、要貼的話整段在', `${cards.toolu_own.tldr}|${cards.toolu_own.prompt}`, `剛剛看到徽章指到舊的網址。|${CARD_PROMPT}`);
+  eq('新舊兩種卡的欄位一樣(畫面用同一種畫法)', JSON.stringify(Object.keys(cards.toolu_own).sort()), JSON.stringify(Object.keys(cards.toolu_old).sort()));
+  // AC-4:照你的話開了其中一張 → 列在那個對話、它之前提的每一張卡上;不收任何一張
+  eq('它之前提的卡都標著「照你的話開過 1 次」', Object.values(cards).map((c) => c.opens.length).join(','), '1,1,1,1');
+  check('沒有任何一張被當成已開始或不做了', Object.values(cards).every((c) => !c.startedBy && !c.dismissedAt));
+  eq('比它晚提的卡不標(指的不可能是它)', suggestionsOf([ts(pick, 0), ts(own.row, 1)])[0].opens.length, 0);
+  eq('同一次記了兩次(plugin 跟舊接法同時掛著)算一次', suggestionsOf([ts(own.row, 1), ts(pick, 6), ts(pick, 6)])[0].opens.length, 1);
+  // AC-6:新工具最胖的樣子——每一格都截滿,一行照樣放得下,而且被截的都標了
+  const huge = rec(call('toolu_01CardCardCardCardCardCa', { initiation: 'i'.repeat(500), proposal_id: '號'.repeat(500), title: '標'.repeat(500), background: '說'.repeat(2000), prompt: '貼'.repeat(5000), cwd: `/${'夾'.repeat(400)}` })).row;
+  const bytes = Buffer.byteLength(JSON.stringify(huge));
+  check(`新工具全部截滿:實測 ${bytes} bytes,離 4096 還有 ${4096 - bytes} bytes(要留 400 以上給沒截的 cwd)`, 4096 - bytes >= 400);
+  eq('被截的都標了', JSON.stringify(huge.in_cut), JSON.stringify(['title', 'tldr', 'prompt', 'cwd', 'init', 'proposal']));
+  r.cleanup();
+}
+
+section('app 建議卡換工具(AC-5、AC-8):做卡的工具什麼時候換過、記到認不得的工具——只講紀錄裡查得到的時間', 'P5');
+{
+  const at = (d) => `2026-10-${d}T00:00:00Z`;
+  const ev = (tool, d) => ({ ts: at(d), hook: 'PreToolUse', tool });
+  const a = cardToolsOf([ev(SUGGEST_TOOL, 11), ev(SUGGEST_TOOL, 13), ev(WITHDRAW_TOOL, 20), ev('mcp__ccd_session__mark_chapter', 21), ev('mcp__ccd_session__propose', 22)]);
+  eq('舊工具最後一次', a.oldLast, at(13));
+  eq('還沒記到新工具 → null(不是今天、不是猜的)', a.newFirst, null);
+  eq('認得的不算認不得、認不得的列出來', JSON.stringify(a.unknown), JSON.stringify([{ tool: 'mcp__ccd_session__propose', first: at(22), count: 1 }]));
+  const b = cardToolsOf([ev(START_TOOL, 26), ev(START_TOOL, 25), ev(SUGGEST_TOOL, 12), ev('mcp__ccd_session__propose', 19)]);
+  const all = mergeCardTools([a, b]);
+  eq('好幾個專案合起來:舊的取最晚、新的取最早', `${all.oldLast}/${all.newFirst}`, `${at(13)}/${at(25)}`);
+  eq('同一個認不得的工具合成一筆,次數加起來、第一次取最早', JSON.stringify(all.unknown), JSON.stringify([{ tool: 'mcp__ccd_session__propose', first: at(19), count: 2 }]));
+  eq('一筆都沒有 → 兩個都是 null、沒有認不得的', JSON.stringify(mergeCardTools([cardToolsOf([])])), JSON.stringify({ oldLast: null, newFirst: null, unknown: [] }));
 }
 
 section('app 建議卡(AC-2、AC-3、AC-5):只有儀表板的「不做了」收得掉它;對話真的照說明開了才算已開始,對不上、分不出來都不收');

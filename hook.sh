@@ -70,7 +70,7 @@ done
 #    在 app 按叉叉那張卡就永久消失,儀表板要留得住。欄位叫 in_*(tool_input 的):title、prompt、cwd 這三個名字
 #    已經是「對話標題」「使用者說的話」「對話在哪個資料夾」,混用的話讀取端會把對話改名成卡的標題。
 #    cwd 是「這張卡要開在哪」——實測有一半的卡是開在別的專案,不記的話「已開始」永遠對不到。
-#    這裡照舊**不認工具名**(AC-6):哪個工具算建議卡,讀取端說了算(lib/events.mjs 的 SUGGEST_TOOL)。
+#    這裡照舊**不認工具名**(AC-6):哪個工具算建議卡,讀取端說了算(lib/rounds.mjs 的 SUGGEST_TOOLS)。
 #    cut 照 **bytes** 截、不照字數:算的是寫進這一行之後佔幾個 bytes(中文 3、emoji 4、換行與引號 2、控制字元 6),
 #    照字數截保證不了 AC-4。不是字串、或是空的 → null(不猜)。有被截的欄位記在 in_cut,畫面才標得出「已截短」。
 #    二分法的圈數寫死(12 圈,2^12 比任何一個上限都大)、沒有「跑到條件成立為止」的迴圈——熱路徑不准有機會卡住(AC-2)。
@@ -78,6 +78,9 @@ done
 #    四段同時截滿也要離 4096 有一段距離——這一行還有沒截的舊欄位(cwd、對話與工具的代號),它們吃的是同一個空間。
 # ⚠️ Claude 收回建議卡時(2026-09-17 接),參數裡的 task_id 與 reason 也記(in_task／in_reason),同一個 cut、同一個 in_cut。
 #    上限一樣看過真的才訂:task_id 是 13 個字、理由最長 235 bytes。六段全部截滿也要放得進一行(測試真的跑一次量)。
+# ⚠️ app 換了做卡的工具(2026-10-25,規格:app建議卡換工具):新工具多帶 initiation(哪一種叫法)與 proposal_id(照哪一張開的),
+#    記成 in_init／in_proposal,同一個 cut、同一個 in_cut。新工具的「背景說明」(background)放進 tldr 那一格——
+#    兩個工具不會同時帶,所以最胖的一行不變胖;tldr 有的話照舊取 tldr。這裡照舊不認工具名。
 printf '%s' "$PAYLOAD" | jq -c --arg head "${HEAD:-}" '
 def cut($max):
   if type != "string" or . == "" then null else
@@ -92,11 +95,13 @@ def cut($max):
       end
   end;
 (.tool_input.title  | cut(200))  as $t |
-(.tool_input.tldr   | cut(500))  as $l |
+(.tool_input.tldr // .tool_input.background | cut(500)) as $l |
 (.tool_input.prompt | cut(2000)) as $p |
 (.tool_input.cwd    | cut(300))  as $w |
 (.tool_input.task_id | cut(60))  as $k |
 (.tool_input.reason | cut(300))  as $r |
+(.tool_input.initiation  | cut(40)) as $i |
+(.tool_input.proposal_id | cut(80)) as $o |
 {
   ts:        (now | todateiso8601),
   hook:       .hook_event_name,
@@ -120,9 +125,12 @@ def cut($max):
   in_cwd:     $w,
   in_task:    $k,
   in_reason:  $r,
-  in_cut:     ([["title", $t, .tool_input.title], ["tldr", $l, .tool_input.tldr],
+  in_init:    $i,
+  in_proposal: $o,
+  in_cut:     ([["title", $t, .tool_input.title], ["tldr", $l, (.tool_input.tldr // .tool_input.background)],
                 ["prompt", $p, .tool_input.prompt], ["cwd", $w, .tool_input.cwd],
-                ["task", $k, .tool_input.task_id], ["reason", $r, .tool_input.reason]]
+                ["task", $k, .tool_input.task_id], ["reason", $r, .tool_input.reason],
+                ["init", $i, .tool_input.initiation], ["proposal", $o, .tool_input.proposal_id]]
                  | map(select(.[1] != null and .[1] != .[2]) | .[0]) | if length > 0 then . else null end)
 } | with_entries(select(.value != null))' >> "$LOG_DIR/$PROJECT.jsonl" 2>/dev/null
 
