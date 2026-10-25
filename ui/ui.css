@@ -72,14 +72,16 @@ h2.section { font-size: var(--text-subheading); letter-spacing: var(--tracking-s
   border: 1px solid var(--color-ash); border-radius: var(--radius-2xl);
   padding: 20px; background: var(--color-parchment); min-height: 168px;
 }
-/* 柔和的圓形漸層暈染。⚠️ DESIGN.md:這幾個粉彩是**裝飾用**,不准當功能色——
-   剛好跟「不准用綠色表示通過」同一邊。 */
+/* 柔和的圓形漸層暈染,顏色跟著卡片的 data-tone 走。
+   ⚠️ safe 不准用薄荷綠(pipeline-ui AC-3:綠色不准用來表示「通過」)。分級卡的 safe 只代表「這一級要的關,沒有一關是『沒有紀錄』」——
+      D 找到問題還沒處理、問不到,都算 safe(app.js 的 statTier);三階梯的 safe 只代表「沒有東西會丟」。
+      以前是薄荷綠,字說還有問題、顏色說沒事(2026-10-25 查到)。 */
 .stat::before {
   content: ''; position: absolute; width: 210px; height: 210px; border-radius: 50%;
   right: -70px; top: -70px; filter: blur(38px); opacity: .55; pointer-events: none;
 }
 .stat[data-tone="restore"]::before { background: radial-gradient(circle, var(--color-sky-blue), transparent 70%); }
-.stat[data-tone="safe"]::before    { background: radial-gradient(circle, var(--color-mint), transparent 70%); }
+.stat[data-tone="safe"]::before    { background: radial-gradient(circle, var(--color-sky-blue), transparent 70%); }
 .stat[data-tone="change"]::before  { background: radial-gradient(circle, var(--color-gold), transparent 70%); }
 .stat[data-tone="alert"]::before   { background: radial-gradient(circle, var(--color-coral), transparent 70%); }
 .stat > * { position: relative; }
@@ -254,11 +256,12 @@ h2.section { font-size: var(--text-subheading); letter-spacing: var(--tracking-s
   50%     { box-shadow: 0 0 0 5px var(--color-periwinkle-mist); }
 }
 
-/* 跑過的:卡片右側一層會流動的暈染(不覆蓋整張卡) */
+/* 跑過的:卡片右側一層會流動的暈染(不覆蓋整張卡)。
+   ⚠️ 只用藍色系:「跑過」不等於通過,以前混了薄荷綠,看起來像過關了(pipeline-ui AC-3) */
 .acard[data-state="ran"], .acard[data-state="done"] { overflow: hidden; }
 .acard[data-state="ran"]::after, .acard[data-state="done"]::after {
   content: ''; position: absolute; right: -30px; top: -40%; bottom: -40%; width: 190px;
-  background: radial-gradient(ellipse at 70% 50%, var(--color-mint), transparent 62%),
+  background: radial-gradient(ellipse at 70% 50%, var(--color-periwinkle-mist), transparent 62%),
               radial-gradient(ellipse at 40% 50%, var(--color-sky-blue), transparent 62%);
   filter: blur(26px); opacity: .5; pointer-events: none;
   animation: wash 6s ease-in-out infinite alternate;
