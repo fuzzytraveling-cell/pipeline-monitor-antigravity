@@ -1,15 +1,17 @@
 /* ⚠️ AC-9:這個檔案裡**不准出現任何色碼**。全部吃 tokens.css(＝ui設計規格/variables.css)。
-   ⚠️ AC-10:Monad 是行銷網站的系統,尺度壓縮過——身分保留(紙感底、襯線 400、
-      全等寬、細線不用陰影、藥丸),但字級只用 12–32、卡片內距 20px、圓角 16px。 */
+   ⚠️ AC-10:Monad 是行銷網站的系統,尺度壓縮過——身分保留(紙感底、襯線 400、藥丸),字級只用 12–32、卡片內距 20px。
+   2026-10-27 起換成清新的工地工班風(規格:工地工班風畫面):一般的句子用無襯線字(中文是蘋方),等寬只留給指令、檔名;
+   便條紙有淡淡的影子、紙膠帶。跟 Monad 不一樣的地方記在 docs/DESIGN.md 最後一段 */
 @import url('/tokens.css');
 
 * { box-sizing: border-box; }
 body {
   margin: 0; background: var(--color-parchment); color: var(--color-off-black);
-  font-family: var(--font-abc-diatype-mono);
-  font-size: var(--text-body-sm); line-height: var(--leading-body-sm);
-  letter-spacing: var(--tracking-body-sm);
+  font-family: var(--font-body);
+  font-size: var(--text-body-sm); line-height: 1.5;
 }
+/* 等寬只留給指令、檔名、分支名、檢查項目(工地工班風畫面 AC-14) */
+.mono, .pill, .fgroup { font-family: var(--font-abc-diatype-mono); letter-spacing: var(--tracking-body-sm); }
 body.dim main { opacity: .45; filter: grayscale(.85); transition: opacity .2s; }
 
 /* ───────── 頂列 ───────── */
@@ -48,10 +50,17 @@ h2.section { font-size: var(--text-subheading); letter-spacing: var(--tracking-s
 .fault[data-tone="amber"] { border-left-color: var(--color-gold); }
 
 /* ───────── 第一層:案件列表 ───────── */
-.projects { display: grid; gap: var(--spacing-16); grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); }
+/* 案件卡也是貼在看板上的紙(工地工班風畫面 AC-11):施工圖的淡方格、紙膠帶(樣子跟對話頁的便條紙同一套,在下面) */
+.projects { display: grid; gap: var(--spacing-24) var(--spacing-16); grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); padding-top: 12px; }
 .pcard {
-  border: 1px solid var(--color-ash); border-radius: var(--radius-2xl);
-  padding: 20px; background: var(--color-parchment); cursor: pointer;
+  position: relative;
+  border: 1px solid var(--color-ash); border-radius: 10px;
+  padding: 22px 20px 18px; cursor: pointer;
+  background:
+    linear-gradient(var(--color-grid) 1px, transparent 1px) 0 0 / 22px 22px,
+    linear-gradient(90deg, var(--color-grid) 1px, transparent 1px) 0 0 / 22px 22px,
+    var(--color-paper);
+  box-shadow: var(--shadow-note);
   text-align: left; font: inherit; color: inherit; width: 100%;
   transition: border-color .15s, transform .15s;
 }
@@ -65,25 +74,47 @@ h2.section { font-size: var(--text-subheading); letter-spacing: var(--tracking-s
 .mini span[data-s="ran"]  { background: var(--color-lake-blue); }
 .mini span[data-s="done"] { background: var(--color-off-black); }
 
-/* ───────── 三張狀態卡(圓形漸層) ───────── */
-.stats { display: grid; gap: var(--spacing-16); grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+/* ───────── 四張便條紙(工地工班風畫面 AC-4、AC-5) ───────── */
+/* 每張一種淡水彩(data-note),固定代表「這是哪一張」,不跟狀態變;紙上有施工圖的淡方格,上緣貼一條紙膠帶。
+   ⚠️ 狀態只剩一個記號:有事要處理的那張(data-tone="alert",條件在 app.js,沒改),膠帶換成斜紋警示膠帶。
+      底色固定之後,顏色不會說「這張有問題」;不補這個記號,就回到「字說有問題、顏色說沒事」(L40)。
+      斜紋本身看得出來,不只靠顏色(pipeline-ui AC-4)。會跟著狀態變的顏色不准是薄荷綠(AC-3)——這裡沒有。 */
+.stats { display: grid; gap: var(--spacing-24) var(--spacing-16); grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  padding-top: 12px; }   /* 紙膠帶凸出卡片上緣,留位子 */
 .stat {
-  position: relative; overflow: hidden;
-  border: 1px solid var(--color-ash); border-radius: var(--radius-2xl);
-  padding: 20px; background: var(--color-parchment); min-height: 168px;
+  position: relative;
+  --paper: var(--color-paper); --wash: var(--color-ash);
+  border: 1px solid color-mix(in srgb, var(--wash) 75%, var(--color-ash));
+  border-radius: 10px; padding: 22px 20px 20px; min-height: 168px;
+  background:
+    radial-gradient(65% 50% at 90% 8%, color-mix(in srgb, var(--wash) 75%, transparent), transparent 72%),
+    radial-gradient(55% 45% at 6% 96%, color-mix(in srgb, var(--wash) 55%, transparent), transparent 72%),
+    linear-gradient(var(--color-grid) 1px, transparent 1px) 0 0 / 22px 22px,
+    linear-gradient(90deg, var(--color-grid) 1px, transparent 1px) 0 0 / 22px 22px,
+    var(--paper);
+  box-shadow: var(--shadow-note);
+  transition: transform .2s ease;
 }
-/* 柔和的圓形漸層暈染,顏色跟著卡片的 data-tone 走。
-   ⚠️ safe 不准用薄荷綠(pipeline-ui AC-3:綠色不准用來表示「通過」)。分級卡的 safe 只代表「這一級要的關,沒有一關是『沒有紀錄』」——
-      D 找到問題還沒處理、問不到,都算 safe(app.js 的 statTier);三階梯的 safe 只代表「沒有東西會丟」。
-      以前是薄荷綠,字說還有問題、顏色說沒事(2026-10-25 查到)。 */
-.stat::before {
-  content: ''; position: absolute; width: 210px; height: 210px; border-radius: 50%;
-  right: -70px; top: -70px; filter: blur(38px); opacity: .55; pointer-events: none;
+.stat[data-note="restore"] { --paper: var(--color-note-sky);    --wash: var(--color-note-sky-deep); }
+.stat[data-note="ladder"]  { --paper: var(--color-note-lilac);  --wash: var(--color-note-lilac-deep); }
+.stat[data-note="changes"] { --paper: var(--color-note-butter); --wash: var(--color-note-butter-deep); }
+.stat[data-note="tier"]    { --paper: var(--color-note-peach);  --wash: var(--color-note-peach-deep); }
+/* 微微歪一點,像隨手貼上去的;滑鼠移上去擺正 */
+.stats > .stat:nth-child(4n+1) { transform: rotate(-.6deg); }
+.stats > .stat:nth-child(4n+2) { transform: rotate(.5deg); }
+.stats > .stat:nth-child(4n+3) { transform: rotate(-.35deg); }
+.stats > .stat:nth-child(4n+4) { transform: rotate(.7deg); }
+.stats > .stat:hover { transform: none; }
+/* 紙膠帶(便條紙與案件卡同一條) */
+.stat::after, .pcard::after {
+  content: ''; position: absolute; top: -11px; left: 50%; width: 92px; height: 22px;
+  transform: translateX(-50%) rotate(-2.5deg); border-radius: 2px;
+  background: var(--color-tape); pointer-events: none;
 }
-.stat[data-tone="restore"]::before { background: radial-gradient(circle, var(--color-sky-blue), transparent 70%); }
-.stat[data-tone="safe"]::before    { background: radial-gradient(circle, var(--color-sky-blue), transparent 70%); }
-.stat[data-tone="change"]::before  { background: radial-gradient(circle, var(--color-gold), transparent 70%); }
-.stat[data-tone="alert"]::before   { background: radial-gradient(circle, var(--color-coral), transparent 70%); }
+.stat[data-tone="alert"]::after {
+  width: 118px;
+  background: repeating-linear-gradient(-45deg, var(--color-coral) 0 7px, var(--color-paper) 7px 14px);
+}
 .stat > * { position: relative; }
 .stat .ctitle {
   font-family: var(--font-untitled-serif); font-weight: var(--font-weight-regular);
@@ -97,7 +128,7 @@ h2.section { font-size: var(--text-subheading); letter-spacing: var(--tracking-s
   font-size: var(--text-body-sm); letter-spacing: normal;
   color: var(--color-smoke);
   padding-bottom: 10px; margin-bottom: 14px;
-  border-bottom: 1px solid var(--color-ash);   /* 副標與內容的分隔線 */
+  border-bottom: 1px solid color-mix(in srgb, var(--wash, var(--color-ash)), var(--color-off-black) 10%);   /* 副標與內容的分隔線,跟著紙的顏色 */
 }
 .stat .big { font-family: var(--font-untitled-serif); font-weight: var(--font-weight-regular);
   font-size: var(--text-heading-sm); letter-spacing: var(--tracking-heading-sm); line-height: 1.1; }
@@ -107,77 +138,42 @@ h2.section { font-size: var(--text-subheading); letter-spacing: var(--tracking-s
 .stat .sub { color: var(--color-graphite); margin-top: 8px; }
 .stat .hint { color: var(--color-smoke); font-size: var(--text-caption); margin-top: 10px; }
 
-/* 三階梯 */
-.ladder { display: grid; gap: 8px; margin-top: 4px; }
-.step { display: flex; gap: 10px; align-items: baseline; }
-.step .n {
-  width: 20px; height: 20px; flex: none; border-radius: 50%;
-  border: 1px solid var(--color-ash); display: grid; place-items: center;
-  font-size: 11px; color: var(--color-graphite);
-}
-.step[data-ok="yes"] .n { background: var(--color-off-black); color: var(--color-parchment);
-  border-color: var(--color-off-black); }
-.step .txt { flex: 1; }
-.step .txt b { font-weight: var(--font-weight-medium); }
-.step small { color: var(--color-smoke); display: block; font-size: var(--text-caption); }
-
 /* ───────── 全綠項目的膠囊標籤 ───────── */
 .pills { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 4px; }
 .pill {
   display: inline-flex; align-items: center; gap: 5px;
   border: 1px solid var(--color-ash); border-radius: var(--radius-full);
   padding: 4px 12px; font-size: var(--text-caption); letter-spacing: var(--tracking-caption);
-  background: var(--color-parchment); color: var(--color-graphite); white-space: nowrap;
+  background: color-mix(in srgb, var(--color-paper) 70%, transparent); color: var(--color-graphite); white-space: nowrap;
 }
 .pill.ok::before { content: '✓'; color: var(--color-lake-blue); }
 
-/* ───────── 三階梯:膠囊 + 流動的連接段 ───────── */
-.pipe { display: grid; gap: 0; margin-top: 4px; }
+/* ───────── 三階梯:三顆膠囊,跟這張便條紙同一個紫色系(工地工班風畫面 AC-6) ───────── */
+/* ⚠️ 原本膠囊之間有流水線動畫,拿掉了。Oscar:「現在確定不是單向的流程了,加入流水會誤導。」——①②③ 會來回進退。
+   ⚠️ 上色標的是「這一階已經完成」,不是「卡在哪」;只有 done 上色(空的分支一格都不亮,L16)。
+      以前完成那格是四色漂移的漸層,混在一起像髒水(Oscar 2026-10-27),換成淡紫水彩 */
+.pipe { display: grid; gap: 8px; margin-top: 4px; }
 .cap {
-  display: flex; align-items: center; gap: 10px;
-  border: 1px solid var(--color-ash); border-radius: var(--radius-full);
-  padding: 8px 16px; background: var(--color-parchment);
+  display: flex; align-items: center; gap: 10px; min-height: 62px;   /* 三格等高,不因文案長短而不一樣大 */
+  border: 1px solid color-mix(in srgb, var(--color-lilac-ink) 28%, transparent); border-radius: var(--radius-full);
+  padding: 8px 16px; background: color-mix(in srgb, var(--color-paper) 72%, transparent);
 }
-.cap[data-ok="yes"] { border-color: var(--color-off-black); }
 .capn {
   width: 22px; height: 22px; flex: none; border-radius: 50%;
-  border: 1px solid var(--color-ash); display: grid; place-items: center;
-  font-size: 11px; color: var(--color-graphite);
+  border: 1px solid color-mix(in srgb, var(--color-lilac-ink) 45%, transparent); display: grid; place-items: center;
+  font-size: 11px; color: var(--color-lilac-ink);
 }
-.cap[data-ok="yes"] .capn {
-  background: var(--color-off-black); color: var(--color-parchment); border-color: var(--color-off-black);
+.cap[data-ok="yes"] {
+  border-color: color-mix(in srgb, var(--color-lilac-ink) 50%, transparent);
+  background:
+    radial-gradient(70% 140% at 12% 20%, var(--color-note-lilac-deep), transparent 72%),
+    radial-gradient(60% 120% at 92% 85%, color-mix(in srgb, var(--color-note-lilac-deep) 70%, transparent), transparent 70%),
+    var(--color-note-lilac);
 }
+.cap[data-ok="yes"] .capn { background: var(--color-lilac-ink); color: var(--color-paper); border-color: var(--color-lilac-ink); }
 .capt { min-width: 0; }
 .capt b { font-weight: var(--font-weight-medium); }
 .capt small { display: block; color: var(--color-smoke); font-size: var(--text-caption); }
-
-/* ⚠️ 原本膠囊之間有流水線動畫,拿掉了。
-   Oscar:「現在確定不是單向的流程了,加入流水會誤導。」——①②③ 會來回進退。
-   ⚠️ 而且暈染標的是「**這一階已經完成**」,不是「卡在哪」——我上一版做反了。 */
-.pipe { display: grid; gap: 8px; margin-top: 4px; }
-.cap {
-  min-height: 62px;              /* 三格等高,不因文案長短而不一樣大 */
-  align-items: center;
-}
-.cap[data-ok="yes"] { position: relative; overflow: hidden; border-color: var(--color-off-black); }
-/* 類似 After Effects 的 4 color gradient:四個色點各自漂移 */
-.cap[data-ok="yes"]::before {
-  content: ''; position: absolute; inset: -70% -30%;
-  background:
-    radial-gradient(circle at 18% 28%, var(--color-mint), transparent 52%),
-    radial-gradient(circle at 72% 22%, var(--color-sky-blue), transparent 52%),
-    radial-gradient(circle at 34% 78%, var(--color-gold), transparent 52%),
-    radial-gradient(circle at 84% 74%, var(--color-coral), transparent 52%);
-  filter: blur(20px); opacity: .6; pointer-events: none;
-  animation: g4 11s ease-in-out infinite alternate;
-}
-.cap[data-ok="yes"] > * { position: relative; z-index: 1; }
-@keyframes g4 {
-  0%   { transform: translate(-7%, -5%) scale(1.04) rotate(0deg); }
-  35%  { transform: translate(6%, 2%)   scale(1.16) rotate(7deg); }
-  70%  { transform: translate(-2%, 6%)  scale(1.10) rotate(-6deg); }
-  100% { transform: translate(5%, -3%)  scale(1.18) rotate(4deg); }
-}
 
 /* ───────── My Agent work flow ───────── */
 /* 左軌與右卡在同一個 grid 的同一列 → A–E 的對應由版面保證,不靠調數字 */
@@ -199,6 +195,7 @@ h2.section { font-size: var(--text-subheading); letter-spacing: var(--tracking-s
   vector-effect: non-scaling-stroke; opacity: .55;
   stroke-dasharray: 1400; stroke-dashoffset: 1400;
   animation: draw 7s ease-in-out infinite;
+  animation-delay: calc(var(--t, 0) * -1s);
 }
 @keyframes draw {
   0%   { stroke-dashoffset: 1400; }
@@ -234,44 +231,70 @@ h2.section { font-size: var(--text-subheading); letter-spacing: var(--tracking-s
 .acard {
   display: flex; align-items: flex-start; gap: 14px;
   border: 1px solid var(--color-ash); border-radius: var(--radius-2xl);
-  padding: 14px 18px; background: var(--color-parchment); position: relative;
+  padding: 14px 18px; background: var(--color-paper); position: relative;
 }
-/* 圓形漸層示意圖(先不用人物) */
-.orb {
-  width: 46px; height: 46px; flex: none; border-radius: 50%;
-  display: grid; place-items: center; font-size: 19px; color: var(--color-off-black);
+/* ───────── 五個工班:五種形狀加兩隻眼睛(工地工班風畫面 AC-7、AC-8、AC-9) ───────── */
+.agent { position: relative; width: 58px; height: 60px; flex: none; display: grid; place-items: center; --agent: var(--color-graphite); }
+/* 身分色:永遠是那一關的顏色,不跟狀態變 */
+.agent[data-id="A"] { --agent: var(--color-agent-a); --ph: 0s; }
+.agent[data-id="B"] { --agent: var(--color-agent-b); --ph: -1s; }
+.agent[data-id="C"] { --agent: var(--color-agent-c); --ph: -2s; }
+.agent[data-id="D"] { --agent: var(--color-agent-d); --ph: -3s; }
+.agent[data-id="E"] { --agent: var(--color-agent-e); --ph: -4s; }
+.agent svg { position: relative; z-index: 1; width: 58px; height: 60px; overflow: visible; }
+.ag-body > * { fill: var(--agent); stroke: var(--agent); stroke-width: 5; stroke-linejoin: round; }
+.ag-face { fill: var(--color-paper); }
+.ag-face .ln { fill: none; stroke: var(--color-paper); stroke-width: 3; stroke-linecap: round; }
+.ag-face text { font: 700 11px var(--font-body); }
+.ag-ground { fill: var(--color-off-black); opacity: .09; }
+.ag-sweat { fill: var(--color-sky-blue); }
+.ag-z { fill: var(--color-smoke); font: 600 10px var(--font-body); }
+/* 還沒跑、已走過:淡一點 */
+.agent[data-face="sleep"] { opacity: .5; }
+.agent[data-face="rest"] { opacity: .6; }
+/* 未建:虛線輪廓、沒有眼睛、不動 */
+.agent[data-face="blank"] .ag-body > * { fill: none; stroke: var(--color-smoke); stroke-width: 1.5; stroke-dasharray: 4 3; }
+/* 漂浮:五顆一樣速度,只是錯開一點,不要像列隊——漂浮不跟狀態變,不代表在做事(AC-9) */
+.ag-float, .ag-ground { animation: float 4.8s ease-in-out infinite; animation-delay: calc(var(--t, 0) * -1s + var(--ph, 0s)); }
+.ag-ground { animation-name: ground; transform-box: fill-box; transform-origin: center; }
+.agent[data-face="blank"] .ag-float, .agent[data-face="blank"] .ag-ground { animation: none; }
+@keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+@keyframes ground { 0%, 100% { transform: scaleX(1); opacity: .09; } 50% { transform: scaleX(.82); opacity: .05; } }
+/* 這一輪走到的那一關:身後的藍色光暈向外暈開;睜著眼的偶爾眨一下。
+   ⚠️ 光暈一律藍色,C 也一樣:會跟著狀態變的顏色不准是薄荷綠(pipeline-ui AC-3)。笑眼不眨,看起來像在擠眼睛 */
+.agent[data-here="1"]::before {
+  content: ''; position: absolute; inset: -4px; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(circle, var(--color-sky-blue), transparent 68%); opacity: .6;
 }
-/* 五種明確區隔的顏色(之前五顆長太像) */
-.orb[data-id="A"] { background: radial-gradient(circle at 32% 28%, var(--color-sky-blue), var(--color-lake-blue)); color: var(--color-parchment); }
-.orb[data-id="B"] { background: radial-gradient(circle at 32% 28%, var(--color-graphite), var(--color-ink)); color: var(--color-parchment); }
-.orb[data-id="C"] { background: radial-gradient(circle at 32% 28%, var(--color-mint), var(--color-sky-blue)); }
-.orb[data-id="D"] { background: radial-gradient(circle at 32% 28%, var(--color-coral), var(--color-crimson)); color: var(--color-parchment); }
-.orb[data-id="E"] { background: radial-gradient(circle at 32% 28%, var(--color-gold), var(--color-coral)); }
-.orb svg { width: 22px; height: 22px; }
+.agent .halo {
+  position: absolute; inset: 6px; border-radius: 50%; border: 2px solid var(--color-sky-blue); opacity: 0; pointer-events: none;
+  animation: halo 3.2s ease-out infinite; animation-delay: calc(var(--t, 0) * -1s);
+}
+.agent .halo + .halo { animation-delay: calc(var(--t, 0) * -1s + 1.6s); }
+@keyframes halo { 0% { transform: scale(.75); opacity: .75; } 100% { transform: scale(1.7); opacity: 0; } }
+.agent[data-here="1"]:is([data-face="look"], [data-face="open"]) .ag-face {
+  transform-box: fill-box; transform-origin: center;
+  animation: blink 5.5s ease-in-out infinite; animation-delay: calc(var(--t, 0) * -1s);
+}
+@keyframes blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(.1); } }
 
-/* 跑過的:icon 外圈呼吸燈 */
-.acard[data-state="ran"] .orb, .acard[data-state="done"] .orb { animation: breathe 3s ease-in-out infinite; }
-@keyframes breathe {
-  0%,100% { box-shadow: 0 0 0 0 var(--color-ash); }
-  50%     { box-shadow: 0 0 0 5px var(--color-periwinkle-mist); }
-}
-
-/* 跑過的:卡片右側一層會流動的暈染(不覆蓋整張卡)。
-   ⚠️ 只用藍色系:「跑過」不等於通過,以前混了薄荷綠,看起來像過關了(pipeline-ui AC-3) */
-.acard[data-state="ran"], .acard[data-state="done"] { overflow: hidden; }
-.acard[data-state="ran"]::after, .acard[data-state="done"]::after {
-  content: ''; position: absolute; right: -30px; top: -40%; bottom: -40%; width: 190px;
-  background: radial-gradient(ellipse at 70% 50%, var(--color-periwinkle-mist), transparent 62%),
-              radial-gradient(ellipse at 40% 50%, var(--color-sky-blue), transparent 62%);
-  filter: blur(26px); opacity: .5; pointer-events: none;
-  animation: wash 6s ease-in-out infinite alternate;
+/* 這一輪走到的那一張:藍色細框、靠工班那一側淡淡的藍(只用藍色系,「叫了」不等於通過,pipeline-ui AC-3) */
+.acard[data-here="1"] {
+  border-color: var(--color-sky-blue);
+  background: radial-gradient(60% 120% at 0% 50%, color-mix(in srgb, var(--color-sky-blue) 22%, transparent), transparent 70%), var(--color-paper);
 }
 .acard > * { position: relative; z-index: 1; }
 .abody { flex: 1; min-width: 0; }
 .atitle { font-size: var(--text-body); letter-spacing: var(--tracking-body); }
 .ahouse { color: var(--color-smoke); font-size: var(--text-caption); margin-left: 8px; }
-.adoes { color: var(--color-graphite); margin-top: 2px; }
-.astatus { margin-top: 6px; }
+.astatus { margin-top: 4px; color: var(--color-off-black); }
+/* 角色說明是第三層:小字、淡色(工地工班風畫面 AC-10) */
+.adoes { color: var(--color-smoke); font-size: var(--text-caption); margin-top: 6px; }
+/* 不是走到的那一關:只剩名字和狀態那一行,「細節」點開才看(AC-15) */
+.amore > summary { cursor: pointer; color: var(--color-smoke); font-size: var(--text-caption); list-style: none; margin-top: 4px; width: max-content; }
+.amore > summary::-webkit-details-marker { display: none; }
+.amore > summary::before { content: '▸ '; }
+.amore[open] > summary::before { content: '▾ '; }
 .acard[data-state="none"] .astatus,
 .acard[data-state="notbuilt"] .astatus,
 .acard[data-state="main"] .astatus { color: var(--color-smoke); }
@@ -285,9 +308,10 @@ h2.section { font-size: var(--text-subheading); letter-spacing: var(--tracking-s
 .acard[data-state="ran"]  .lamp { background: var(--color-lake-blue); border-color: var(--color-lake-blue); }
 .acard[data-state="done"] .lamp { background: var(--color-off-black); border-color: var(--color-off-black); }
 
+/* 系統設定「減少動態效果」:全部不動(AC-9)。A→E 那條線是靠動畫畫出來的,不動的時候要直接畫好 */
 @media (prefers-reduced-motion: reduce) {
-  .cap[data-cur="1"]::before, .railcell .link path,
-  .acard .orb, .acard::after { animation: none; }
+  .ag-float, .ag-ground, .agent .halo, .agent .ag-face { animation: none; }
+  .wf-line path { animation: none; stroke-dashoffset: 0; }
 }
 
 /* ───────── 檔案清單 ───────── */
@@ -301,6 +325,26 @@ h2.section { font-size: var(--text-subheading); letter-spacing: var(--tracking-s
 
 .note { margin-top: var(--spacing-16); padding-top: 10px; border-top: 1px solid var(--color-ash);
   color: var(--color-smoke); font-size: var(--text-caption); }
+
+/* ───────── 說明文字分三層(工地工班風畫面 AC-10) ─────────
+   ① 大字講事實 ② 一行講最要緊的後果 ③ 解釋「為什麼」收進「為什麼？」。會害你丟東西、誤會結果的那幾句是 ②,留在外面 */
+.hint.warn { color: var(--color-off-black); font-size: var(--text-body-sm); font-weight: var(--font-weight-medium); }
+.why { margin-top: 8px; font-size: var(--text-caption); color: var(--color-graphite); }
+.why > summary, .more > summary { cursor: pointer; color: var(--color-smoke); list-style: none; width: max-content; }
+.why > summary::-webkit-details-marker, .more > summary::-webkit-details-marker { display: none; }
+.why > summary::before { content: 'ⓘ '; }
+.more > summary::before { content: '▸ '; }
+.more[open] > summary::before { content: '▾ '; }
+.why > summary:hover, .more > summary:hover { color: var(--color-off-black); }
+.why p { margin: 6px 0 0; padding-left: 10px; border-left: 2px solid color-mix(in srgb, var(--color-sky-blue) 60%, transparent); line-height: 1.55; }
+.more { margin: 2px 0 0; font-size: var(--text-body-sm); }
+.more > summary { font-family: var(--font-body); font-size: var(--text-caption); margin: 2px 0 6px; }
+/* 「叫了不等於通過」:前半句是重點,後半句小字 */
+.callout { margin: 0 0 6px; }
+.callout .tail { display: block; color: var(--color-smoke); font-size: var(--text-caption); margin-top: 2px; }
+/* 感測器那一行:三件事三顆小標籤 */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { border: 1px solid var(--color-ash); border-radius: var(--radius-full); padding: 2px 10px; background: var(--color-paper); }
 code { background: var(--color-periwinkle-mist); border-radius: 4px; padding: 1px 6px;
   font-family: var(--font-abc-diatype-mono); }
 button.copy {
@@ -318,7 +362,12 @@ a.ext { color: var(--color-lake-blue); }
   position: relative; display: grid; grid-template-columns: 1fr 200px 1fr;
   gap: var(--spacing-16); align-items: center;
   border: 1px solid var(--color-ash); border-radius: var(--radius-2xl);
-  padding: 22px 20px; background: var(--color-parchment); overflow: hidden; min-height: 210px;
+  padding: 22px 20px; overflow: hidden; min-height: 210px;
+  /* 工地看板:比便條紙大一點的淡方格(工地工班風畫面 AC-11) */
+  background:
+    linear-gradient(var(--color-grid) 1px, transparent 1px) 0 0 / 28px 28px,
+    linear-gradient(90deg, var(--color-grid) 1px, transparent 1px) 0 0 / 28px 28px,
+    var(--color-paper);
 }
 .ov-col { display: grid; gap: 7px; align-content: center; justify-items: start; z-index: 1; }
 .ov-right { justify-items: end; }
@@ -331,7 +380,7 @@ a.ext { color: var(--color-lake-blue); }
 .ochip {
   display: inline-flex; align-items: center; gap: 7px; text-decoration: none;
   border: 1px solid var(--color-ash); border-radius: var(--radius-full);
-  padding: 6px 14px; background: var(--color-parchment); color: var(--color-off-black);
+  padding: 6px 14px; background: var(--color-paper); color: var(--color-off-black);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .ochip:hover { border-color: var(--color-lake-blue); }
@@ -352,9 +401,11 @@ a.ext { color: var(--color-lake-blue); }
 .ov-hub span {
   position: absolute; inset: 0; border-radius: 50%;
   border: 1px solid var(--color-ash); animation: pulse 3.4s ease-in-out infinite;
+  animation-delay: calc(var(--t, 0) * -1s);
 }
-.ov-hub span:nth-child(2) { animation-delay: 1.1s; }
-.ov-hub span:nth-child(3) { animation-delay: 2.2s; }
+/* --t 是這一頁開了幾秒(app.js 的 paint):畫面每 5 秒重畫一次,負的延遲讓動畫從該在的位置接著演,不跳回起點(工地工班風畫面 AC-3) */
+.ov-hub span:nth-child(2) { animation-delay: calc(var(--t, 0) * -1s + 1.1s); }
+.ov-hub span:nth-child(3) { animation-delay: calc(var(--t, 0) * -1s + 2.2s); }
 @keyframes pulse {
   0%   { transform: scale(.72); opacity: .9; }
   100% { transform: scale(1.35); opacity: 0; }
@@ -366,20 +417,25 @@ a.ext { color: var(--color-lake-blue); }
 }
 .ov-state div { padding: 1px 0; }
 
-/* 匯流的細線:左邊多條收進中心,右邊再散出去 */
-.ov-wires { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; }
+/* 匯流的細線:從每顆膠囊的中心收進中間的球,再散到右邊每顆膠囊的中心(app.js 的 drawWires 量著膠囊畫)。
+   每條一樣快、一樣顏色:流得快慢不一樣,會被讀成「這個在忙」 */
+.ov-wires { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
 .ov-wires path {
-  fill: none; stroke: var(--color-ash); stroke-width: 1; vector-effect: non-scaling-stroke;
+  fill: none; stroke: var(--color-sky-blue); stroke-width: 1.2; stroke-linecap: round;
   stroke-dasharray: 3 7; animation: ovdrift 4.5s linear infinite;
+  animation-delay: calc(var(--t, 0) * -1s);
 }
-.ov-wires path.out { stroke: var(--color-periwinkle-mist); animation-duration: 5.5s; }
 @keyframes ovdrift { to { stroke-dashoffset: -40; } }
+/* 已結案的「還有 N 個／收起」:跟膠囊同一個樣子、虛線框,看得出是按鈕不是一個對話 */
+.ochip.ov-more { font: inherit; cursor: pointer; color: var(--color-graphite); border-style: dashed; }
+.sl-more { margin-top: 10px; }
 
 /* ───────── 對話清單 ───────── */
 .slist { display: grid; gap: 8px; }
 .srow {
   display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: center;
   border: 1px solid var(--color-ash); border-radius: var(--radius-2xl); padding: 12px 18px;
+  background: var(--color-paper);
 }
 .srow .sname { grid-column: 1; font-size: var(--text-body); color: var(--color-off-black); text-decoration: none; }
 .srow .sname:hover { color: var(--color-lake-blue); }

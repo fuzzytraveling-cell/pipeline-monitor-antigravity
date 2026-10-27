@@ -955,14 +955,16 @@ const webWorkflow = (() => {
   const fn = (name) => src.match(new RegExp(`^function ${name}\\([^)]*\\) \\{\\n[\\s\\S]*?\\n\\}\\n`, 'm'))?.[0] ?? null;
   const one = (name) => src.match(new RegExp(`^const ${name} = .*;$`, 'm'))?.[0] ?? null;
   // 那一句、旁白、清單的那幾句都是伺服器給的(規格:終端機與網頁說同一句):畫面只剩 workflow 與它的小幫手
-  const parts = [one('stageState'), one('OLD_LINE'), fn('workflow')];
+  // (roundStage:這一輪走到哪一關;FACE／eyes／agent:畫工班——工地工班風畫面 AC-7、AC-8)
+  const parts = [one('stageState'), one('OLD_LINE'), one('FACE'), fn('roundStage'), fn('eyes'), fn('agent'), fn('workflow')];
   const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   return parts.every(Boolean) ? new Function('esc', 'ago', 'ROLE', 'foldOpen', `${parts.join('\n')}; return workflow;`)(esc, (t) => (t ? '5 分鐘前' : ''), {}, () => true) : null;
 })();
-/** 對話列與案件卡的「這一輪走到…」:ui/app.js 的 roundWhere 原封不動拿出來跑 */
+/** 對話列與案件卡的「這一輪走到…」:ui/app.js 的 roundWhere 與它問「走到哪一關」的 roundStage 原封不動拿出來跑 */
 const webRoundWhere = (() => {
-  const m = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8').match(/^function roundWhere\(stages\) \{\n[\s\S]*?\n\}\n/m);
-  return m ? new Function(`${m[0]}; return roundWhere;`)() : null;
+  const src = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8');
+  const parts = ['roundStage', 'roundWhere'].map((n) => src.match(new RegExp(`^function ${n}\\(stages\\) \\{\\n[\\s\\S]*?\\n\\}\\n`, 'm'))?.[0] ?? null);
+  return parts.every(Boolean) ? new Function(`${parts.join('\n')}; return roundWhere;`)() : null;
 })();
 const repA = (sec, note) => ({ ts: T(sec), event: 'stage_report', stage: 'A', verdict: 'ok', note, source: 'claude', by_session: 's1', session: undefined });
 

@@ -411,7 +411,8 @@ section('D 那一格:擱著(held)的樣子、那一句與花了多久——句�
   const fn = (name, sig) => src.match(new RegExp(`^function ${name}\\(${sig}\\) \\{\\n[\\s\\S]*?\\n\\}\\n`, 'm'))?.[0] ?? null;
   const constLine = (name) => src.match(new RegExp(`^const ${name} = .*$`, 'm'))?.[0] ?? null;
   // 那一句、旁白都是伺服器給的(規格:終端機與網頁說同一句):畫面只剩 workflow 與它的小幫手
-  const parts = [constLine('stageState'), constLine('OLD_LINE'), fn('workflow', 'c')];
+  // roundStage:這一輪走到哪一關;FACE／eyes／agent:畫工班(工地工班風畫面 AC-7、AC-8)
+  const parts = [constLine('stageState'), constLine('OLD_LINE'), constLine('FACE'), fn('roundStage', 'stages'), fn('eyes', 'face, at'), fn('agent', 'st, s, here'), fn('workflow', 'c')];
   check('從 ui/app.js 拿得出 workflow 與它用到的那幾個(拿不出來這一段就什麼都沒測到)', parts.every(Boolean), parts.map((p, i) => (p ? '' : i)).join(','));
   const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const ago = (iso) => (iso ? '5 分鐘前' : '');
@@ -691,9 +692,10 @@ section('第一輪:對話開在專案的子資料夾——結論認得是這個�
 section('第一輪:案件卡與對話清單的「走到哪」——D 在要不要再跑、擱著時不准寫「這一輪還沒有紀錄」(真的跑 ui/app.js 的 roundWhere)', 'P5');
 {
   const src = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8');
-  const code = src.match(/^function roundWhere\(stages\) \{\n[\s\S]*?\n\}\n/m)?.[0] ?? null;
-  check('從 ui/app.js 拿得出 roundWhere', !!code);
-  const rw = code ? new Function(`${code}; return roundWhere;`)() : () => '';
+  // roundWhere 問「走到哪一關」的是 roundStage(五關發光的那一顆也問它,老毛病 P2),一起拿出來
+  const code = ['roundStage', 'roundWhere'].map((n) => src.match(new RegExp(`^function ${n}\\(stages\\) \\{\\n[\\s\\S]*?\\n\\}\\n`, 'm'))?.[0] ?? null);
+  check('從 ui/app.js 拿得出 roundWhere 與 roundStage', code.every(Boolean));
+  const rw = code.every(Boolean) ? new Function(`${code.join('\n')}; return roundWhere;`)() : () => '';
   const st = (o) => [{ id: 'A', name: '寫規格', skill: 'spec', state: 'none' }, { id: 'B', name: '寫程式', type: 'main-conversation', state: 'passed' }, { id: 'D', name: '魔鬼教官', skill: 'chaos-check', ...o }];
   eq('要不要再跑', rw(st({ state: 'stale', rerun: { state: 'ask' } })), '這一輪走到 D 魔鬼教官（要不要再跑由你決定）');
   eq('你說不用再跑', rw(st({ state: 'held', rerun: { state: 'skipped' } })), '這一輪走到 D 魔鬼教官（你說不用再跑）');

@@ -489,7 +489,8 @@ section('分級卡與未檢查清單:只看得到還沒存的時候不畫「沒�
   const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const ago = (iso) => (iso ? '3 分鐘前' : '');
   const cpOk = (c) => !!c?.checkpoint && c?.checkpointRelation?.state === 'ok';
-  const ui = code.every(Boolean) ? new Function('esc', 'ago', 'cpOk', `${code.join('\n')}; return { statChanges, statTier };`)(esc, ago, cpOk) : null;
+  // foldOpen:檔名清單收起來的記憶(工地工班風畫面 AC-13),這裡一律當沒記過
+  const ui = code.every(Boolean) ? new Function('esc', 'ago', 'cpOk', 'foldOpen', `${code.join('\n')}; return { statChanges, statTier };`)(esc, ago, cpOk, () => false) : null;
   const empty = { total: 0, newCount: 0, uncommittedCount: 0, groups: [] };
   // 分級卡的那幾句是伺服器照 lib/tier.mjs 的 tierLines 算好的(lines;規格:終端機與網頁說同一句)——這裡照伺服器的做法附上
   const unseen = { state: 'unseen', basis: { kind: 'head', why: 'not-found', origin: null } };
@@ -516,7 +517,8 @@ section('分級卡與未檢查清單:只看得到還沒存的時候不畫「沒�
   const ovSrc = [pick('focusOf', 'p'), pick('overview', 'p')];
   check('從 ui/app.js 拿得出 focusOf、overview', ovSrc.every(Boolean));
   // overview 要讀伺服器給的保留天數(「N 天內沒有結案的對話」;規格:90天清空之後的說法 AC-3)
-  const ov = ovSrc.every(Boolean) ? new Function('esc', 'ago', 'cpOk', 'latest', `${ovSrc.join('\n')}; return overview;`)(esc, ago, cpOk, { retainDays: RETAIN_DAYS }) : null;
+  // foldOpen:已結案收起來的記憶(工地工班風畫面 AC-1),這裡一律當沒記過
+  const ov = ovSrc.every(Boolean) ? new Function('esc', 'ago', 'cpOk', 'latest', 'foldOpen', `${ovSrc.join('\n')}; return overview;`)(esc, ago, cpOk, { retainDays: RETAIN_DAYS }, () => false) : null;
   const ovCard = { path: '/x', ladder: { uncommitted: 0 }, checkpoint: null, files: empty, scope: blind.scope };
   const ovHtml = ov?.({ name: 'p', mainRoot: '/x', cards: [ovCard], sessions: [{ id: 's1', title: '調標籤', lastTs: '2026-09-22T01:00:00Z', closedAt: null, card: ovCard }] }) ?? '';
   check('案件首頁:看不全,不寫「沒有待檢查的檔案」', /看不全/.test(ovHtml) && !/沒有待檢查的檔案/.test(ovHtml), ovHtml.slice(0, 600));
@@ -552,6 +554,26 @@ section('上一手的對話頁:講明資料夾換人了,不畫資料夾現在的
   check('上一手:五關照畫,但沒有資料夾(按鈕不畫——在這一頁按,記到的是下一手)', /<workflow path=null>/.test(old), old);
   const cur = page?.('p', 's1') ?? '';
   check('這一手:照舊畫四張卡、寫分支名、不說跟別的對話共用', /<restore>/.test(cur) && /<tier>/.test(cur) && cur.includes('claude/new') && !/還有別的對話在用/.test(cur), cur);
+}
+
+section('五關的工班:笑眼只給「你說處理完了」——Claude 自己回報 ok、Claude 對完清單、照開始改程式算你點頭的都不笑(真的跑 ui/app.js 的 workflow;規格:工地工班風畫面 AC-8)', 'P10');
+{
+  const src = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8');
+  const fn = (name) => src.match(new RegExp(`^function ${name}\\([^)]*\\) \\{\\n[\\s\\S]*?\\n\\}\\n`, 'm'))?.[0] ?? null;
+  const one = (name) => src.match(new RegExp(`^const ${name} = .*;$`, 'm'))?.[0] ?? null;
+  const parts = [one('stageState'), one('OLD_LINE'), one('FACE'), fn('roundStage'), fn('eyes'), fn('agent'), fn('workflow')];
+  check('從 ui/app.js 拿得出 workflow 與畫工班的小函式(拿不出來這一段就什麼都沒測到)', parts.every(Boolean), parts.map((p, i) => (p ? '' : i)).join(','));
+  const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const wf = parts.every(Boolean) ? new Function('esc', 'ago', 'ROLE', 'foldOpen', `${parts.join('\n')}; return workflow;`)(esc, () => '5 分鐘前', {}, () => false) : null;
+  // 這一輪走到的那一關是 done(處理完了):誰說的決定給不給笑眼
+  const face = (st) => (wf?.({ path: '/x', sensor: { state: 'ok' }, stages: [{ line: '處理完了', ...st }] }) ?? '')
+    .match(new RegExp(`class="agent" data-id="${st.id}" data-face="([a-z]+)"`))?.[1] ?? null;
+  check('D:Claude 自己回報 ok(closedBy:claude)→ 不是笑眼', face({ id: 'D', name: '魔鬼教官', skill: 'chaos-check', state: 'done', closedBy: 'claude' }) === 'open');
+  check('B:Claude 對完清單(closedBy:checklist)→ 不是笑眼', face({ id: 'B', name: '寫程式', type: 'main-conversation', state: 'done', closedBy: 'checklist' }) === 'open');
+  check('A:照開始改程式算你點頭(closedBy:nod)→ 不是笑眼', face({ id: 'A', name: '寫規格', skill: 'spec', state: 'done', closedBy: 'nod' }) === 'open');
+  check('沒寫是誰說的 → 不是笑眼(分不出來就不替它高興)', face({ id: 'C', name: '打掃', skill: 'cleanup', state: 'done' }) === 'open');
+  check('E:你說驗收過了(closedBy:human)→ 笑眼', face({ id: 'E', name: '驗收', type: 'browser', skill: 'verify', state: 'done', closedBy: 'human' }) === 'happy');
+  check('叫了(current)→ 睜眼看著那一行字,不是笑眼', face({ id: 'D', name: '魔鬼教官', skill: 'chaos-check', state: 'current' }) === 'look');
 }
 
 process.exit(summary());

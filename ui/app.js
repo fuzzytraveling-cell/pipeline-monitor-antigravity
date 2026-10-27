@@ -13,6 +13,8 @@ import { describeFreshness, STALE_AFTER_SECONDS } from '/freshness.mjs';
 
 const POLL_MS = 5000;
 let latest = null, connected = false;
+// 上一次換上去的畫面(paint):一樣就不換,動畫才不會每 5 秒從頭來過
+let lastHtml = null;
 // 這一頁載入時的畫面程式版本(伺服器給的 appVersion)。之後變了 = 服務換了新程式,這一頁還是舊畫面 → 自己重新載入
 let bootVersion = null;
 
@@ -23,28 +25,61 @@ const $crumb = document.getElementById('crumb');
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-/* ═══ 角色:同一份 agent.svg,五個裁切窗（座標是從 SVG 量出來的，不是猜的） ═══ */
+/* ═══ 五個工班:五種形狀加兩隻眼睛,像 Grok 那樣——不畫人、不畫嘴(Oscar 2026-10-27;工地工班風畫面 AC-7) ═══ */
 /* 每一關在做什麼——用 Oscar 自己那張「蓋房子」對照表的白話。
-   icon 用 inline SVG 不用 emoji:emoji 在不同系統長得不一樣,而且跟這套設計格格不入。 */
-const I = (d, extra = '') =>
-  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
-     stroke-linecap="round" stroke-linejoin="round">${d}${extra}</svg>`;
+   形狀畫在 64×66 的格子裡(底下留兩格給影子);eye 是兩隻眼睛中間那一點。顏色在 ui.css,跟著 data-id 走,永遠是那一關的顏色 */
 const ROLE = {
   A: { house: '建築師畫圖', does: '把需求翻成一條條可以打勾的驗收條件',
-       icon: I('<path d="M4 5h9l4 4v10H4z"/><path d="M13 5v4h4"/><path d="M18.5 13.5 21 16l-4.5 4.5H14v-2.5z"/>') },
+       // 墨水滴:建築師畫圖用的墨
+       shape: '<path d="M32 7C27 15 13 27 13 39c0 11 8.5 18 19 18s19-7 19-18C51 27 37 15 32 7z"/>', eye: [32, 40] },
   B: { house: '工班施工', does: '照圖蓋,蓋到每條都打勾',
-       icon: I('<rect x="3" y="4.5" width="18" height="15" rx="2"/><path d="m7 10 3 2.5-3 2.5"/><path d="M12.5 15.5H17"/>') },
+       // 圓球:就是你在講話的那個對話
+       shape: '<circle cx="32" cy="34" r="22"/>', eye: [32, 33] },
   C: { house: '收尾清場', does: '清掉施工留下的鷹架、暫時變數、複製貼上',
-       // 掃把:一根斜柄 + 綁繩 + 散開的鬃毛
-       icon: I('<path d="M17.5 3 11 9.5"/><path d="M12.5 8 8 12.5l3.5 3.5L16 11.5z"/>'
-             + '<path d="M8 12.5 4 20"/><path d="m10 14.5-3.2 6.2"/><path d="m12 16.5-1.5 4.5"/>') },
+       // 雲朵:清乾淨之後的泡泡
+       shape: '<path d="M20 52c-8 0-12-5.5-11-11 1-5 5.5-8 10-7.5C19.5 25.5 25.5 20 33 20c6.5 0 11.5 4 13 9.5 6-.5 11 4.5 10.5 11S51 52 45 52z"/>', eye: [33, 41] },
   D: { house: '驗屋師傅拿槌子敲牆', does: '不是看漂不漂亮,是找「哪裡是空心的」',
-       // 鐵錘:方形錘頭 + 拔釘爪 + 長柄
-       icon: I('<path d="M6.5 5.5h8v4h-8z"/><path d="M6.5 7.5C4.5 7.5 3.5 6.5 3.5 5"/>'
-             + '<path d="M6.5 7.5c-2 0-3 1-3 2.5"/><path d="M11 9.5 9.5 20"/>') },
+       // 六角螺帽:敲敲看有沒有鎖緊
+       shape: '<path d="M32 10l19.9 11.5v23L32 56 12.1 44.5v-23z"/>', eye: [32, 34] },
   E: { house: '你自己走進去住一晚', does: '真的開門、開燈、沖馬桶,確認能住人',
-       icon: I('<rect x="5" y="3.5" width="14" height="17" rx="2"/><path d="M9 3.5v17"/><path d="m12 11 1.8 1.8L17 9.5"/>') },
+       // 小房子:你要住進去的那一間
+       shape: '<path d="M32 9l22 18v27H10V27z"/>', eye: [32, 40] },
 };
+/**
+ * 表情只講感測器知道的事,不替結果背書(工地工班風畫面 AC-8):感測器只知道這一關被叫過,不知道做得好不好——
+ * 笑眼只給「你說處理完了」(done 而且 closedBy 是 human,見 agent);叫了(ran)是睜眼看著右邊那一行字。
+ * 畫面不認得的狀態給問號眼,不借「還沒跑」的睡臉(R1)
+ */
+const FACE = { none: 'sleep', passed: 'rest', ran: 'look', main: 'open', done: 'happy', stale: 'worry', held: 'half', seen: 'side', notbuilt: 'blank' };
+function eyes(face, at) {
+  const [x, y] = at;
+  const two = (f) => f(x - 7) + f(x + 7);
+  const pill = (dx, dy = 0) => two((ex) => `<rect x="${ex + dx - 3}" y="${y + dy - 6}" width="6" height="12" rx="3"/>`);
+  if (face === 'open') return pill(0);
+  if (face === 'look') return pill(3);        // 看著右邊那一行字
+  if (face === 'side') return pill(-3, -1);   // 往旁邊瞄
+  if (face === 'happy') return two((ex) => `<path class="ln" d="M${ex - 4} ${y + 2}Q${ex} ${y - 5} ${ex + 4} ${y + 2}"/>`);
+  if (face === 'sleep' || face === 'rest') return two((ex) => `<path class="ln" d="M${ex - 4} ${y}H${ex + 4}"/>`);
+  if (face === 'worry') return two((ex) => `<circle cx="${ex}" cy="${y}" r="4.5"/>`);
+  if (face === 'half') return two((ex) => `<path d="M${ex - 3.5} ${y - 1}h7v2a3.5 3.5 0 0 1-7 0z"/>`);   // 半睜眼:擱著
+  if (face === 'blank') return '';
+  return two((ex) => `<text x="${ex}" y="${y + 4}" text-anchor="middle">?</text>`);
+}
+/**
+ * 一個工班。這一輪走到的那一關(here)身後有藍色光暈向外暈開。五顆都輕輕上下漂浮、速度一樣——
+ * 漂浮不跟狀態變,不代表在做事(AC-9:感測器不知道現在還在不在跑,不做「工作中」的動作)
+ */
+function agent(st, s, here) {
+  const r = ROLE[st.id];
+  // Claude 自己回報 ok、Claude 對完清單、照開始改程式算你點頭的,也是 done——那些是 Claude 說的,只睜著眼。
+  // 給笑眼的話,D 記下「沒對到已知死法」那一刻,魔鬼教官就笑著發光,看起來像說通過了(魔鬼教官第一輪,R2)
+  const face = s === 'done' && st.closedBy !== 'human' ? 'open' : FACE[s] ?? 'ask';
+  const extra = face === 'sleep' ? '<text class="ag-z" x="49" y="15">z</text>'
+    : face === 'worry' ? '<path class="ag-sweat" d="M52 11c-2 4-3.5 6-3.5 8a3.5 3.5 0 0 0 7 0c0-2-1.5-4-3.5-8z"/>' : '';
+  return `<span class="agent" data-id="${esc(st.id)}" data-face="${face}"${here ? ' data-here="1"' : ''}>${here ? '<span class="halo"></span><span class="halo"></span>' : ''}
+    <svg viewBox="0 0 64 66" aria-hidden="true"><ellipse class="ag-ground" cx="32" cy="62" rx="14" ry="2.5"/>
+      <g class="ag-float"><g class="ag-body">${r?.shape ?? '<circle cx="32" cy="34" r="22"/>'}</g><g class="ag-face">${eyes(face, r?.eye ?? [32, 33])}</g>${extra}</g></svg></span>`;
+}
 
 /* ═══ 新鮮度(AC-1／AC-2) ═══ */
 function paintFreshness() {
@@ -128,10 +163,22 @@ document.addEventListener('toggle', (e) => {
 /** 感測器看得到的關(有 skill 或 tools 的)。B 是你在講話的那個對話、未建的關,都不算分母。 */
 const sensed = (st) => st.type !== 'main-conversation' && st.type !== 'not-built';
 
-/** 這一輪走到哪,一句話。對話列與案件卡共用,兩邊才說同一句。 */
-function roundWhere(stages) {
+/**
+ * 這一輪走到哪一關。對話列、案件卡那一句(roundWhere)跟五關裡發光的那一顆(workflow)都從這裡拿——同一個判斷,不各算一次(老毛病 P2)。
+ * 先找現在這一關(叫了、或處理完了);沒有的話,看最後一步是不是結論會過期的關、而它在「要處理」或「擱著」:那不是沒有紀錄
+ * (魔鬼教官第一輪,老毛病 P5:這個「找不到」有兩種意思)。B 清單沒對完的樣子也是 stale,但它不會是最後一步——後面的關動了它才變 stale,所以只看有 skill 的關
+ */
+function roundStage(stages) {
   const list = stages ?? [];
   const cur = list.find((x) => x.state === 'current' || x.state === 'done');
+  if (cur) return { st: cur, open: false };
+  const open = [...list].reverse().find((x) => (x.state === 'stale' || x.state === 'held') && x.skill);
+  return open ? { st: open, open: true } : null;
+}
+/** 這一輪走到哪,一句話。對話列與案件卡共用,兩邊才說同一句。 */
+function roundWhere(stages) {
+  const at = roundStage(stages);
+  const cur = at && !at.open ? at.st : null;
   if (cur) {
     // E 驗收:伺服器照 lib/verify.mjs 算好的那一句(Claude 走過一遍,等你查核……);舊的服務沒給就照舊
     // 已經驗收也照這一句:Claude 代記的要講是 Claude 代記(魔鬼教官第二輪:以前 done 寫死「你說驗收過了」,第一輪那條只修了一半)
@@ -140,9 +187,7 @@ function roundWhere(stages) {
     const tail = cur.type === 'browser' && cur.ewhere ? `（${cur.ewhere}）` : cur.state === 'done' ? (cur.type === 'browser' ? '（你說驗收過了）' : `（處理完了${unread ? `；${unread}` : ''}）`) : unread ? `（${unread}）` : '';
     return `這一輪走到 ${cur.id} ${cur.name}${tail}`;
   }
-  // 最後一步是結論會過期的關、而它在「要處理」或「擱著」:不是沒有紀錄(魔鬼教官第一輪,老毛病 P5:這個「找不到」有兩種意思)。
-  // B 清單沒對完的樣子也是 stale,但它不會是最後一步——後面的關動了它才變 stale,所以只看有 skill 的關
-  const open = [...list].reverse().find((x) => (x.state === 'stale' || x.state === 'held') && x.skill);
+  const open = at?.open ? at.st : null;
   if (open) {
     const why = open.type === 'browser' && open.ewhere ? open.ewhere : open.state === 'held' ? '你說不用再跑' : open.rerun?.state === 'ask' ? '要不要再跑由你決定'
       : open.rerun?.state === 'found' ? '找到問題，還沒處理完' : open.rerun?.state === 'no-report' ? 'Claude 還沒記結論' : '要處理';
@@ -186,7 +231,7 @@ function projectList() {
   }).join('');
   return `<div class="block">
       <h2 class="section serif">案件</h2>
-      <p class="section-note">只列出<b>有證據</b>的專案（有紀錄或有還原點）。點一下進去看細節。</p>
+      <p class="section-note">只列有紀錄或有還原點的專案。</p>
       <div class="projects">${cards}</div>
     </div>`;
 }
@@ -200,7 +245,7 @@ function statRestore(c) {
   // 終端機也講的那幾句是伺服器照 lib/scope.mjs 算好的(c.lines);舊的服務沒給 → 講舊的程式(規格:終端機與網頁說同一句)
   const q = c.lines ?? null;
   const say = (v) => esc(q ? v ?? '' : OLD_LINE);
-  if (!cp) return `<div class="stat" data-tone="restore">
+  if (!cp) return `<div class="stat" data-note="restore" data-tone="restore">
     <h3 class="ctitle">還原點</h3><div class="label">你回得去哪裡</div>
     <div class="big">還沒有</div>
     <div class="sub">${say(q?.notStamped)}</div>
@@ -210,7 +255,7 @@ function statRestore(c) {
   //    2026-09-11 主資料夾就是這樣:章指著清歷史之前的版本,複製回去會跳到另一條歷史。
   const rel = c.checkpointRelation;
   if (!cpOk(c)) {
-    return `<div class="stat" data-tone="restore">
+    return `<div class="stat" data-note="restore" data-tone="restore">
     <h3 class="ctitle">還原點</h3><div class="label">你回得去哪裡</div>
     <div class="big">失效</div>
     <div class="sub">${ago(cp.at)}蓋的章已經不能用：${say(q?.broken)}</div>
@@ -226,18 +271,21 @@ function statRestore(c) {
   // ⚠️ 不再把 SHA 當標題。`a79e8d7` 對使用者沒有意義——時間與版本號才有。
   // SHA 只留在「複製回去的指令」裡,因為 git 需要它。
   const pills = cp.checks.map((k) => `<span class="pill ok">${esc(k)}</span>`).join('');
-  return `<div class="stat" data-tone="restore">
+  // 說明分三層(工地工班風畫面 AC-10):會害你丟東西、誤會結果的那兩句留在外面(全綠不等於功能正確、回去會丟掉沒存的),
+  // 解釋「為什麼」的收進「為什麼？」——收起來的字還在網頁上,不是刪掉
+  const whyKey = `why|${c.path}|restore`;
+  return `<div class="stat" data-note="restore" data-tone="restore">
     <h3 class="ctitle">還原點</h3><div class="label">你回得去哪裡</div>
     <div class="big">${esc(c.cpVersion ? `v${c.cpVersion}` : clock(cp.at))}</div>
     <div class="sub">${ago(cp.at)}存的${c.cpVersion ? `（${esc(clock(cp.at))}）` : ''}</div>
     <div class="pills">${pills}</div>
-    <div class="hint">上面這幾項當時全綠。<span class="muted">${say(q?.green)}</span></div>
+    <div class="hint">當時這幾項全綠。${say(q?.green)}</div>
     <button class="copy" data-copy="${esc(cmd)}">複製回去的指令</button>
-    <div class="hint">⚠️ 這個網頁<b>不會</b>幫你還原。複製出來的指令<b>已經含 cd</b>,
-      貼到終端機或直接貼給 Claude 都可以——貼給 Claude 的話它會先問過你才動手。
-      ${rel.commitsAfter ? `<b>蓋章之後你存了 ${rel.commitsAfter} 次</b>,指令會先把它們留在分支
-      <code>${esc(c.backupBranch ?? '')}</code> 上再回去。` : ''}
-      <b>回去會丟掉還沒 commit 的東西。</b></div>
+    <div class="hint warn">⚠️ 回去會丟掉還沒存（commit）的東西</div>
+    <details class="why" data-fold="${esc(whyKey)}"${foldOpen(whyKey, false) ? ' open' : ''}><summary>為什麼？</summary>
+      <p>這個網頁<b>不會</b>幫你還原，按鈕只是複製指令。指令<b>已經含 cd</b>，貼到終端機、或直接貼給 Claude 都可以——貼給 Claude 的話，它會先問過你才動手。</p>
+      ${rel.commitsAfter ? `<p>蓋章之後你存了 ${rel.commitsAfter} 次：指令會先把它們留在分支 <code>${esc(c.backupBranch ?? '')}</code> 上，再回去。</p>` : ''}
+    </details>
   </div>`;
 }
 
@@ -263,13 +311,13 @@ function statLadder(c) {
 
   // 沒有任何一格是「還有東西沒做」或「問不到」,才算安全——空的分支也算安全,它沒有東西會丟
   const allSafe = steps.every((st) => st.state === 'done' || st.state === 'none');
-  return `<div class="stat" data-tone="${allSafe ? 'safe' : 'alert'}">
+  return `<div class="stat" data-note="ladder" data-tone="${allSafe ? 'safe' : 'alert'}">
     <h3 class="ctitle">三階梯</h3><div class="label">東西走到哪了</div>
     <div class="pipe">${caps}</div>
     ${L.webUrl ? `<div class="hint"><a class="ext" href="${esc(L.webUrl)}" target="_blank"
-      rel="noreferrer">在 GitHub 上看這個 repo ↗</a></div>` : ''}
-    <div class="hint muted">⚠️ 這三格顯示的是<b>現在的事實</b>,不是你走過的最遠距離——
-      併完之後又動了新東西,它就會退回去。</div>
+      rel="noreferrer">在 GitHub 上看 ↗</a></div>` : ''}
+    <details class="why" data-fold="${esc(`why|${c.path}|ladder`)}"${foldOpen(`why|${c.path}|ladder`, false) ? ' open' : ''}><summary>為什麼會退回去？</summary>
+      <p>這三格是<b>現在的事實</b>，不是你走過的最遠距離：併完之後又動了新東西，它就會退回去。</p></details>
   </div>`;
 }
 
@@ -293,20 +341,33 @@ function statChanges(c) {
   const say = (v) => esc(q ? v ?? '' : OLD_LINE);
   const label = sc.label;
   const note = sc.note ? `<div class="hint">${esc(sc.note)}。</div>` : '';
-  if (!f) return `<div class="stat" data-tone="change"><h3 class="ctitle">未檢查清單</h3><div class="label">${label}</div>
+  if (!f) return `<div class="stat" data-note="changes" data-tone="change"><h3 class="ctitle">未檢查清單</h3><div class="label">${label}</div>
     <div class="big">問不到</div></div>`;
   // 只看得到還沒存的、或這一輪中間 HEAD 動過的時候,0 不是「沒有改動」(老毛病 P5):存檔過的看不到
-  if (!f.total) return `<div class="stat" data-tone="change"><h3 class="ctitle">未檢查清單</h3><div class="label">${label}</div>
+  if (!f.total) return `<div class="stat" data-note="changes" data-tone="change"><h3 class="ctitle">未檢查清單</h3><div class="label">${label}</div>
     <div class="big">${sc.emptyBlind ? '看不全' : '沒有改動'}</div>
     <div class="sub">${esc(sc.empty)}</div>${sc.emptyBlind ? '' : note}</div>`;
 
-  const groups = f.groups.map((g) => `<div class="fgroup">
+  const groupsOf = (gs) => gs.map((g) => `<div class="fgroup">
       <div class="dir">${esc(g.dir)}/</div>
       <ul>${g.items.map((it) => `<li class="${it.isNew ? 'isnew' : ''}">${esc(it.name)}${
         it.isNew ? ' · 新檔案' : ''}${it.uncommitted ? ' · <b>還沒存</b>' : ''}</li>`).join('')}</ul>
     </div>`).join('');
+  // 檔名只露前 5 個,其餘收在「還有 N 個檔案」(工地工班風畫面 AC-13):改動一多,五關就被擠出第一屏。N 是收起來的真的個數
+  const shown = [], rest = [];
+  let room = 5;
+  for (const g of f.groups) {
+    const head = g.items.slice(0, Math.max(0, room));
+    room -= head.length;
+    if (head.length) shown.push({ ...g, items: head });
+    if (head.length < g.items.length) rest.push({ ...g, items: g.items.slice(head.length) });
+  }
+  const restCount = rest.reduce((n, g) => n + g.items.length, 0);
+  const filesKey = `files|${c.path ?? ''}`;
+  const groups = groupsOf(shown) + (restCount
+    ? `<details class="more" data-fold="${esc(filesKey)}"${foldOpen(filesKey, false) ? ' open' : ''}><summary>還有 ${restCount} 個檔案</summary>${groupsOf(rest)}</details>` : '');
 
-  return `<div class="stat" data-tone="change">
+  return `<div class="stat" data-note="changes" data-tone="change">
     <h3 class="ctitle">未檢查清單</h3><div class="label">${label}</div>
     <div class="big"><span class="num">${f.total}</span><span class="unit">個檔案</span></div>
     ${note}
@@ -324,7 +385,7 @@ function statTier(c, p) {
   if (!t) return '';
   const q = t.lines ?? null;   // 舊的服務沒給 → 每一句講舊的程式,不自己拼(規格:終端機與網頁說同一句 AC-5)
   const say = (v) => esc(q ? v ?? '' : OLD_LINE);
-  const card = (tone, big, sub, extra = '') => `<div class="stat" data-tone="${tone}">
+  const card = (tone, big, sub, extra = '') => `<div class="stat" data-note="tier" data-tone="${tone}">
     <h3 class="ctitle">分級</h3><div class="label">這次要多小心</div>
     <div class="big">${big}</div>${sub ? `<div class="sub">${sub}</div>` : ''}${extra}</div>`;
   // ⚠️ 沒設定 ≠ T0(R1);讀不懂 ≠ 沒設定。四種各自一張臉——大字是畫面自己的,底下那句是伺服器給的
@@ -381,8 +442,9 @@ function sensorLine(c) {
   }
   if (m?.state === 'ok') {
     if (!q || !('noneLine' in c.sensor)) return `<p class="section-note">感測器：已掛上${restart}</p>`;
-    // 收工 hook 活著沒:看心跳,不看設定——「掛著」不等於「活著」(L13)
-    return `<p class="section-note">${esc(q.mounted)} · ${esc(q.seen ?? c.sensor.noneLine ?? '')} · ${esc(q.gate)}</p>`;
+    // 收工 hook 活著沒:看心跳,不看設定——「掛著」不等於「活著」(L13)。
+    // 三件事各放一顆小標籤,字照伺服器給的、一段都不拆(終端機同一句;工地工班風畫面 AC-10)
+    return `<p class="section-note chips">${[q.mounted, q.seen ?? c.sensor.noneLine ?? '', q.gate].map((t) => `<span class="chip">${esc(t)}</span>`).join('')}</p>`;
   }
   // 設定裡沒掛上的那兩種(你退出了、設定裡找不到但紀錄還有 → 它在記):伺服器照終端機同一個函式算好給的那一句(lib/faults.mjs 的 sensorOffLine)
   if (c.sensor && 'offLine' in c.sensor && (c.sensor.offLine || q)) {
@@ -401,10 +463,11 @@ function workflow(c) {
   // ⚠️ 左邊的軌道與右邊的卡片放在**同一個 grid 的同一列**,
   // 這樣 A–E 的對應是**版面結構保證的**,不是靠我調數字對齊——
   // 靠調數字的話,卡片內容一長就會錯開,而錯開的對應圖比沒有圖更糟。
-  const rows = c.stages.map((st, i) => {
+  // 這一輪走到的那一關:工班發光、整張攤開。跟對話列「這一輪走到 X」同一個判斷(roundStage,老毛病 P2)
+  const hereId = roundStage(c.stages)?.st.id ?? null;
+  const rows = c.stages.map((st) => {
     const s = stageState(st);
-    const r = ROLE[st.id] ?? { icon: '·', house: '', does: '' };
-    const last = i === c.stages.length - 1;
+    const r = ROLE[st.id] ?? { house: '', does: '' };
     const said = st.type === 'browser' ? '驗收過了' : '處理完了';
     // 只有驗收那一關有按鈕(五關自動結案 AC-10):其他關由儀表板自動辨識——按鈕多了會被忽略跳過(Oscar)。跟 CLI 的 --clear 同一種紀錄(source:human)
     // E 還沒被你說驗收過(只開過瀏覽器、Claude 走過一遍等你查核、你說過了之後又改了程式、你說不用再走)都給按鈕;按了是你說的(source:human)
@@ -453,19 +516,25 @@ function workflow(c) {
     const noteHtml = !el && noteLines.length > 1 && (s === 'done' || s === 'ran' || s === 'stale' || s === 'passed' || s === 'held')
       ? `<ul class="rnote">${noteLines.slice(1).map((l) => `<li>${esc(l.replace(/^[-•]\s*/, ''))}</li>`).join('')}</ul>` : '';
 
+    // 不是走到的那一關就縮成一行(名字＋狀態那一行),點「細節」才攤開,重新整理也記得(工地工班風畫面 AC-15)。
+    // 要處理的、有「你說驗收過了」按鈕的不縮——縮起來就看不到了
+    const here = st.id === hereId;
+    const foldKey = `stage|${c.path ?? ''}|${st.id}`;
+    const detail = `<div class="adoes">${esc(r.does)}</div>${saidArgs}${notes}${clHtml}${noteHtml}${eList}`;
+    const body = here || s === 'stale' || stamp ? `${detail}${stamp}`
+      : `<details class="amore" data-fold="${esc(foldKey)}"${foldOpen(foldKey, false) ? ' open' : ''}><summary>細節</summary>${detail}</details>`;
+
     return `<div class="railcell" data-state="${s}">
         <span class="rlab">${esc(st.id)}</span>
         <span class="dot"></span>
-
       </div>
-      <div class="acard" data-state="${s}">
-        <span class="orb" data-id="${esc(st.id)}">${r.icon ?? ''}</span>
+      <div class="acard" data-state="${s}"${here ? ' data-here="1"' : ''}>
+        ${agent(st, s, here)}
         <div class="abody">
           <div class="atitle">${esc(st.id)} ${esc(st.name)}
             <span class="ahouse">${esc(r.house)}</span></div>
-          <div class="adoes">${esc(r.does)}</div>
           <div class="astatus">${el ? [el.acts, el.walk, el.human].map(esc).join('<br>') : esc(status)}</div>
-          ${saidArgs}${notes}${clHtml}${noteHtml}${eList}${stamp}
+          ${body}
         </div>
         <span class="lamp" title="${st.type === 'browser' && st.ewhere ? esc(st.ewhere) : s === 'passed' ? '已走過' : s === 'done' || s === 'ran' ? '現在這一關'
           : s === 'stale' ? (st.type === 'main-conversation' ? '清單沒對完' : !st.rerun ? '結論過期,要再跑一次'
@@ -489,12 +558,20 @@ function overview(p) {
   const done = p.sessions.filter((s) => s.closedAt);
   // 中間那格講的是哪個工作區要說出來:最近在動的對話的工作區,沒有的話是主資料夾(focusOf)
   const { session: focus, card } = focusOf(p);
-  const subject = focus ? `最近在動：${(focus.title ?? '（還沒有標題）').slice(0, 16)}` : card ? '主資料夾' : null;
+  const subject = focus ? `最近在動：${focus.title ?? '（還沒有標題）'}` : card ? '主資料夾' : null;
 
   // 「N 天內」:紀錄只留這麼久(天數只住 lib/events.mjs,伺服器給)。更早結案的對話、更早的紀錄已經清掉——不准講成「還沒有」(規格:90天清空之後的說法 AC-3)
   const within = Number.isFinite(latest?.retainDays) ? `${latest.retainDays} 天內` : '';
-  const chip = (s) => `<a class="ochip" href="#/p/${encodeURIComponent(p.name)}/s/${encodeURIComponent(s.id)}">
-      <span class="odot"></span>${esc((s.title ?? '（還沒有標題）').slice(0, 22))}</a>`;
+  // 標題太長就截;截掉的話,滑鼠移上去看得到全名(工地工班風畫面 AC-16)
+  const chip = (s) => {
+    const t = s.title ?? '（還沒有標題）';
+    return `<a class="ochip" href="#/p/${encodeURIComponent(p.name)}/s/${encodeURIComponent(s.id)}"${t.length > 22 ? ` title="${esc(t)}"` : ''}>
+      <span class="odot"></span>${esc(t.slice(0, 22))}</a>`;
+  };
+  // 已結案只露最近有動作的 5 個(伺服器已經依最後動作排好),其餘收在「還有 N 個」:收起來不是刪掉,N 是真的個數(工地工班風畫面 AC-1)
+  const doneKey = `ov-done|${p.name}`, doneAll = foldOpen(doneKey, false), doneMore = done.length - 5;
+  const doneChips = (doneAll ? done : done.slice(0, 5)).map(chip).join('')
+    + (doneMore > 0 ? `<button class="ochip ov-more" data-ovfold="${esc(doneKey)}">${doneAll ? '收起 ▴' : `還有 ${doneMore} 個 ▾`}</button>` : '');
 
   // ⚠️ 資料夾不見了的卡沒有任何數字——不能拿 undefined 印成「都存好了」(R1)
   // 一張卡都沒有、90 天內一筆紀錄都沒有:連資料夾在哪都不知道——是清空了,不是「還沒有資料」(AC-3)。其他找不到卡的情況照舊
@@ -513,18 +590,13 @@ function overview(p) {
     </div>
     <div class="ov-mid">
       <div class="ov-hub"><span></span><span></span><span></span></div>
-      <div class="ov-state">${subject ? `<div class="ov-subject">${esc(subject)}</div>` : ''}${mid.map((t) => `<div>${esc(t)}</div>`).join('')}</div>
+      <div class="ov-state">${subject ? `<div class="ov-subject"${subject.length > 21 ? ` title="${esc(subject)}"` : ''}>${esc(subject.slice(0, 21))}</div>` : ''}${mid.map((t) => `<div>${esc(t)}</div>`).join('')}</div>
     </div>
     <div class="ov-col ov-right">
       <div class="ov-h">已結案</div>
-      ${done.length ? done.map(chip).join('') : `<div class="muted">${within}沒有結案的對話</div>`}
+      ${done.length ? doneChips : `<div class="muted">${within}沒有結案的對話</div>`}
     </div>
-    <svg class="ov-wires" preserveAspectRatio="none" viewBox="0 0 100 100">
-      ${[22, 38, 50, 62, 78].map((y) =>
-        `<path d="M2 ${y} C24 ${y}, 32 50, 48 50"/>`).join('')}
-      ${[30, 44, 56, 70].map((y) =>
-        `<path class="out" d="M52 50 C68 50, 76 ${y}, 98 ${y}"/>`).join('')}
-    </svg>
+    <svg class="ov-wires" aria-hidden="true"></svg>
   </div>`;
 }
 
@@ -560,10 +632,13 @@ function sessionList(p) {
         ${s.closedAt ? '取消結案' : '結案'}</button>`}
     </div>`;
   };
+  // 進行中的全部列出;已結案的排在後面,跟 Overview 一樣只露最近有動作的 5 個,其餘收在「還有 N 個」(工地工班風畫面 AC-17)
+  const live = p.sessions.filter((s) => !s.closedAt), closed = p.sessions.filter((s) => s.closedAt);
+  const key = `sl-done|${p.name}`, all = foldOpen(key, false), more = closed.length - 5;
   return `<div class="block">
       <h2 class="section serif">對話</h2>
-      <p class="section-note">一個功能開一個對話,各自獨立。點進去看那個對話的完整狀況。</p>
-      <div class="slist">${p.sessions.map(row).join('')}</div>
+      <div class="slist">${[...live, ...(all ? closed : closed.slice(0, 5))].map(row).join('')}</div>
+      ${more > 0 ? `<button class="mini-btn sl-more" data-ovfold="${esc(key)}">${all ? '收起已結案的對話 ▴' : `還有 ${more} 個已結案的對話 ▾`}</button>` : ''}
     </div>`;
 }
 
@@ -572,7 +647,6 @@ function projectPage(name) {
   if (!p) return `<p class="muted">找不到「${esc(name)}」。<a href="#/">回列表</a></p>`;
   return `<div class="block">
       <h2 class="section serif">Overview</h2>
-      <p class="section-note">左邊在跑的、中間這個專案現在的狀態、右邊已結案的。</p>
       ${overview(p)}
       ${optOutLine(p)}
     </div>` + suggestionsBlock(p) + sessionList(p);
@@ -688,12 +762,18 @@ function suggestionsBlock(p) {
         <summary>收起來的 ${folded.length} 張（已開始 ${started}、你說不做了 ${folded.length - started}）</summary>
         <div class="slist">${folded.map(row).join('')}</div>
       </details>` : '';
+  // 說明分三層(工地工班風畫面 AC-10):外面一句講怎麼用;一直都成立的那幾句說明收進「這一區看不到的」——收起來的字還在網頁上。
+  // 會讓你誤會「沒有卡」的那兩句留在外面:服務還在跑舊的程式(app 的卡現在全看不到)、app 換過做卡的工具(中間的卡可能沒記到)
+  const oldSince = p.appCardsSince === undefined ? since : '';
+  const whyKey = `why|sg|${p.name}`;
   return `<div class="block">
       <h2 class="section serif">建議新增的對話</h2>
-      <p class="section-note">Claude 覺得該另開一個對話做的事。這裡開不了對話——<b>複製說明</b>，在 app 開新對話，貼進第一句。
-        有對話真的照這段說明開了，這張會自己收到最下面（點開看得到是哪個對話）；不想做了按<b>不做了</b>。</p>
-      <p class="section-note">這一區看不到卡在 app 裡是怎麼不見的（你按掉、或被後來的新卡擠掉）——那種卡在這裡會繼續掛著。
-        Claude 自己在對話裡叫了收回（做完了、前提變了、換了一張新的）、或照你的話叫了開先前提的某一張，會標在那個對話先前提的卡上，但分不出是哪一張；過時的要自己按「不做了」。${since}${toolNote}</p>
+      <p class="section-note">Claude 覺得該另開一個對話做的事。這裡開不了對話：<b>複製說明</b>，在 app 開新對話貼進第一句。${oldSince}${toolNote}</p>
+      <details class="why" data-fold="${esc(whyKey)}"${foldOpen(whyKey, false) ? ' open' : ''}><summary>這一區看不到的</summary>
+        <p>有對話真的照這段說明開了，這張會自己收到最下面（點開看得到是哪個對話）；不想做了按<b>不做了</b>。</p>
+        <p>這一區看不到卡在 app 裡是怎麼不見的（你按掉、或被後來的新卡擠掉）——那種卡在這裡會繼續掛著。
+        Claude 自己在對話裡叫了收回（做完了、前提變了、換了一張新的）、或照你的話叫了開先前提的某一張，會標在那個對話先前提的卡上，但分不出是哪一張；過時的要自己按「不做了」。${oldSince ? '' : since}</p>
+      </details>
       ${incomingNote}
       ${open.length ? `<div class="slist">${open.map(row).join('')}</div>` : '<p class="section-note">現在沒有還沒處理的建議。</p>'}
       ${foldedBox}
@@ -762,18 +842,22 @@ function sessionPage(name, sid) {
     ? `<p class="section-note">⚠️ 這個工作區還有別的對話在用,所以下面的 git 狀態與分級是<b>共用的</b>——
        不是這個對話獨有：別的對話改的也算在裡面。</p>` : '';
 
+  // 「叫了不等於通過」那一句是伺服器給的(終端機同一句),字不改;破折號前面那半句是重點、後面小字(工地工班風畫面 AC-10)
+  const called = String(latest?.sharedLines?.calledNotPassed ?? OLD_LINE);
+  const cut = called.indexOf('——');
+  const calledHtml = cut > 0 ? `<b>${esc(called.slice(0, cut))}</b><span class="tail">${esc(called.slice(cut + 2))}</span>` : esc(called);
+
   return `
     <div class="block">
       <h2 class="section serif">${esc(s.title ?? '（還沒有標題）')}</h2>
-      <p class="section-note">${esc(c.branch ?? '沒有分支')} · ${s.prompts} 則訊息 ·
+      <p class="section-note"><span class="mono">${esc(c.branch ?? '沒有分支')}</span> · ${s.prompts} 則訊息 ·
         最後動作 ${ago(s.lastTs)}${s.closedAt ? ` · 已於 ${ago(s.closedAt)}結案` : ''}</p>
       ${notes}${warn}
       <div class="stats">${statRestore(c)}${statLadder(c)}${statChanges(c)}${statTier({ ...c, tier: s.tier ?? c.tier }, p)}</div>
     </div>
     <div class="block">
       <h2 class="section serif">My Agent work flow</h2>
-      <p class="section-note">五個工班跑到哪了,工作進度監視。<br>
-        ${esc(latest?.sharedLines?.calledNotPassed ?? OLD_LINE)}</p>
+      <p class="callout">${calledHtml}</p>
       ${sensorLine(c)}
       ${stagesNoteLine(c)}
       ${workflow({ ...c, stages: s.stages })}
@@ -804,25 +888,70 @@ function render() {
   const link = (href, t) => `<a href="${href}">${esc(t)}</a><span class="sep">/</span>`;
   if (r.view === 'projects') {
     $crumb.innerHTML = '<span>案件</span>';
-    $app.innerHTML = faultBanner() + oldServerBanner() + projectList();
+    paint(faultBanner() + oldServerBanner() + projectList());
   } else if (r.view === 'project') {
     // 路由用的是檔名(safeName 過的);麵包屑給人看,要用真的資料夾名
     const p = latest?.projects?.find((x) => x.name === r.project);
     $crumb.innerHTML = link('#/', '案件') + `<span>${esc(p?.displayName ?? r.project)}</span>`;
-    $app.innerHTML = faultBanner() + oldServerBanner() + projectPage(r.project);
+    paint(faultBanner() + oldServerBanner() + projectPage(r.project));
   } else {
     const p = latest?.projects?.find((x) => x.name === r.project);
     const s = p?.sessions.find((x) => x.id === r.session);
+    const t = s?.title ?? '對話';
     $crumb.innerHTML = link('#/', '案件')
       + link(`#/p/${encodeURIComponent(r.project)}`, p?.displayName ?? r.project)
-      + `<span>${esc((s?.title ?? '對話').slice(0, 20))}</span>`;
-    $app.innerHTML = faultBanner() + oldServerBanner() + sessionPage(r.project, r.session);
+      + `<span${t.length > 20 ? ` title="${esc(t)}"` : ''}>${esc(t.slice(0, 20))}</span>`;
+    paint(faultBanner() + oldServerBanner() + sessionPage(r.project, r.session));
   }
 }
+/**
+ * 換上新的畫面。內容跟上一次一樣就不換:整頁換掉的話,每個動畫都從頭來過(畫面每 5 秒更新一次)。
+ * 要換的時候,把「這一頁開了幾秒」交給 CSS(--t):新長出來的動畫從該在的位置接著演,不跳回起點(工地工班風畫面 AC-3)。
+ */
+function paint(html) {
+  if (html === lastHtml) return;
+  lastHtml = html;
+  $app.style.setProperty('--t', (performance.now() / 1000).toFixed(3));
+  $app.innerHTML = html;
+  drawWires();
+}
+/**
+ * Overview 的虛線:從左邊每一顆膠囊的中心,經過中間那顆球,流到右邊每一顆看得到的膠囊中心(工地工班風畫面 AC-2)。
+ * 膠囊排好才量得到位置,所以畫面換上去之後才畫;視窗大小變了重畫。每條線一樣快、一樣顏色——不跟任何狀態變。
+ */
+function drawWires() {
+  for (const ov of $app.querySelectorAll('.ov')) {
+    const svg = ov.querySelector('.ov-wires'), hub = ov.querySelector('.ov-hub');
+    if (!svg || !hub) continue;
+    const box = ov.getBoundingClientRect();
+    const mid = (el) => { const b = el.getBoundingClientRect(); return [b.left + b.width / 2 - box.left, b.top + b.height / 2 - box.top]; };
+    const h = mid(hub);
+    const curve = ([ax, ay], [bx, by]) => { const k = ((ax + bx) / 2).toFixed(1); return `M${ax.toFixed(1)} ${ay.toFixed(1)} C${k} ${ay.toFixed(1)}, ${k} ${by.toFixed(1)}, ${bx.toFixed(1)} ${by.toFixed(1)}`; };
+    const into = [...ov.querySelectorAll('.ov-col:not(.ov-right) .ochip')].map((el) => curve(mid(el), h));
+    const out = [...ov.querySelectorAll('.ov-right .ochip')].map((el) => curve(h, mid(el)));
+    svg.setAttribute('viewBox', `0 0 ${Math.round(box.width)} ${Math.round(box.height)}`);
+    svg.style.setProperty('--t', (performance.now() / 1000).toFixed(3));   // 重畫的線接著流,不跳回起點(AC-3)
+    svg.innerHTML = [...into, ...out].map((d) => `<path d="${d}"/>`).join('');
+  }
+}
+// 視窗大小變了,膠囊跟著換位置:線要重畫。一個畫格只畫一次
+let wiresQueued = false;
+window.addEventListener('resize', () => {
+  if (wiresQueued) return;
+  wiresQueued = true;
+  requestAnimationFrame(() => { wiresQueued = false; drawWires(); });
+});
+
+/** 按了按鈕之後一定重畫一次:內容沒變的話不重畫,按下去變灰的那顆按鈕就會一直灰著 */
+async function refresh() { lastHtml = null; await poll(); }
 
 document.addEventListener('click', async (e) => {
   const go = e.target.closest('[data-go]');
   if (go) { location.hash = `#/p/${encodeURIComponent(go.dataset.go)}`; return; }
+
+  // 已結案的「還有 N 個／收起」:記住你的選擇,馬上重畫(工地工班風畫面 AC-1、AC-17)
+  const of = e.target.closest('[data-ovfold]');
+  if (of) { rememberFold(of.dataset.ovfold, !foldOpen(of.dataset.ovfold, false)); lastHtml = null; safeRender(); return; }
 
   const cp = e.target.closest('[data-copy]');
   if (cp) {
@@ -839,7 +968,7 @@ document.addEventListener('click', async (e) => {
     try {
       await fetch('/api/clear', { method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ project: clr.dataset.proj, cwd: clr.dataset.cwd, stage: clr.dataset.clear }) });
-      await poll();
+      await refresh();
     } catch { clr.disabled = false; }
     return;
   }
@@ -849,7 +978,7 @@ document.addEventListener('click', async (e) => {
     try {
       await fetch('/api/suggest-dismiss', { method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ project: dm.dataset.proj, id: dm.dataset.dismiss }) });
-      await poll();
+      await refresh();
     } catch { dm.disabled = false; }
     return;
   }
@@ -860,7 +989,7 @@ document.addEventListener('click', async (e) => {
       await fetch('/api/close', { method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ project: cl.dataset.proj, session: cl.dataset.close,
                                cwd: cl.dataset.cwd, undo: cl.dataset.undo === '1' }) });
-      await poll();
+      await refresh();
     } catch { cl.disabled = false; }
   }
 
@@ -870,7 +999,7 @@ document.addEventListener('click', async (e) => {
     try {
       await fetch('/api/optout', { method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ root: oo.dataset.optout, undo: oo.dataset.undo === '1' }) });
-      await poll();
+      await refresh();
     } catch { oo.disabled = false; }
   }
 });
@@ -885,7 +1014,7 @@ document.addEventListener('submit', async (e) => {
     await fetch('/api/tier', { method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ project: f.dataset.proj, cwd: f.dataset.cwd, level: f.level.value, why: f.why.value }) });
     document.activeElement?.blur?.();   // 游標還在表單裡的話,poll() 會為了不洗掉打到一半的字而跳過重畫——送出了就該畫
-    await poll();
+    await refresh();
   } catch { btn.disabled = false; }
 });
 document.addEventListener('click', async (e) => {
@@ -895,7 +1024,7 @@ document.addEventListener('click', async (e) => {
   try {
     await fetch('/api/tier', { method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ project: b.dataset.proj, cwd: b.dataset.cwd, retract: true }) });
-    await poll();
+    await refresh();
   } catch { b.disabled = false; }
 });
 // ⚠️ 畫面自己壞掉(某一頁的程式錯)跟資料斷線是兩件事。以前 render 一丟例外就被 poll 的 catch 接走,
@@ -904,6 +1033,7 @@ function safeRender() {
   try { render(); }
   catch (e) {
     console.error('畫面壞了', e);
+    lastHtml = null;   // 下一次畫得出來就換掉這一句,就算跟壞掉之前那一頁一模一樣
     $app.innerHTML = `<p class="muted">這一頁的畫面壞了（是儀表板自己的問題,不是資料斷線）。
       <a href="#/">回案件列表</a>，然後把這件事告訴 Claude。</p>`;
   }

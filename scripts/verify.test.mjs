@@ -409,7 +409,8 @@ section('畫面:E 那一格畫三句話與逐條的清單;Claude 走完沒有打
   const fn = (name) => src.match(new RegExp(`^function ${name}\\([^)]*\\) \\{\\n[\\s\\S]*?\\n\\}\\n`, 'm'))?.[0] ?? null;
   const one = (name) => src.match(new RegExp(`^const ${name} = .*;$`, 'm'))?.[0] ?? null;
   // 那一句、旁白、清單的那幾句都是伺服器給的(規格:終端機與網頁說同一句):畫面只剩 workflow 與它的小幫手
-  const parts = [one('stageState'), one('OLD_LINE'), fn('workflow')];
+  // (roundStage:這一輪走到哪一關;FACE／eyes／agent:畫工班——工地工班風畫面 AC-7、AC-8)
+  const parts = [one('stageState'), one('OLD_LINE'), one('FACE'), fn('roundStage'), fn('eyes'), fn('agent'), fn('workflow')];
   check('從 ui/app.js 拿得出 workflow 與它用到的小函式(拿不出來這一段就什麼都沒測到)', parts.every(Boolean), parts.map((p, i) => (p ? '' : i)).join(','));
   const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const wf = parts.every(Boolean) ? new Function('esc', 'ago', 'ROLE', 'foldOpen', `${parts.join('\n')}; return workflow;`)(esc, ago, {}, () => true) : null;
@@ -592,9 +593,10 @@ section('魔鬼教官第二輪:收工 hook 的「這一回合改了沒」跟五�
 section('魔鬼教官第二輪:網頁對話列那一句,Claude 代記的驗收講是 Claude 代記(真的跑 ui/app.js 的 roundWhere)', 'P2');
 {
   const src = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8');
-  const code = src.match(/^function roundWhere\(stages\) \{\n[\s\S]*?\n\}\n/m)?.[0] ?? null;
-  check('從 ui/app.js 拿得出 roundWhere(拿不出來這一段就什麼都沒測到)', !!code);
-  const rw = code ? new Function(`${code}; return roundWhere;`)() : () => '';
+  // roundWhere 問「走到哪一關」的是 roundStage(五關發光的那一顆也問它,老毛病 P2),一起拿出來
+  const code = ['roundStage', 'roundWhere'].map((n) => src.match(new RegExp(`^function ${n}\\(stages\\) \\{\\n[\\s\\S]*?\\n\\}\\n`, 'm'))?.[0] ?? null);
+  check('從 ui/app.js 拿得出 roundWhere 與 roundStage(拿不出來這一段就什麼都沒測到)', code.every(Boolean));
+  const rw = code.every(Boolean) ? new Function(`${code.join('\n')}; return roundWhere;`)() : () => '';
   const e = (o) => ({ id: 'E', name: '驗收', type: 'browser', skill: 'verify', ...o });
   eq('Claude 代記 → 講 Claude 代記', rw([e({ state: 'done', ewhere: 'Claude 代記：你說驗收過了' })]), '這一輪走到 E 驗收（Claude 代記：你說驗收過了）');
   eq('你自己按的 → 你說驗收過了', rw([e({ state: 'done', ewhere: '你說驗收過了' })]), '這一輪走到 E 驗收（你說驗收過了）');

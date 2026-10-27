@@ -417,9 +417,11 @@ section('魔鬼教官第一輪:三種頁面最上面都接了故障橫條(真的
   check('從 ui/app.js 拿得出 route、render', code.every(Boolean));
   const $app = { innerHTML: '' }, $crumb = { innerHTML: '' }, location = { hash: '' };
   const stub = (n) => () => `<${n}>`;
-  // 舊的服務那一條(規格:終端機與網頁說同一句 AC-5)也在每一頁最上面,接在故障橫條後面
-  const render = code.every(Boolean) ? new Function('$app', '$crumb', 'location', 'latest', 'esc', 'projectList', 'projectPage', 'sessionPage', 'faultBanner', 'oldServerBanner',
-    `${code.join('\n')}; return render;`)($app, $crumb, location, { projects: [] }, (v) => String(v ?? ''), stub('list'), stub('project'), stub('session'), stub('BANNER'), stub('OLD')) : null;
+  // 舊的服務那一條(規格:終端機與網頁說同一句 AC-5)也在每一頁最上面,接在故障橫條後面。
+  // paint 是把整頁換上去的那一支(內容一樣就不換,工地工班風畫面 AC-3);這裡要看的是 render 交給它的那一整頁
+  const paint = (html) => { $app.innerHTML = html; };
+  const render = code.every(Boolean) ? new Function('$app', '$crumb', 'location', 'latest', 'esc', 'projectList', 'projectPage', 'sessionPage', 'faultBanner', 'oldServerBanner', 'paint',
+    `${code.join('\n')}; return render;`)($app, $crumb, location, { projects: [] }, (v) => String(v ?? ''), stub('list'), stub('project'), stub('session'), stub('BANNER'), stub('OLD'), paint) : null;
   for (const [hash, what] of [['', '案件列表'], ['#/p/x', '對話清單'], ['#/p/x/s/s1', '對話頁']]) {
     location.hash = hash;
     render?.();

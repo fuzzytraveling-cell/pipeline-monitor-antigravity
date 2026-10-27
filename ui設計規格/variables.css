@@ -95,4 +95,30 @@
   --surface-periwinkle-mist: #cfdaf5;
   --surface-off-black: #242424;
   --surface-ink: #000000;
+
+  /* ── 工地工班風（2026-10-27，規格：工地工班風畫面；跟 Monad 不一樣的地方記在 docs/DESIGN.md 最後一段）── */
+  /* 便條紙：四張卡各一種淡水彩，固定代表「這是哪一張」，不跟狀態變 */
+  --color-note-sky: #e5eefb;
+  --color-note-sky-deep: #c4d6f5;
+  --color-note-lilac: #eee9fb;
+  --color-note-lilac-deep: #d3c8f3;
+  --color-note-butter: #fbf3d6;
+  --color-note-butter-deep: #f1dea0;
+  --color-note-peach: #fde9e1;
+  --color-note-peach-deep: #f7cbb9;
+  --color-lilac-ink: #6c5bc0;          /* 三階梯：完成那格的號碼圈、膠囊的框 */
+  --color-paper: #fffdfa;              /* 紙張本身（比底色亮一點，不是純白） */
+  --color-grid: rgba(43, 89, 209, 0.07);   /* 施工圖的淡方格 */
+  --color-tape: rgba(236, 218, 152, 0.78); /* 紙膠帶 */
+  --shadow-note: 0 1px 1px rgba(36, 36, 36, 0.05), 0 10px 18px -12px rgba(36, 36, 36, 0.28);
+
+  /* 工班身分色：A 藍、B 黑、C 薄荷、D 珊瑚、E 金——永遠是那一關的顏色，不跟狀態變 */
+  --color-agent-a: #3d6fdc;
+  --color-agent-b: #262626;
+  --color-agent-c: #34bf8f;
+  --color-agent-d: #f2744f;
+  --color-agent-e: #e3ae35;
+
+  /* 字：一般的句子用系統的無襯線字（中文是蘋方）；指令、檔名、數字照舊等寬 */
+  --font-body: -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
 }
