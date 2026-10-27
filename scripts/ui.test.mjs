@@ -13,10 +13,11 @@ import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { describeFreshness, STALE_AFTER_SECONDS } from '../lib/freshness.mjs';
 import { createApp } from '../server.mjs';
-import { SUGGEST_TOOL } from '../lib/rounds.mjs';
+import { SUGGEST_TOOL, sessionView } from '../lib/rounds.mjs';
 import { changeScope } from '../lib/scope.mjs';
 import { tierLines } from '../lib/tier.mjs';
-import { cardLines } from '../lib/collect.mjs';
+import { cardLines, screenStages } from '../lib/collect.mjs';
+import { stageLine } from '../lib/stageLines.mjs';
 import { RETAIN_DAYS } from '../lib/events.mjs';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 
@@ -568,12 +569,62 @@ section('五關的工班:笑眼只給「你說處理完了」——Claude 自己
   // 這一輪走到的那一關是 done(處理完了):誰說的決定給不給笑眼
   const face = (st) => (wf?.({ path: '/x', sensor: { state: 'ok' }, stages: [{ line: '處理完了', ...st }] }) ?? '')
     .match(new RegExp(`class="agent" data-id="${st.id}" data-face="([a-z]+)"`))?.[1] ?? null;
-  check('D:Claude 自己回報 ok(closedBy:claude)→ 不是笑眼', face({ id: 'D', name: '魔鬼教官', skill: 'chaos-check', state: 'done', closedBy: 'claude' }) === 'open');
-  check('B:Claude 對完清單(closedBy:checklist)→ 不是笑眼', face({ id: 'B', name: '寫程式', type: 'main-conversation', state: 'done', closedBy: 'checklist' }) === 'open');
-  check('A:照開始改程式算你點頭(closedBy:nod)→ 不是笑眼', face({ id: 'A', name: '寫規格', skill: 'spec', state: 'done', closedBy: 'nod' }) === 'open');
+  // 誰說處理完了是伺服器給的 doneBy(lib/rounds.mjs);closedBy 是憑什麼劃掉,照伺服器會給的一起放
+  check('D:Claude 自己回報 ok(doneBy:claude)→ 不是笑眼', face({ id: 'D', name: '魔鬼教官', skill: 'chaos-check', state: 'done', closedBy: 'claude', doneBy: 'claude' }) === 'open');
+  check('B:Claude 對完清單(doneBy:claude)→ 不是笑眼', face({ id: 'B', name: '寫程式', type: 'main-conversation', state: 'done', closedBy: 'checklist', doneBy: 'claude' }) === 'open');
+  check('A:算你點頭開工、處理完了是 Claude 回報的(closedBy:nod、doneBy:claude)→ 不是笑眼', face({ id: 'A', name: '寫規格', skill: 'spec', state: 'done', closedBy: 'nod', doneBy: 'claude' }) === 'open');
   check('沒寫是誰說的 → 不是笑眼(分不出來就不替它高興)', face({ id: 'C', name: '打掃', skill: 'cleanup', state: 'done' }) === 'open');
-  check('E:你說驗收過了(closedBy:human)→ 笑眼', face({ id: 'E', name: '驗收', type: 'browser', skill: 'verify', state: 'done', closedBy: 'human' }) === 'happy');
+  check('E:你說驗收過了(doneBy:human)→ 笑眼', face({ id: 'E', name: '驗收', type: 'browser', skill: 'verify', state: 'done', closedBy: 'human', doneBy: 'human' }) === 'happy');
   check('叫了(current)→ 睜眼看著那一行字,不是笑眼', face({ id: 'D', name: '魔鬼教官', skill: 'chaos-check', state: 'current' }) === 'look');
+}
+
+section('誰說處理完了只算一次(lib/rounds.mjs 的 doneBy):那一格的字(伺服器照 lib/stageLines.mjs 算,終端機同一句)與工班的臉(ui/app.js 的 agent)讀同一個——A 由 Claude 回報 ok、之後才開始改程式檔,不准寫成「你說處理完了」(先寫一個必須抓到、一個必須放過)', 'P2');
+{
+  // 2026-10-27 實例(ai-english-course「查證語音備援模型 11 月下架的影響」):Claude 叫了 A → 開始改程式檔(算你點頭開工)→
+  // 最後 Claude 才記 A 的結論(規格搬到升級摘要之後再記一次),A 又是這一輪最新的那一步(done)。「點頭開工」把 closedBy 蓋成 nod,
+  // 那一句只分 claude 跟「其他一律你說」,寫成「17 天前你說處理完了」;臉看的是「是不是 human」,睜著眼——同一件事,字跟臉各猜一個
+  const stages = JSON.parse(readFileSync(join(ROOT, 'stages.json'), 'utf8')).stages;
+  const T = (h) => new Date(Date.UTC(2026, 9, 8, h)).toISOString();
+  const start = [
+    { ts: T(1), hook: 'PreToolUse', tool: 'Skill', skill: 'pipeline-monitor:spec', session: 's1', cwd: '/x' },
+    { ts: T(2), hook: 'PostToolUse', tool: 'Edit', session: 's1', cwd: '/x', file: '/x/src/a.js' },   // 開始改程式檔:算你點頭開工
+  ];
+  const claudeSaid = [...start, { ts: T(3), event: 'stage_report', stage: 'A', verdict: 'ok', note: 'docs/升級摘要/y.md', cwd: '/x', source: 'claude' }];
+  const youSaid = [...start, { ts: T(3), event: 'stage_cleared', stage: 'A', cwd: '/x', source: 'human' }];   // 舊紀錄:以前 A 也能按「處理完了」
+  // 伺服器做的事:算這一輪、每一格附上那一句(screenStages)。網頁拿到的就是這幾格
+  const screenOf = (events) => screenStages(sessionView(events, stages, 's1', null, '/x').view.stages);
+  const src = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8');
+  const fn = (name) => src.match(new RegExp(`^function ${name}\\([^)]*\\) \\{\\n[\\s\\S]*?\\n\\}\\n`, 'm'))?.[0] ?? null;
+  const one = (name) => src.match(new RegExp(`^const ${name} = .*;$`, 'm'))?.[0] ?? null;
+  const parts = [one('stageState'), one('OLD_LINE'), one('FACE'), fn('roundStage'), fn('eyes'), fn('agent'), fn('workflow')];
+  check('從 ui/app.js 拿得出 workflow 與畫工班的小函式(拿不出來這一段就什麼都沒測到)', parts.every(Boolean), parts.map((p, i) => (p ? '' : i)).join(','));
+  const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const wf = parts.every(Boolean) ? new Function('esc', 'ago', 'ROLE', 'foldOpen', `${parts.join('\n')}; return workflow;`)(esc, () => '5 分鐘前', {}, () => false) : null;
+  const paint = (screen) => wf?.({ path: '/x', sensor: { state: 'ok' }, stages: screen }) ?? '';
+  const faceOf = (html, id) => html.match(new RegExp(`class="agent" data-id="${id}" data-face="([a-z]+)"`))?.[1] ?? null;
+
+  const c = screenOf(claudeSaid), cA = c.find((s) => s.id === 'A'), cHtml = paint(c);
+  check('必須抓到的那個樣子:A 是這一輪最新的那一步(done),憑什麼劃掉被蓋成點頭開工(nod)', cA?.state === 'done' && cA?.closedBy === 'nod', JSON.stringify({ state: cA?.state, closedBy: cA?.closedBy }));
+  check('必須抓到:那一句寫 Claude 說(帶它記的那一句),不寫「你說處理完了」', /Claude 說：docs\/升級摘要\/y\.md/.test(cA?.line ?? '') && !/你說/.test(cA?.line ?? ''), cA?.line);
+  eq('必須抓到:工班睜著眼,不是笑眼', faceOf(cHtml, 'A'), 'open');
+  check('網頁照印伺服器給的那一句', cHtml.includes(esc(cA?.line)), cHtml.slice(0, 300));
+
+  // 舊的臉在這裡也錯(睜著眼)——字跟臉各猜一個,錯在相反的兩邊
+  const y = screenOf(youSaid), yA = y.find((s) => s.id === 'A'), yHtml = paint(y);
+  check('必須放過:真的是你說的(舊紀錄),A 一樣被蓋成點頭開工 → 那一句照舊寫「你說處理完了」', yA?.state === 'done' && yA?.closedBy === 'nod' && /你說處理完了/.test(yA?.line ?? '') && !/Claude 說/.test(yA?.line ?? ''), yA?.line);
+  eq('必須放過:工班笑眼', faceOf(yHtml, 'A'), 'happy');
+
+  // 字跟臉是同一個事實:這一輪每一格處理完了的,笑眼 ⇔ 那一句寫你說
+  const pairs = [[c, cHtml], [y, yHtml]].flatMap(([screen, html]) => screen.filter((s) => s.state === 'done').map((s) => ({ id: s.id, line: s.line, face: faceOf(html, s.id) })));
+  check('處理完了的每一格:笑眼的才寫你說、寫你說的才笑眼', pairs.length === 2 && pairs.every((p) => (p.face === 'happy') === /你說/.test(p.line)), JSON.stringify(pairs));
+
+  // 分不出是誰說的(誰說的那一欄沒有):不替你說、也不替 Claude 說(R1);臉也不笑
+  const unknown = { ...cA, doneBy: undefined };
+  const uLine = stageLine(unknown, { ago: () => '3 天前' });
+  check('分不出是誰說的:不寫你說、也不寫 Claude 說,照講分不出', !/你說|Claude 說/.test(uLine) && /分不出是誰說的/.test(uLine), uLine);
+  eq('分不出是誰說的:工班不笑', faceOf(paint(c.map((s) => (s.id === 'A' ? { ...unknown, line: uLine } : s))), 'A'), 'open');
+  // 網頁不自己從 closedBy 猜:舊的服務(合併之後還沒 --serve-restart)只給 closedBy:human、沒給 doneBy,也不笑——笑不笑只看伺服器算好的那一個
+  eq('舊的服務只給 closedBy:human、沒給 doneBy → 不笑(網頁不自己猜)', faceOf(paint(y.map((s) => (s.id === 'A' ? { ...s, closedBy: 'human', doneBy: undefined } : s))), 'A'), 'open');
 }
 
 process.exit(summary());

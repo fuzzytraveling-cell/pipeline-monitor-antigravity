@@ -47,7 +47,7 @@ const ROLE = {
 };
 /**
  * 表情只講感測器知道的事,不替結果背書(工地工班風畫面 AC-8):感測器只知道這一關被叫過,不知道做得好不好——
- * 笑眼只給「你說處理完了」(done 而且 closedBy 是 human,見 agent);叫了(ran)是睜眼看著右邊那一行字。
+ * 笑眼只給「你說處理完了」(done 而且 doneBy 是 human,見 agent);叫了(ran)是睜眼看著右邊那一行字。
  * 畫面不認得的狀態給問號眼,不借「還沒跑」的睡臉(R1)
  */
 const FACE = { none: 'sleep', passed: 'rest', ran: 'look', main: 'open', done: 'happy', stale: 'worry', held: 'half', seen: 'side', notbuilt: 'blank' };
@@ -71,9 +71,11 @@ function eyes(face, at) {
  */
 function agent(st, s, here) {
   const r = ROLE[st.id];
-  // Claude 自己回報 ok、Claude 對完清單、照開始改程式算你點頭的,也是 done——那些是 Claude 說的,只睜著眼。
+  // 誰說處理完了只讀伺服器給的 doneBy(lib/rounds.mjs 算一次,那一格的字也讀它),不自己從 closedBy 猜——closedBy 是憑什麼劃掉,
+  // A 會被「點頭開工」換掉,以前拿它猜,字說你說、臉說 Claude 說(2026-10-27,老毛病 P2)。
+  // Claude 自己回報 ok、Claude 對完清單也是 done——那些是 Claude 說的,只睜著眼;舊的服務沒給 doneBy 也只睜著眼(分不出來就不替它高興)。
   // 給笑眼的話,D 記下「沒對到已知死法」那一刻,魔鬼教官就笑著發光,看起來像說通過了(魔鬼教官第一輪,R2)
-  const face = s === 'done' && st.closedBy !== 'human' ? 'open' : FACE[s] ?? 'ask';
+  const face = s === 'done' && st.doneBy !== 'human' ? 'open' : FACE[s] ?? 'ask';
   const extra = face === 'sleep' ? '<text class="ag-z" x="49" y="15">z</text>'
     : face === 'worry' ? '<path class="ag-sweat" d="M52 11c-2 4-3.5 6-3.5 8a3.5 3.5 0 0 0 7 0c0-2-1.5-4-3.5-8z"/>' : '';
   return `<span class="agent" data-id="${esc(st.id)}" data-face="${face}"${here ? ' data-here="1"' : ''}>${here ? '<span class="halo"></span><span class="halo"></span>' : ''}
