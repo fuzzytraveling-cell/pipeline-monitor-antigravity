@@ -255,7 +255,8 @@
 ⚠️ 漏掉的方向：本機的綠讓人以為推上去沒事，紅在人已經走了之後才出現。
 
 **哪裡會再犯**：任何測試去跑真的指令、或自己寫一份「應該跟真的一樣」的假資料（章、紀錄）的地方。
-**釘住它的測試**：`scripts/collect.test.mjs` 標 P8 的段落（測試裡的 git 用 GitHub 機器上的預設分支名——`scripts/_harness.mjs` 給的，本機跑也照這樣）。
+**釘住它的測試**：`scripts/collect.test.mjs` 標 P8 的段落（測試裡的 git 用 GitHub 機器上的預設分支名——`scripts/_harness.mjs` 給的，本機跑也照這樣）；
+`scripts/shellSyntax.test.mjs` 標 P8 的段落（hooks.json 接的每一支 .sh，本機有 dash 就再用 dash 讀一次：這台 Mac 的 sh 是 bash，GitHub 的是 dash）。
 
 ---
 

@@ -478,9 +478,13 @@ section('魔鬼教官第一輪:分級卡那一行跟 E 那一格同一句——C
   s.touch('src/danger.js', -30 * MIN);
   const r = s.cli(['--report', 'E', 'ok', '第 1 趟\nAC-1 看到了：首頁寫著「歡迎回來」\nAC-2 看到了：按鈕寫著「送出」']);
   check('--report E 回的那句拿這一輪的規格對:3 條裡 2 條看到了、AC-3 沒有結果', /3 條裡 2 條看到了；AC-3 沒有結果/.test(r.out), r.out);
-  const row = () => s.sessionOf()?.tier?.requirements?.find((x) => x.key === 'E') ?? null;
-  const e = s.eOf();
-  check('分級卡:跟 E 那一格同一句(含 AC-3 沒有結果、還沒有人說驗收過了),不打勾', row()?.state === 'ran' && row()?.detail === `${e?.elines?.walk}——${e?.elines?.human}` && /AC-3 沒有結果/.test(row()?.detail ?? ''), JSON.stringify(row()));
+  check('記完馬上回讀的那一筆講「剛剛」,不講「時間對不上」(魔鬼教官第二輪,LESSONS L42)', /記下了：剛剛Claude 說走了一遍/.test(r.out) && !/對不上/.test(r.out), r.out);
+  const rowOf = (sess) => sess?.tier?.requirements?.find((x) => x.key === 'E') ?? null;
+  const row = () => rowOf(s.sessionOf());
+  // 兩句要從同一次算出來的拿:「幾分鐘前」有秒數,各算一次差一秒就不等(L18:測試裡的「現在」只准取一次)
+  const sess = s.sessionOf();
+  const e = sess?.stages?.find((x) => x.id === 'E') ?? null;
+  check('分級卡:跟 E 那一格同一句(含 AC-3 沒有結果、還沒有人說驗收過了),不打勾', rowOf(sess)?.state === 'ran' && rowOf(sess)?.detail === `${e?.elines?.walk}——${e?.elines?.human}` && /AC-3 沒有結果/.test(rowOf(sess)?.detail ?? ''), JSON.stringify(rowOf(sess)));
   s.append([said(-2 * MIN, '看過了，可以'), clear(-1 * MIN, { via: 'claude', by_session: 's1', quote: '看過了，可以' })]);
   check('Claude 代記 → 分級卡寫 Claude 代記與你那句話,不寫成「你說」', row()?.state === 'ok' && /Claude 代記：你說驗收過了（E 之後你說的最後一句：「看過了，可以」）/.test(row()?.detail ?? ''), JSON.stringify(row()));
   eq('對話列那一句也講是 Claude 代記', s.eOf()?.ewhere, 'Claude 代記：你說驗收過了');

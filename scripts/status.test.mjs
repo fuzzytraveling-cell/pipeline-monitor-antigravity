@@ -13,8 +13,9 @@ import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { detectChecks, describeCheckFailure } from '../lib/cliStamp.mjs';
 import { describeCheckpoint, describeSensor } from '../lib/cliView.mjs';
-import { gitContext, changeScale, changeHealth, ago, uncommitted, checkpointRelation } from '../lib/git.mjs';
+import { gitContext, changeScale, changeHealth, ago, withClock, uncommitted, checkpointRelation } from '../lib/git.mjs';
 import { RETAIN_DAYS } from '../lib/events.mjs';
+import { humanAge } from '../lib/freshness.mjs';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -300,10 +301,28 @@ section('E1：透過捷徑(symlink)執行也要有輸出——L1 的同一族', 
   r.cleanup();
 }
 
-section('ago()：不准把壞掉的時間印成數字');
+section('ago()：不准把壞掉的時間印成數字;「幾分鐘前」終端機跟網頁只有一份算法', 'P2');
 {
   check('看不懂的時間 → 說「時間對不上」,不編一個數字', ago('not-a-date').includes('對不上'));
-  check('剛剛 → 分鐘', ago(new Date().toISOString()).includes('分鐘'));
+  check('時鐘被調過(未來的時間) → 一樣說對不上,不印負數', ago(new Date(Date.now() + 60_000).toISOString()).includes('對不上'));
+  // 以前終端機自己算,60 秒內印「0 分鐘前」,網頁同一刻印「30 秒前」——同一件事兩種說法
+  check('剛剛 → 「剛剛」或幾秒前,不印「0 分鐘前」', /^(剛剛|\d+ 秒前)$/.test(ago(new Date().toISOString())), ago(new Date().toISOString()));
+  check('3 分鐘前 → 3 分鐘前', ago(new Date(Date.now() - 3 * 60_000).toISOString()) === '3 分鐘前');
+  check('跟網頁那份(lib/freshness.mjs 的 humanAge)算出來一字不差', ago(new Date(Date.now() - 90 * 60_000).toISOString()) === humanAge(90 * 60));
+  const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  // 凍住的那一刻之後才寫進來的那一筆(終端機記完一筆馬上回讀):是剛剛,不是時鐘對不上(魔鬼教官第二輪 2026-10-27,LESSONS L42)
+  const late = withClock(() => { sleep(30); return ago(new Date().toISOString()); });
+  check('withClock 裡:凍住之後才寫進來的那一筆 → 剛剛,不講「時間對不上」', late === '剛剛', late);
+  check('withClock 裡:真的在未來(時鐘被調過) → 照舊說對不上', withClock(() => ago(new Date(Date.now() + 60_000).toISOString())).includes('對不上'));
+  // 同一個事件在同一次刷新印兩次:「現在」只取一次(withClock),隔 1.2 秒再問也一字不差;沒包的照舊走(魔鬼教官 2026-10-27 抓到)
+  const ev = new Date(Date.now() - 5_000).toISOString();
+  const frozen = withClock(() => { const a = ago(ev); sleep(1200); return [a, ago(ev)]; });
+  check('withClock 裡:隔 1.2 秒再問,同一個事件同一句', frozen[0] === frozen[1] && /秒前$/.test(frozen[0]), frozen.join(' / '));
+  const free = [ago(ev), (sleep(1200), ago(ev))];
+  check('withClock 外:時間照舊會走(不是把時鐘停掉)', free[0] !== free[1], free.join(' / '));
+  // 時鐘沒放開的話,這裡會拿 2.4 秒前凍住的那一刻算,講成 3 秒前
+  const five = ago(new Date(Date.now() - 5_000).toISOString());
+  check('withClock 結束之後時鐘放開', five === '5 秒前', five);
 }
 
 process.exit(summary());

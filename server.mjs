@@ -35,7 +35,6 @@ const SERVE = {
   '/freshness.mjs': join(HERE, 'lib', 'freshness.mjs'),
   // AC-9:設計數值只有一份,畫面直接吃那個檔,不抄一份進程式碼
   '/tokens.css': join(HERE, 'ui設計規格', 'variables.css'),
-  '/agent.svg': join(HERE, 'public', 'agent.svg'),
 };
 
 /**

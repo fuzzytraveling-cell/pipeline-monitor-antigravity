@@ -22,7 +22,7 @@
 import { readFileSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
-import { gitContext } from './lib/git.mjs';
+import { gitContext, withClock } from './lib/git.mjs';
 import { readEvents, RETAIN_DAYS } from './lib/events.mjs';
 import { faultsNow } from './lib/faults.mjs';
 import { installService, uninstallService, restartService, describeService, openDashboard } from './lib/service.mjs';
@@ -130,4 +130,5 @@ function isMain() {
   try { return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1] ?? ''); }
   catch { return false; }
 }
-if (isMain()) main().then((code) => process.exit(code));
+// 一次輸出只取一次「現在」:五關那一行跟分級卡那一行講同一個事件,秒數才不會一邊 7 一邊 8(lib/git.mjs 的 withClock)
+if (isMain()) withClock(main).then((code) => process.exit(code));
