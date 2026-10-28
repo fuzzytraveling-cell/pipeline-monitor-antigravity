@@ -101,6 +101,7 @@
 | 改還原點、改動體檢、「回去」指令、專案名→檔名；終端機哪個指令住哪一支 | [pipeline-status](docs/升級摘要/pipeline-status.md)、[誠實修補](docs/升級摘要/誠實修補.md)、[終端機照指令拆開](docs/升級摘要/終端機照指令拆開.md) |
 | 改感測器（`hook.sh`、`lib/events.mjs`）、90 天清理 | [pipeline-sensor](docs/升級摘要/pipeline-sensor.md)、[90天清理不丟紀錄](docs/升級摘要/90天清理不丟紀錄.md)、[紀錄與判斷分家](docs/升級摘要/紀錄與判斷分家.md)；清完之後畫面怎麼講：[90天清空之後的說法](docs/升級摘要/90天清空之後的說法.md) |
 | 裝到新的專案 | 裝成 plugin 一次就好（`pipeline-status --install`），不想記的專案 `--off`：[plugin](docs/升級摘要/plugin.md)；舊接法：[sensor-install](docs/升級摘要/sensor-install.md) |
+| 分享給別人（紀錄搬家、雙語、公開、上架、非 Claude） | [ROADMAP](docs/ROADMAP.md)「分享給別人」；第 1 段：[紀錄搬到固定的家](docs/規劃中/紀錄搬到固定的家.md) |
 | 改收工 hook（`gate.mjs`）、五關怎麼辨識與結案 | [五關自動結案](docs/升級摘要/五關自動結案.md) |
 | plugin 帶的 A／C／D skill；C、D 看哪些檔 | [通用三關](docs/升級摘要/通用三關.md)、[skill範圍跟收工hook對齊](docs/升級摘要/skill範圍跟收工hook對齊.md) |
 | D 要不要再跑 | [D多輪先問人](docs/升級摘要/D多輪先問人.md) |
