@@ -479,6 +479,62 @@ section('建議新增的對話:這一區看不到的那幾條路,畫面要明講
   }
 }
 
+section('當場問的卡(規格:當場問的卡也收進來 AC-1、AC-2、AC-4、AC-5、AC-6):卡上的字只講看得到的——不寫「問過你」、看不到你按了哪個鈕就講看不到、湊的那段不寫成 Claude 寫的;收起來的數字自洽（真的跑 ui/app.js 的 suggestionsBlock）', 'P10');
+{
+  const block = loadSuggestionsBlock({ retainDays: 90, appCardTools: { oldLast: '2026-10-13T00:00:00Z', newFirst: '2026-10-25T00:00:00Z', unknown: [] } });
+  check('從 ui/app.js 拿得出 suggestionsBlock', typeof block === 'function');
+  if (typeof block === 'function') {
+    const SAID = { ts: TS, text: 'JPG 報告卡那一條\n幫我開一張建議卡', cut: false };
+    const COMPOSED = '學生頁：JPG 報告卡還在傳\n\n這件事原本在「提建議的對話」那個對話裡提過。\n你那時說：「JPG 報告卡那一條 幫我開一張建議卡」';
+    const offer = (o = {}) => sgCard({ id: 'toolu_offer', ask: 'offer', title: '學生頁：JPG 報告卡還在傳', tldr: null, prompt: COMPOSED, said: SAID, brief: null, workedAfter: null, supersededAt: null, ...o });
+    const one = (o) => block({ name: 'x', appCardsSince: TS, incomingSuggestions: [], suggestions: [offer(o)] });
+    const bare = one();
+    check('卡上寫「Claude 叫了當場問你要不要開的卡」,不寫「問過你」(app 可能根本沒跳出來,R2)', bare.includes('Claude 叫了當場問你要不要開的卡') && !bare.includes('問過你'), bare);
+    check('看不到你按了哪個鈕 → 講看不到;不寫「你沒回答」「你取消了」', bare.includes('看不到你按了哪個鈕') && !bare.includes('你沒回答') && !bare.includes('取消'), bare);
+    check('…也講看不到卡有沒有真的跳出來(app 可能拒絕,D 第一輪,R2)', bare.includes('也看不到卡有沒有真的跳出來'), bare);
+    check('附你那時說的話(換行壓成空白)', bare.includes('你那時說：「JPG 報告卡那一條 幫我開一張建議卡」'), bare);
+    check('湊的那段講明是監視器湊的,不是 Claude 寫的說明;不冒充「要貼的話」', bare.includes('監視器照標題湊的，不是 Claude 寫的說明') && !bare.includes('要貼的話：'), bare);
+    check('複製拿到的就是伺服器湊的那段(畫面不自己湊)', bare.includes(`data-copy="${COMPOSED}"`) && bare.includes('複製監視器湊的話'), bare);
+    check('還掛著:有「不做了」', bare.includes('data-dismiss='));
+    const cut = one({ said: { ts: TS, text: '字'.repeat(200), cut: true } });
+    check('你那時說的話被截過 → 加…', cut.includes('…」'), cut);
+    const noSaid = one({ said: null });
+    check('紀錄裡看不到你那時說的話 → 講看不到,不印空的引號', noSaid.includes('紀錄裡看不到你在那之前說的話') && !noSaid.includes('「」'), noSaid);
+    // AC-2:有下文、找不到照它開的對話
+    const follow = one({ brief: { ts: TS, via: 'followup' }, tldr: '背景說明', prompt: '補說明要貼的話' });
+    check('補了說明、找不到照它開的對話 → 照實講,卡照樣掛著', follow.includes('Claude 補了開新對話的說明，但找不到照它開的對話') && follow.includes('data-dismiss='), follow);
+    check('…有下文就不講湊的那段,要貼的話照補說明', !follow.includes('監視器照標題湊的') && follow.includes('要貼的話：補說明要貼的話') && follow.includes('複製說明'), follow);
+    const same = one({ brief: { ts: TS, via: 'same-title' }, tldr: '背景說明', prompt: '直接開的要貼的話' });
+    check('後來同名直接開、找不到照它開的對話 → 照實講', same.includes('Claude 後來叫了同名的卡、直接開對話，但找不到照它開的對話'), same);
+    const started = one({ brief: { ts: TS, via: 'followup' }, tldr: '背景說明', prompt: '補說明要貼的話', startedBy: 's9', startedTitle: '照卡開的對話' });
+    check('認得出已開始 → 收起來,不講「找不到」', started.includes('已開始：') && !started.includes('找不到照它開的對話') && !started.includes('data-dismiss='), started);
+    // AC-5:接著動工只是提示
+    const worked = one({ workedAfter: TS });
+    check('Claude 接著動了工 → 講「可能是你選了在這裡做」,卡照樣掛著', worked.includes('可能是你選了在這裡做') && worked.includes('data-dismiss='), worked);
+    check('…收起來的卡不講這一句', !one({ workedAfter: TS, dismissedAt: TS }).includes('可能是你選了在這裡做'));
+    // 收起來的數字:每張只算一種(已開始 → 後來又提了同名的卡 → 你說不做了)
+    const html = block({ name: 'x', appCardsSince: TS, incomingSuggestions: [], suggestions: [
+      offer({ id: 'o1' }),
+      offer({ id: 'o2', supersededAt: TS }),
+      offer({ id: 'o3', supersededAt: TS, dismissedAt: TS }),   // 後來同名、又按過不做了:只算一次
+      offer({ id: 'o4', startedBy: 's9', startedTitle: '照卡開的對話', supersededAt: TS }),
+      sgCard({ id: 'g1', dismissedAt: TS }),
+    ] });
+    check('收起來的 4 張 = 已開始 1 ＋ 後來又提了同名的卡 2 ＋ 你說不做了 1', html.includes('收起來的 4 張（已開始 1、後來又提了同名的卡 2、你說不做了 1）'), html.match(/收起來的[^<]*/)?.[0]);
+    check('後來同名的那張:卡上講看那一張,沒有「不做了」按鈕', html.includes('後來同一個對話又提了一張同名的卡') && (html.match(/data-dismiss=/g) ?? []).length === 1, html.match(/data-dismiss="[^"]*"/g)?.join(','));
+    check('沒有同名的時候,摘要不多一個 0', !block({ name: 'x', appCardsSince: TS, suggestions: [sgCard({ dismissedAt: TS })] }).includes('後來又提了同名的卡'));
+    // AC-6:卡區的說明
+    check('「這一區看不到的」講當場問的卡也在這裡、看不到你按了哪個鈕、選了在這裡做要自己按不做了', html.includes('當場問你要不要開的卡也在這裡，但看不到你按了哪個鈕；選了在這裡做的，要自己按<b>不做了</b>'), html);
+    check('換過工具那一句補半句:那時已經開著、之後沒重開的對話裡跳的也可能沒記到', html.includes('那時已經開著、之後沒重開的對話裡跳的，也可能沒記到'), html);
+    // 怪的值(舊的服務、壞掉的欄位):不准印出內部值;沒有湊好的那段就不提「複製」
+    const odd = [offer({ said: {} }), offer({ said: { text: 42 } }), offer({ brief: {} }), offer({ said: undefined, brief: undefined, workedAfter: undefined, supersededAt: undefined }), offer({ prompt: undefined })];
+    const leaks = odd.map((o) => block({ name: 'x', appCardsSince: TS, suggestions: [o] })).filter((h) => /undefined|NaN|\bnull\b|\[object/.test(h));
+    check('缺欄位、怪欄位都不會把 undefined／NaN／null 印到畫面上', leaks.length === 0, leaks.map((h) => h.match(/.{30}(undefined|NaN|null|\[object).{30}/s)?.[0]).join('\n      '));
+    const noPrompt = block({ name: 'x', appCardsSince: TS, suggestions: [offer({ prompt: '' })] });
+    check('沒有湊好的那段(舊的服務)→ 沒有複製鈕,也不講「複製拿到的…」', !noPrompt.includes('data-copy=') && !noPrompt.includes('「複製」拿到'), noPrompt);
+  }
+}
+
 section('分級卡與未檢查清單:只看得到還沒存的時候不畫「沒有改動」那張綠臉(真的跑 ui/app.js 的 statTier／statChanges;規格:這一輪的起點 AC-4、AC-5)', 'P5');
 {
   // 跟 suggestionsBlock 同一種做法:原封不動拿出來跑,補上它們用到的外部名字。拿不出來要紅——不准安靜地跳過(L20)

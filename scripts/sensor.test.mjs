@@ -746,13 +746,16 @@ section('app 建議卡換工具(AC-1、AC-3、AC-4、AC-6):真的跑 hook.sh 餵
   const ts = (row, m) => ({ ...row, ts: new Date(Date.UTC(2026, 9, 25, 2, m)).toISOString() });
   const rows = [ts(old, 0), ts(own.row, 1), ts(offer, 2), ts(asked, 3), ts(noInit, 4), ts(oddInit, 5), ts(pick, 6)];
   const cards = Object.fromEntries(suggestionsOf(rows).map((c) => [c.id, c]));
-  eq('掛著的卡:舊工具的、own_initiative、沒帶 initiation、沒見過的叫法(寧可多掛一張)', Object.keys(cards).sort().join(','), 'toolu_noinit,toolu_odd,toolu_old,toolu_own');
-  check('offer、user_asked 不是待辦卡', !cards.toolu_offer && !cards.toolu_asked);
+  // 2026-10-28 改:當場問的卡(offer)也是卡(規格:當場問的卡也收進來,改掉這份 AC-3 的一半——沒按就傳了新訊息,卡就關了、也不准再問一次)
+  eq('卡:舊工具的、own_initiative、當場問的、沒帶 initiation、沒見過的叫法(寧可多掛一張)', Object.keys(cards).sort().join(','), 'toolu_noinit,toolu_odd,toolu_offer,toolu_old,toolu_own');
+  check('當場問的那張標著是當場問的;其他的沒有', cards.toolu_offer?.ask === 'offer' && ['toolu_noinit', 'toolu_odd', 'toolu_old', 'toolu_own'].every((k) => cards[k].ask === null));
+  check('user_asked 不是待辦卡(直接開了)', !cards.toolu_asked);
   check('只帶代號的那一次不是一張新卡', !cards.toolu_pick);
   eq('新工具的卡:說明是背景說明、要貼的話整段在', `${cards.toolu_own.tldr}|${cards.toolu_own.prompt}`, `剛剛看到徽章指到舊的網址。|${CARD_PROMPT}`);
   eq('新舊兩種卡的欄位一樣(畫面用同一種畫法)', JSON.stringify(Object.keys(cards.toolu_own).sort()), JSON.stringify(Object.keys(cards.toolu_old).sort()));
   // AC-4:照你的話開了其中一張 → 列在那個對話、它之前提的每一張卡上;不收任何一張
-  eq('它之前提的卡都標著「照你的話開過 1 次」', Object.values(cards).map((c) => c.opens.length).join(','), '1,1,1,1');
+  eq('它之前提的、掛著等你按的卡都標著「照你的話開過 1 次」', ['toolu_old', 'toolu_own', 'toolu_noinit', 'toolu_odd'].map((k) => cards[k].opens.length).join(','), '1,1,1,1');
+  eq('當場問的卡不標(它在 app 裡從來不是掛著等你按的那種,只帶代號的那一次指的不可能是它)', cards.toolu_offer.opens.length, 0);
   check('沒有任何一張被當成已開始或不做了', Object.values(cards).every((c) => !c.startedBy && !c.dismissedAt));
   eq('比它晚提的卡不標(指的不可能是它)', suggestionsOf([ts(pick, 0), ts(own.row, 1)])[0].opens.length, 0);
   eq('同一次記了兩次(plugin 跟舊接法同時掛著)算一次', suggestionsOf([ts(own.row, 1), ts(pick, 6), ts(pick, 6)])[0].opens.length, 1);
@@ -835,6 +838,116 @@ section('建議卡開的對話(AC-1、AC-2、AC-4):app 按卡開的對話,第一
   // 輸入畸形:prompt 不是字串
   const odd = say(42).rec;
   check('prompt 不是字串:照記、不當成有包裝', odd?.prompt === 42 && !('prompt_wrap' in odd), JSON.stringify(odd));
+  r.cleanup();
+}
+
+section('當場問的卡也收進來(AC-1～AC-5):offer 是一張卡;補說明配到對的那張、不算照你的話開卡;同名的後來那一次接手;照 New session 開的對話用背景說明認得出已開始（真的跑 hook.sh）', 'P6');
+{
+  const r = makeRepo({ files: { 'a.js': '1\n' } });
+  const S = SRC;
+  const rec = (payload) => { const out = runHook(payload); return out.lines[0] ? JSON.parse(out.lines[0]) : null; };
+  const call = (id, input, session = S) => rec({ ...CARD({ cwd: r.dir, session_id: session, tool_name: START_TOOL, tool_use_id: id }), tool_input: input });
+  const say = (session, prompt, title = null) => rec({ hook_event_name: 'UserPromptSubmit', session_id: session, prompt_id: 'p1', cwd: r.dir, prompt, ...(title ? { session_title: title } : {}) });
+  const skill = (session = S) => rec({ hook_event_name: 'PreToolUse', session_id: session, cwd: r.dir, tool_name: 'Skill', tool_use_id: 'toolu_skill', tool_input: { skill: 'pipeline-monitor:spec' } });
+  let n = 0;
+  const seq = (...rows) => rows.map((row) => ({ ...row, ts: new Date(Date.UTC(2026, 9, 28, 2, 0, n++ * 10)).toISOString() }));
+  const by = (rows) => Object.fromEntries(suggestionsOf(rows).map((c) => [c.id, c]));
+  const TITLE = '學生頁：JPG 報告卡還在傳，別說全部送好了';
+  const WORDS = 'JPG 報告卡那一條幫我開一張建議卡';
+  const PROMPT = '在學生頁把送 JPG 報告卡的那一段改成照實講:上傳還沒完成就不准說「全部送好了」。先讀 CLAUDE.md 的三條紅線,改完跑 npm test。';
+  // 背景說明照真的那兩次的長度(都比標頭剩下的位子長):標頭兩行加背景說明就把感測器記的前 200 字用完
+  const BG = '原本那個對話在查練習頁的假成功時發現:學生頁送 JPG 報告卡,上傳還在跑就先跳出「全部送好了」。那是把「叫了上傳」講成「傳好了」。這張卡要另開一個對話修它。'
+    + '新對話開工前先讀那個對話的結論:問題在送出按鈕的完成判斷,不是上傳本身;不要動上傳的程式,只改畫面上那一句與它的判斷。';
+
+  // AC-1:真的那幾次的長相(2026-10-28 看的紀錄)——提卡只帶標題
+  const offer = call('toolu_offer', { initiation: 'offer', title: TITLE });
+  eq('提卡那一行:offer、標題,沒有要貼的話', `${offer.in_init}|${offer.in_title}|${offer.in_prompt ?? ''}`, `offer|${TITLE}|`);
+  const before = seq(say(S, WORDS, 'R1 fake success'), say(S, '<task-notification>\n背景工作做完了\n</task-notification>'), offer);
+  const lone = by(before).toolu_offer;
+  eq('一張卡,標著是當場問的', `${lone?.ask}|${lone?.title}`, `offer|${TITLE}`);
+  eq('你那時說的話:你說的最後一句,系統塞的通知不算(P7)', `${lone.said?.text}|${lone.said?.cut}`, `${WORDS}|false`);
+  // AC-4:沒有下文 → 要貼的話是監視器照標題湊的那段(標題、原本那個對話、你那時說的話),不替 Claude 補說明
+  eq('沒有下文:湊的那段一字不差', lone.prompt, `${TITLE}\n\n這件事原本在「R1 fake success」那個對話裡提過。\n你那時說：「${WORDS}」`);
+  eq('…沒有下文、沒有說明', `${lone.brief}|${lone.tldr}`, 'null|null');
+  const longWords = by(seq(say(S, '字'.repeat(300)), call('toolu_offer', { initiation: 'offer', title: TITLE }))).toolu_offer;
+  check('你那時說的話被感測器截過 → 標了,湊的那段也加…', longWords.said.cut === true && longWords.prompt.endsWith('…」'), longWords.prompt.slice(-10));
+  eq('照湊的那段開了新對話 → 認得出已開始(AC-4)', by([...before, ...seq(say('new-copy', lone.prompt))]).toolu_offer.startedBy, 'new-copy');
+  eq('沒有標題的當場問的卡照樣一張(R1),湊的那段從原本那個對話講起', by(seq(say(S, WORDS), call('toolu_blank', { initiation: 'offer' }))).toolu_blank?.prompt.split('\n')[0], '這件事原本在另一個對話裡提過。');
+
+  // AC-2 第一條:你按了 New session → app 叫 Claude 補說明(帶代號、要貼的話、背景說明,沒有標題、沒有 initiation)
+  const follow = call('toolu_follow', { proposal_id: 'task_a8576178', prompt: PROMPT, background: BG });
+  eq('補說明那一行:代號、要貼的話、背景說明都記到', `${follow.in_proposal}|${follow.in_prompt === PROMPT}|${follow.in_tldr === BG}|${follow.in_init ?? ''}`, 'task_a8576178|true|true|');
+  // 照 New session 開的對話,第一句話開頭多一行「Task (from …):」——感測器拆不掉(這份不改感測器),記到的前 200 字是標頭加背景說明
+  const WRAP = `Task (from the session that started this one):\nBackground (from the session that started this one):\n${BG}\n\nTask:\n${PROMPT}`;
+  const first = say('new-wrapped', WRAP);
+  check('(前提)標頭兩行加背景說明比感測器記的長——不然這一段測不到真的那種情況', WRAP.indexOf(BG) + BG.length > first.prompt.length, String(BG.length));
+  check('新包裝:感測器照記、沒拆(沒有 prompt_wrap),要貼的話一個字都沒記到', first.prompt.startsWith('Task (from the session') && !('prompt_wrap' in first) && !first.prompt.includes(PROMPT.slice(0, 12)), first.prompt.slice(0, 60));
+  const viaNew = by([...before, ...seq(follow, first)]).toolu_offer;
+  eq('有下文:說明、要貼的話換成補說明的', `${viaNew.brief?.via}|${viaNew.tldr === BG}|${viaNew.prompt === PROMPT}`, 'followup|true|true');
+  eq('照 New session 開的對話 → 用背景說明認得出已開始', viaNew.startedBy, 'new-wrapped');
+  const noOne = by([...before, ...seq(follow)]).toolu_offer;
+  eq('找不到照它開的對話 → 照樣掛著、還是有下文(畫面講「補了說明但找不到」)', `${noOne.startedBy}|${noOne.brief?.via}`, 'null|followup');
+
+  // AC-3:補說明那一次不再掛到別張卡上;只帶代號的那一次照舊標
+  const pending = call('toolu_pending', { initiation: 'own_initiative', title: '另一件事', prompt: '另一件事要貼的話', background: '另一件事的背景' });
+  const pick = call('toolu_pick', { proposal_id: 'task_pending1' });
+  const mixed = by(seq(pending, say(S, WORDS), offer, follow, first));
+  eq('先前提的掛著的卡:不會多一行「照你的話叫過開…」(那一次是補說明)', mixed.toolu_pending.opens.length, 0);
+  eq('…補說明照樣配到當場問的那張', `${mixed.toolu_offer.brief?.via}|${mixed.toolu_offer.startedBy}`, 'followup|new-wrapped');
+  eq('只帶代號的那一次(你說「開第二張」)照舊標在先前提的掛著的卡上', by(seq(pending, pick)).toolu_pending.opens.length, 1);
+  const orphan = suggestionsOf(seq(pending, follow));
+  eq('補說明前面找不到當場問的卡(換工具之前就開著的對話)→ 不是卡、也不算照你的話開卡', `${orphan.length}|${orphan[0].opens.length}`, '1|0');
+  // 兩張當場問的卡後面跟一次補說明:配給後面那張(app 叫 Claude 補的,就是剛剛按的那張)
+  const two = by(seq(call('toolu_a', { initiation: 'offer', title: '甲' }), call('toolu_b', { initiation: 'offer', title: '乙' }), follow));
+  eq('兩張當場問的卡、一次補說明 → 配給後面那張', `${two.toolu_a.brief}|${two.toolu_b.brief?.via}`, 'null|followup');
+  eq('同一次補說明記了兩次(plugin 跟舊接法同時掛著)→ 不會順便配給前面那張', by(seq(call('toolu_a', { initiation: 'offer', title: '甲' }), call('toolu_b', { initiation: 'offer', title: '乙' }), follow, follow)).toolu_a.brief, null);
+
+  // AC-2 第二條:同一個對話後來又叫了同名的卡。直接開的 → 那一次就是下文;掛著的 → 這張收起來,跟著那一張
+  const direct = call('toolu_direct', { initiation: 'user_asked', title: TITLE, prompt: PROMPT, background: BG });
+  const opened = say('new-direct', `Background (from the session that started this one):\n${BG}\n\nTask:\n${PROMPT}`);
+  const later = by([...before, ...seq(say(S, '我怎麼沒看到建議卡'), direct, opened)]);
+  eq('後來同名、直接開的 → 那一次是下文,照它開的對話認得出已開始', `${later.toolu_offer.brief?.via}|${later.toolu_offer.startedBy}`, 'same-title|new-direct');
+  check('…直接開的那一次本身照舊不是卡', !later.toolu_direct);
+  check('不同名的直接開 → 不是下文', by([...before, ...seq(call('toolu_direct', { initiation: 'user_asked', title: '別件事', prompt: PROMPT }))]).toolu_offer.brief === null);
+  const again = by([...before, ...seq(call('toolu_again', { initiation: 'own_initiative', title: TITLE, prompt: PROMPT }))]);
+  check('後來同名、掛著等你按的 → 這張收起來(跟著後來那一張),那一張照常掛著', !!again.toolu_offer.supersededAt && !again.toolu_again.supersededAt, JSON.stringify([again.toolu_offer.supersededAt, again.toolu_again.supersededAt]));
+  check('不同名的 → 這張照常掛著', by([...before, ...seq(call('toolu_again', { initiation: 'own_initiative', title: '別件事', prompt: PROMPT }))]).toolu_offer.supersededAt === null);
+  const blanks = by(seq(call('toolu_a', { initiation: 'offer' }), call('toolu_b', { initiation: 'offer' })));
+  check('兩張都沒有標題 → 不算同名,兩張都掛著', blanks.toolu_a.supersededAt === null && blanks.toolu_b.supersededAt === null);
+  check('別的對話提的同名卡 → 不算', by([...before, ...seq(call('toolu_other', { initiation: 'own_initiative', title: TITLE, prompt: PROMPT }, 'other-session'))]).toolu_offer.supersededAt === null);
+
+  // D 第一輪(R1):補說明只配給最近那一張、還在等你按的當場問的卡——你選了在這裡做的那張,不會被後來一次帶要貼的話的呼叫換上別人的說明
+  eq('提卡之後你說過話,才來一次補說明 → 不配給那張(時序不對)', by(seq(say(S, WORDS), offer, say(S, '在這裡做就好'), follow)).toolu_offer.brief, null);
+  const afterOther = by(seq(call('toolu_a', { initiation: 'offer', title: '甲' }), call('toolu_b', { initiation: 'offer', title: '乙' }), follow, call('toolu_f2', { proposal_id: 'task_other', prompt: '另一段要貼的話' })));
+  eq('最近那張已經配到了,再來一次不同代號的補說明 → 不配給更前面那張', `${afterOther.toolu_a.brief}|${afterOther.toolu_b.brief?.via}`, 'null|followup');
+
+  // AC-5:提卡之後、你下一句話之前 Claude 接著動了工 → 只是提示,卡照樣掛著
+  const worked = by([...before, ...seq(skill())]).toolu_offer;
+  check('接著叫了 skill → 有提示,卡照樣掛著', !!worked.workedAfter && !worked.dismissedAt && !worked.startedBy && !worked.supersededAt);
+  eq('你先講了話、Claude 才動工 → 沒有提示(那是回你的話)', by([...before, ...seq(say(S, '先做別的'), skill())]).toolu_offer.workedAfter, null);
+  eq('補說明之後才動工 → 沒有提示(看得到是開了新對話)', by([...before, ...seq(follow, skill())]).toolu_offer.workedAfter, null);
+  eq('先動了工、才補說明 → 也沒有提示(補說明證明你按的是 New session,D 第一輪)', by([...before, ...seq(skill(), follow)]).toolu_offer.workedAfter, null);
+  r.cleanup();
+}
+
+section('當場問的卡也收進來(D 第一輪):照卡開的對話,第一句話是另一個 Claude 寫的說明——你還沒說話 Claude 就叫了當場問的卡,不准當成「你那時說」附在卡上、抄進湊的那段（真的跑 hook.sh）', 'P7');
+{
+  const r = makeRepo({ files: { 'a.js': '1\n' } });
+  const rec = (payload) => { const out = runHook(payload); return out.lines[0] ? JSON.parse(out.lines[0]) : null; };
+  const say = (session, prompt) => rec({ hook_event_name: 'UserPromptSubmit', session_id: session, prompt_id: 'p1', cwd: r.dir, prompt });
+  const offer = (session) => rec({ ...CARD({ cwd: r.dir, session_id: session, tool_name: START_TOOL, tool_use_id: 'toolu_x' }), tool_input: { initiation: 'offer', title: '順手的事' } });
+  const card = (...rows) => suggestionsOf(rows.map((row, i) => ({ ...row, ts: new Date(Date.UTC(2026, 9, 28, 3, 0, i)).toISOString() }))).find((c) => c.id === 'toolu_x');
+  const BRIEF = '在學生頁把送 JPG 報告卡的那一段改成照實講:上傳還沒完成就不准說「全部送好了」。先讀 CLAUDE.md 的三條紅線,改完跑 npm test。';
+  const BG = '原本那個對話在查練習頁的假成功時發現的。';
+  const wrapped = say('card-opened', `Background (from the session that started this one):\n${BG}\n\nTask:\n${BRIEF}`);
+  check('(前提)感測器剝過包裝,標了 prompt_wrap', wrapped.prompt_wrap === 'task');
+  const viaCard = card(wrapped, offer('card-opened'));
+  eq('照卡開的對話(剝過包裝)裡你還沒說話 → 看不到你那時說的話,湊的那段也不抄', `${viaCard.said}|${viaCard.prompt.includes('你那時說')}`, 'null|false');
+  const ns = say('ns-opened', `Task (from the session that started this one):\nBackground (from the session that started this one):\n${BG}\n\nTask:\n${BRIEF}`);
+  check('(前提)New session 那種包裝感測器拆不掉、照記', ns.prompt.startsWith('Task (from the session') && !('prompt_wrap' in ns), ns.prompt.slice(0, 60));
+  eq('照 New session 開的對話也一樣', card(ns, offer('ns-opened')).said, null);
+  eq('…你說了話之後,附的是你說的', card(wrapped, say('card-opened', 'JPG 那一條幫我開一張建議卡'), offer('card-opened')).said?.text, 'JPG 那一條幫我開一張建議卡');
+  eq('你自己打的字開頭剛好是 Task:(不是那一整行標頭)→ 照樣是你說的', card(say('mine', 'Task: 幫我列一下待辦'), offer('mine')).said?.text, 'Task: 幫我列一下待辦');
   r.cleanup();
 }
 
