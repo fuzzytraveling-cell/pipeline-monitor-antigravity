@@ -12,7 +12,7 @@ import { join, basename, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { collectAll, ladderSteps } from '../lib/collect.mjs';
-import { monitorHome } from '../lib/paths.mjs';
+import { codeHome, dataHome } from '../lib/paths.mjs';
 import { readAppTitles, deletedAt, transcriptDirName } from '../lib/appSessions.mjs';
 import { safeName } from '../lib/events.mjs';
 import { stagesBrokenLine } from '../lib/rounds.mjs';
@@ -170,30 +170,38 @@ section('C3：中文名的專案在網頁上要找得到,而且顯示真的名�
   rmSync(monitorDir, { recursive: true, force: true }); rmSync(parent, { recursive: true, force: true });
 }
 
-section('L17：程式從 worktree 跑,資料還是主資料夾的那一份', 'P3');
+section('L17：程式從哪個資料夾跑,資料都是同一個家', 'P11');
 {
   // 2026-09-15:app 把儀表板重開在 worktree 裡,畫面說「還沒有任何案件」——資料都在主資料夾。
+  // 2026-10-28 起資料連主資料夾都不住了(規格:紀錄搬到固定的家):程式從哪裡跑,家都是同一個。
+  // 「程式的主資料夾」那條規則還在,給要指向程式的地方用(plugin 捷徑、舊接法、背景服務)。
   const repo = makeRepo({ files: { 'a.js': '1\n' } });          // 假裝這是 pipeline-monitor 自己的 repo
   const main = out(repo.dir, 'rev-parse', '--show-toplevel');
   const wtParent = mkdtempSync(join(tmpdir(), 'pm-wt-'));
   const wt = join(wtParent, 'wt');
   execFileSync('git', ['worktree', 'add', '-q', wt, '-b', 'side'], { cwd: repo.dir, stdio: 'ignore' });
-  eq('主資料夾的 home 是自己', monitorHome(main), main);
-  eq('worktree 的 home 是主資料夾', monitorHome(wt), main);
+  eq('主資料夾的主資料夾是自己', codeHome(main), main);
+  eq('worktree 的主資料夾是主資料夾', codeHome(wt), main);
   const plain = mkdtempSync(join(tmpdir(), 'pm-plain-'));
-  eq('不在 git 裡的資料夾 → 自己', monitorHome(plain), plain);
+  eq('不在 git 裡的資料夾 → 自己', codeHome(plain), plain);
 
-  // 主資料夾放一份章,從 worktree 跑 collectAll 也要看得到
+  // 這支程式自己的資料夾(正式的呼叫都給它)不是資料的家:家是指定的那一個(測試共用的那支給的假家)
+  eq('程式自己的資料夾 → 資料的家是指定的那一個', dataHome(ROOT), process.env.PIPELINE_MONITOR_HOME);
+  eq('呼叫端給的資料夾(測試的暫存資料夾)照用', dataHome(plain), plain);
+
+  // 家裡放一份章,用程式自己的資料夾跑 collectAll(儀表板的預設)要看得到
   const target = makeRepo({ files: { 'b.js': '1\n' } });
   const troot = out(target.dir, 'rev-parse', '--show-toplevel');
-  mkdirSync(join(main, 'checkpoints'));
-  copyFileSync(join(ROOT, 'stages.json'), join(wt, 'stages.json'));
+  const cpDir = join(process.env.PIPELINE_MONITOR_HOME, 'checkpoints');
+  mkdirSync(cpDir, { recursive: true });
   const tbranch = out(target.dir, 'rev-parse', '--abbrev-ref', 'HEAD');   // 照真的分支名寫,不寫死 main(見 monitorWith)
-  writeFileSync(join(main, 'checkpoints', `${basename(troot)}__${tbranch}.json`), JSON.stringify({
+  const cpFile = join(cpDir, `${basename(troot)}__${tbranch}.json`);
+  writeFileSync(cpFile, JSON.stringify({
     commit: out(target.dir, 'rev-parse', 'HEAD'), branch: tbranch, worktree: troot, at: new Date().toISOString(), checks: ['test'],
   }));
-  const seen = collectAll({ monitorDir: wt }).projects.map((p) => p.name);
-  check('從 worktree 跑,看得到主資料夾的案件', seen.includes(basename(troot)), JSON.stringify(seen));
+  const seen = collectAll({ monitorDir: ROOT, appTitles: new Map() }).projects.map((p) => p.name);
+  check('用程式自己的資料夾跑,看得到家裡的案件', seen.includes(basename(troot)), JSON.stringify(seen));
+  rmSync(cpFile, { force: true });
   execFileSync('git', ['worktree', 'remove', '--force', wt], { cwd: repo.dir, stdio: 'ignore' });
   for (const d of [wtParent, plain]) rmSync(d, { recursive: true, force: true });
   repo.cleanup(); target.cleanup();

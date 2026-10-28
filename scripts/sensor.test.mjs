@@ -466,10 +466,12 @@ section('E 驗收：認瀏覽器工具的事件,講「開瀏覽器跑過一輪�
   check('沒有任何欄位叫 passed／success(R2:感測器無從得知)', run && !('passed' in run) && !('success' in run));
 }
 
-section('L17：hook.sh 從 worktree 被呼叫,紀錄還是寫進主資料夾', 'P3');
+section('L17：hook.sh 從哪裡被呼叫,紀錄都寫進同一個家', 'P3');
 {
-  // 沒設 PIPELINE_MONITOR_LOG_DIR 時 hook.sh 寫到 <自己所在 repo 的主資料夾>/logs。做一個假的 repo 放一份 hook.sh 副本,
-  // 從它的 worktree 裡呼叫,紀錄要出現在主資料夾。
+  // 沒設 PIPELINE_MONITOR_LOG_DIR 時,hook.sh 寫到 $PIPELINE_MONITOR_HOME/logs,沒設家就是 ~/.pipeline-monitor/logs——
+  // 跟它自己住在哪無關(規格:紀錄搬到固定的家)。做一個假的 repo 放一份 hook.sh 副本,從它的 worktree 裡呼叫:
+  // 紀錄要出現在家裡,主資料夾跟 worktree 都不准長出 logs/。
+  // ⚠️ 拿掉家的設定只准配假的 repo 副本:真的 hook.sh 的「舊的地方」是這台電腦真的紀錄(AC-7)。
   const repo = makeRepo({ files: { 'a.txt': '1\n' } });
   const main = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: repo.dir, encoding: 'utf8' }).trim();
   execFileSync('cp', [join(ROOT, 'hook.sh'), join(main, 'hook.sh')]);
@@ -479,12 +481,23 @@ section('L17：hook.sh 從 worktree 被呼叫,紀錄還是寫進主資料夾', '
   const wt = join(wtParent, 'wt');
   execFileSync('git', ['worktree', 'add', '-q', wt, '-b', 'side'], { cwd: main, stdio: 'ignore' });
   const target = makeRepo({ files: { 'b.js': '1\n' } });
-  const env = { ...process.env }; delete env.PIPELINE_MONITOR_LOG_DIR;
+  const home = mkdtempSync(join(tmpdir(), 'pm-home-'));
+  const env = { ...process.env, PIPELINE_MONITOR_HOME: home }; delete env.PIPELINE_MONITOR_LOG_DIR;
   execFileSync('sh', [join(wt, 'hook.sh')], { input: JSON.stringify(SAMPLE({ cwd: target.dir })), env, encoding: 'utf8' });
-  check('紀錄寫在主資料夾的 logs/', readdirSync(join(main, 'logs')).length === 1, '主資料夾的 logs/ 是空的');
+  check('紀錄寫在家裡的 logs/', existsSync(join(home, 'logs')) && readdirSync(join(home, 'logs')).length === 1, '家裡的 logs/ 是空的');
+  check('主資料夾沒有長出 logs/', !existsSync(join(main, 'logs')));
   check('worktree 裡沒有 logs/', !existsSync(join(wt, 'logs')));
+  // 連家都沒設:家目錄底下的 .pipeline-monitor(家目錄是假的;舊的地方是假 repo 的主資料夾,裡面沒有 logs/)
+  const fakeHome = mkdtempSync(join(tmpdir(), 'pm-home-'));
+  const env2 = { ...process.env, HOME: fakeHome }; delete env2.PIPELINE_MONITOR_LOG_DIR; delete env2.PIPELINE_MONITOR_HOME;
+  execFileSync('sh', [join(wt, 'hook.sh')], { input: JSON.stringify(SAMPLE({ cwd: target.dir })), env: env2, encoding: 'utf8' });
+  const deflt = join(fakeHome, '.pipeline-monitor');
+  check('沒設家 → ~/.pipeline-monitor/logs/', existsSync(join(deflt, 'logs')) && readdirSync(join(deflt, 'logs')).length === 1);
+  eq('新建的家只有自己讀寫得到(AC-6:紀錄裡有使用者打的字)', (statSync(deflt).mode & 0o777).toString(8), '700');
+  check('主資料夾還是沒有 logs/', !existsSync(join(main, 'logs')));
   execFileSync('git', ['worktree', 'remove', '--force', wt], { cwd: main, stdio: 'ignore' });
-  rmSync(wtParent, { recursive: true, force: true }); repo.cleanup(); target.cleanup();
+  for (const d of [wtParent, home, fakeHome]) rmSync(d, { recursive: true, force: true });
+  repo.cleanup(); target.cleanup();
 }
 
 section('開過瀏覽器 ≠ 驗收過:E 只算「看過」,不亮、不算走到;人說驗收過了才算');

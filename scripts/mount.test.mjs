@@ -10,10 +10,11 @@ import process from 'node:process';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-// 舊接法的 hook 指向「監視器的家」(預設是主資料夾)。在 worktree 裡跑測試時,主資料夾可能還沒有這條分支新加的腳本
+// 舊接法的 hook 指向「程式的主資料夾」(lib/paths.mjs 的 codeHome)。在 worktree 裡跑測試時,主資料夾可能還沒有這條分支新加的腳本
 // (2026-09-16 加 gate.sh 時撞到:掛好了卻說 broken,因為它指向主資料夾裡還不存在的 gate.sh)。
-// 所以先把家指向這份程式碼自己,再載入 mount.mjs;「worktree 的家是主資料夾」這條規則本身由 collect.test 釘。
-process.env.PIPELINE_MONITOR_HOME = ROOT;
+// 所以先把程式的位置指向這份程式碼自己,再載入 mount.mjs;「worktree 的主資料夾」這條規則本身由 collect.test 釘。
+// (以前借 PIPELINE_MONITOR_HOME 指——那個變數現在只管資料的家,規格:紀錄搬到固定的家)
+process.env.PIPELINE_MONITOR_CODE_HOME = ROOT;
 const { mount, unmount, mountState, pluginState, installPlugin, uninstallPlugin, optOut, optIn } = await import('../lib/mount.mjs');
 
 const settings = (dir) => JSON.parse(readFileSync(join(dir, '.claude', 'settings.local.json'), 'utf8'));

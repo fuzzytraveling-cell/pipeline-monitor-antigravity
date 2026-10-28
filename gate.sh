@@ -16,9 +16,21 @@ if [ -z "$NODE" ]; then
   done
 fi
 if [ -z "$NODE" ]; then
-  # 找不到 node 是 L13 那種安靜失效:能留記號就留(主資料夾才有 logs/;worktree 沒有就算了)
-  [ -d "$DIR/logs" ] && printf '{"ts":"%s","event":"gate_broken","why":"找不到 node"}\n' \
-    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$DIR/logs/_sensor.jsonl" 2>/dev/null
+  # 找不到 node 是 L13 那種安靜失效:能留記號就留。留在哪跟 hook.sh 同一條規則(lib/paths.mjs 的 pickDir):
+  # 新家有就新家;新家還沒有、還沒搬家 → 舊的地方。簡化兩處:這裡不建資料夾(建家是感測器的事),
+  # 舊的地方只看這支自己的資料夾(主資料夾才有 logs/;從 worktree 被叫就算了,跟以前一樣)。
+  if [ -n "$PIPELINE_MONITOR_LOG_DIR" ]; then
+    LOGS=$PIPELINE_MONITOR_LOG_DIR
+  else
+    LOGS="${PIPELINE_MONITOR_HOME:-$HOME/.pipeline-monitor}/logs"
+    # 家目錄被換掉了就不看舊的地方(hook.sh 的 real_home 同一條,這裡只比實體路徑、不另外處理測試用的變數以外的情況)
+    _A=$PIPELINE_MONITOR_TEST_REAL_HOME
+    if [ -z "$_A" ]; then _U=$(id -un 2>/dev/null); case "$_U" in ''|*[!A-Za-z0-9._-]*) _A= ;; *) eval "_A=~$_U" ;; esac; fi
+    _H=$(cd "$HOME" 2>/dev/null && pwd -P); _R=$( [ -n "$_A" ] && cd "$_A" 2>/dev/null && pwd -P)
+    if [ ! -d "$LOGS" ] && [ -z "$PIPELINE_MONITOR_HOME" ] && [ -n "$_H" ] && [ "$_H" = "$_R" ] && [ -d "$DIR/logs" ] && [ ! -L "$DIR/logs" ]; then LOGS="$DIR/logs"; fi
+  fi
+  [ -d "$LOGS" ] && printf '{"ts":"%s","event":"gate_broken","why":"找不到 node"}\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$LOGS/_sensor.jsonl" 2>/dev/null
   exit 0
 fi
 exec "$NODE" "$DIR/gate.mjs"

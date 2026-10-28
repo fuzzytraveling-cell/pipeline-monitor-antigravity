@@ -21,7 +21,7 @@
  * 擋不擋、缺什麼,都從儀表板同一份事實算(lib/collect.mjs 的 cardFor → sessionTier,跟對話頁同一個函式),不另外算一份(老毛病 P2)。
  * 「這次改了什麼」從這一輪的起點算(規格:這一輪的起點):Claude 收工前先存檔,該擋的照樣擋——以前沒章時比的是上一次存檔,一存就全部放行。
  */
-import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, realpathSync } from 'node:fs';
+import { readFileSync, writeFileSync, appendFileSync, existsSync, realpathSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
@@ -34,12 +34,14 @@ import { readTierConfig, codeFileFn, changeTimeOf, RANKS, DANGER_ASK, dangerAskL
 import { changeScope } from './lib/scope.mjs';
 import { commandFor as findCommand, pluginName } from './lib/skills.mjs';
 import { optOutState } from './lib/mount.mjs';
-import { monitorHome } from './lib/paths.mjs';
+import { codeHome, dataDir, makeDataDir } from './lib/paths.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-// 資料住在主資料夾(lib/paths.mjs,PIPELINE_MONITOR_HOME 可以換掉);紀錄位置跟 hook.sh 看同一個變數
-const MONITOR_DIR = monitorHome(HERE);
-const LOG_DIR = process.env.PIPELINE_MONITOR_LOG_DIR ?? join(MONITOR_DIR, 'logs');
+// 程式的主資料夾:decide 預設從那裡讀關卡清單(stages.json)。資料不住那裡了(規格:紀錄搬到固定的家)
+const MONITOR_DIR = codeHome(HERE);
+// 紀錄住哪:lib/paths.mjs 的 dataDir(跟 hook.sh 同一條規則)。用到才問、不在載入時算——好幾支測試在同一個程式裡載入這支,
+// 那一刻還沒換上假的家;而且第一次問的時候會順便搬家,搬家要在收工 hook 真的跑的時候才做。
+const logDir = () => dataDir('logs', HERE);
 const PLUGIN = pluginName(HERE);
 
 /**
@@ -47,10 +49,10 @@ const PLUGIN = pluginName(HERE);
  * 「出錯的那個資料夾之後又跑過了」還是「只是別的資料夾跑過」(規格:agent回報與故障記號 AC-5)。
  * why 是程式的錯誤原文——只給 Claude 查,畫面不印(lib/faults.mjs)。
  */
-function noteBroken(why, logDir = LOG_DIR, cwd = null) {
+function noteBroken(why, dir = logDir(), cwd = null) {
   try {
-    mkdirSync(logDir, { recursive: true });
-    appendFileSync(join(logDir, SENSOR_FILE), JSON.stringify({ ts: new Date().toISOString(), event: 'gate_broken', why: String(why).slice(0, 200),
+    makeDataDir(dir);
+    appendFileSync(join(dir, SENSOR_FILE), JSON.stringify({ ts: new Date().toISOString(), event: 'gate_broken', why: String(why).slice(0, 200),
       ...(typeof cwd === 'string' ? { cwd } : {}) }) + '\n');
   } catch { /* 連記都記不了,就真的算了 */ }
 }
@@ -270,9 +272,9 @@ function main() {
   let payload = null;
   try { payload = JSON.parse(readFileSync(0, 'utf8') || '{}'); } catch { return 0; }
   // 心跳:每次跑都留時間(不是紀錄,是一個會被蓋掉的小檔)。沒有它,「hook 掛著但從沒被觸發」跟「一切正常」長得一模一樣(L13、老毛病 P3)
-  try { mkdirSync(LOG_DIR, { recursive: true }); writeFileSync(join(LOG_DIR, GATE_FILE), JSON.stringify({ ts: new Date().toISOString(), cwd: payload?.cwd ?? null }) + '\n'); } catch { /* 留不了就算了,不影響判斷 */ }
+  try { const dir = logDir(); makeDataDir(dir); writeFileSync(join(dir, GATE_FILE), JSON.stringify({ ts: new Date().toISOString(), cwd: payload?.cwd ?? null }) + '\n'); } catch { /* 留不了就算了,不影響判斷 */ }
   let d = null;
-  try { d = decide({ payload }); } catch (e) { noteBroken(e?.message ?? e, LOG_DIR, payload?.cwd); return 0; }
+  try { d = decide({ payload }); } catch (e) { noteBroken(e?.message ?? e, undefined, payload?.cwd); return 0; }
   if (!d) return 0;
   // 擋了就留一筆:儀表板才講得出「工頭擋過一次,缺 C、D」,驗證也靠這筆(source:gate,不是人也不是感測器)。
   // 這一筆也是防迴圈的依據(AC-7:這一回合擋過的種類不再擋)——擋過之後的收工(stop_hook_active)卻記不了,就不擋:

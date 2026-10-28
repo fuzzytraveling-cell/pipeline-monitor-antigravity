@@ -12,26 +12,65 @@
 # ⚠️ AC-6:這裡**不過濾哪些 skill 算關卡**,全部照記。
 #    關卡清單只住在 stages.json 一個地方,由讀取端判斷。
 
-MONITOR_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-# 紀錄住在這個 repo 的主資料夾,不管這支是從哪個 worktree 被呼叫的(lib/paths.mjs 有同一條規則)。
-# worktree 的 .git 是一個檔案;是檔案才問 git,主資料夾那條路一毛都不花。
-if [ -f "$MONITOR_DIR/.git" ]; then
-  _C=$(git -C "$MONITOR_DIR" rev-parse --git-common-dir 2>/dev/null)
-  case "$_C" in /*) MONITOR_DIR=$(dirname "$_C") ;; ?*) MONITOR_DIR=$(dirname "$MONITOR_DIR/$_C") ;; esac
-fi
+SELF_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+# 紀錄住在固定的家 ~/.pipeline-monitor,跟這支程式住哪無關(規格:紀錄搬到固定的家;lib/paths.mjs 有同一條規則)。
+# 別人從 marketplace 裝的時候,程式是一個版本一個資料夾、更新後舊的會被清掉——紀錄跟著程式住,就會跟著消失。
 # 「家」跟紀錄位置都可以用環境變數換掉。這是**設定**不是測試專用後門——
 # 測試要能在自己的暫存資料夾裡跑,而且真的有人會想把紀錄放別的地方。lib/paths.mjs 看同一個 PIPELINE_MONITOR_HOME。
-MONITOR_DIR="${PIPELINE_MONITOR_HOME:-$MONITOR_DIR}"
-LOG_DIR="${PIPELINE_MONITOR_LOG_DIR:-$MONITOR_DIR/logs}"
-mkdir -p "$LOG_DIR" 2>/dev/null
+DATA_HOME="${PIPELINE_MONITOR_HOME:-$HOME/.pipeline-monitor}"
+
+# 這一筆寫去哪(lib/paths.mjs 的 pickDir 同一條規則,測試對兩邊的答案):
+#   新家有就用新家。新家還沒有、舊的地方(這支程式所屬 repo 主資料夾的 logs/)是真的資料夾 → 還沒搬家,照舊寫舊的,
+#   等 node 那一端整個搬過去——這裡先寫新家的話,就是兩邊各一半。都沒有 → 建新家(只給自己讀寫:紀錄裡有使用者打的字)。
+#   ⚠️ 只有預設的家才看舊的地方:指定了家或紀錄位置(測試一律會)→ 舊的地方一律不碰——在 worktree 裡跑測試時,那裡是這台電腦真的紀錄。
+#      家目錄被換掉了也不碰(real_home):新家落在暫存資料夾裡,這時候寫舊的、等著被搬,就是把真的紀錄往用完就丟的地方送。
+#   舊的位置搬過之後是一個指向新家的捷徑(-L),不算舊家。主資料夾那條路不問 git;從 worktree 被呼叫、而且新家還沒有的時候才問。
+#   這幾個判斷都只在新家還沒有的時候跑——搬過家之後,每次只多一個 [ -d ]。
+# 家目錄是不是帳號真正的那一個(lib/paths.mjs 的 accountHome 同一條;比的是實體路徑)。
+# PIPELINE_MONITOR_TEST_REAL_HOME 只給測試:假裝假的家目錄就是真的——只准配假的程式資料夾。
+real_home() {
+  _A=$PIPELINE_MONITOR_TEST_REAL_HOME
+  if [ -z "$_A" ]; then
+    _U=$(id -un 2>/dev/null)
+    case "$_U" in ''|*[!A-Za-z0-9._-]*) return 1 ;; esac
+    eval "_A=~$_U"
+  fi
+  _H=$(cd "$HOME" 2>/dev/null && pwd -P) || return 1
+  _R=$(cd "$_A" 2>/dev/null && pwd -P) || return 1
+  [ -n "$_H" ] && [ "$_H" = "$_R" ]
+}
+pick_log_dir() {
+  if [ -n "$PIPELINE_MONITOR_LOG_DIR" ]; then
+    LOG_DIR=$PIPELINE_MONITOR_LOG_DIR
+    [ -d "$LOG_DIR" ] || mkdir -p "$LOG_DIR" 2>/dev/null
+    return 0
+  fi
+  LOG_DIR="$DATA_HOME/logs"
+  [ -d "$LOG_DIR" ] && return 0
+  if [ -z "$PIPELINE_MONITOR_HOME" ] && real_home; then
+    _OLD=$SELF_DIR
+    if [ -f "$_OLD/.git" ]; then
+      _C=$(git -C "$_OLD" rev-parse --git-common-dir 2>/dev/null)
+      case "$_C" in /*) _OLD=$(dirname "$_C") ;; ?*) _OLD=$(dirname "$_OLD/$_C") ;; esac
+    fi
+    if [ -d "$_OLD/logs" ] && [ ! -L "$_OLD/logs" ]; then LOG_DIR="$_OLD/logs"; return 0; fi
+  fi
+  (umask 077 && mkdir -p "$LOG_DIR") 2>/dev/null
+  return 0
+}
+pick_log_dir
 
 PAYLOAD=$(cat)
 
 # jq 不在就留一筆記號再走。
 # ⚠️ AC-1:什麼都不留的話,讀取端會把「感測器壞了」看成「什麼都沒跑」——那是謊話。
+# 寫不進去(搬家那一刻)就重新看一次該寫哪裡、再寫一次,跟最下面那一筆同一個作法。
 if ! command -v jq >/dev/null 2>&1; then
-  printf '{"ts":"%s","event":"sensor_broken","why":"jq 不存在"}\n' \
-    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$LOG_DIR/_sensor.jsonl" 2>/dev/null
+  BROKEN=$(printf '{"ts":"%s","event":"sensor_broken","why":"jq 不存在"}' "$(date -u +%Y-%m-%dT%H:%M:%SZ)")
+  { printf '%s\n' "$BROKEN" >> "$LOG_DIR/_sensor.jsonl"; } 2>/dev/null || {
+    pick_log_dir
+    { printf '%s\n' "$BROKEN" >> "$LOG_DIR/_sensor.jsonl"; } 2>/dev/null
+  }
   exit 0
 fi
 
@@ -86,7 +125,7 @@ done
 # ⚠️ app 換了做卡的工具(2026-10-25,規格:app建議卡換工具):新工具多帶 initiation(哪一種叫法)與 proposal_id(照哪一張開的),
 #    記成 in_init／in_proposal,同一個 cut、同一個 in_cut。新工具的「背景說明」(background)放進 tldr 那一格——
 #    兩個工具不會同時帶,所以最胖的一行不變胖;tldr 有的話照舊取 tldr。這裡照舊不認工具名。
-printf '%s' "$PAYLOAD" | jq -c --arg head "${HEAD:-}" '
+FILTER='
 def cut($max):
   if type != "string" or . == "" then null else
     .[0:$max] as $s
@@ -141,6 +180,13 @@ def cut($max):
                 ["task", $k, .tool_input.task_id], ["reason", $r, .tool_input.reason],
                 ["init", $i, .tool_input.initiation], ["proposal", $o, .tool_input.proposal_id]]
                  | map(select(.[1] != null and .[1] != .[2]) | .[0]) | if length > 0 then . else null end)
-} | with_entries(select(.value != null))' >> "$LOG_DIR/$PROJECT.jsonl" 2>/dev/null
+} | with_entries(select(.value != null))'
+
+# 寫進去。打不開(搬家那一刻:舊的資料夾剛被改名、指向新家的捷徑還沒放好)就重新看一次該寫哪裡、再寫一次——
+# 一筆都不准掉(規格:紀錄搬到固定的家 AC-4)。錯誤訊息整組丟掉:打不開檔案時 shell 會自己印一行,而這支永遠不准出聲。
+{ printf '%s' "$PAYLOAD" | jq -c --arg head "${HEAD:-}" "$FILTER" >> "$LOG_DIR/$PROJECT.jsonl"; } 2>/dev/null || {
+  pick_log_dir
+  { printf '%s' "$PAYLOAD" | jq -c --arg head "${HEAD:-}" "$FILTER" >> "$LOG_DIR/$PROJECT.jsonl"; } 2>/dev/null
+}
 
 exit 0

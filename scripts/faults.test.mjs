@@ -367,7 +367,9 @@ section('魔鬼教官第一輪:收工 hook 自己出錯那條路(專案設定寫
   mkdirSync(join(s.root, '.claude'), { recursive: true });
   writeFileSync(join(s.root, '.claude', 'pipeline-stages.json'), JSON.stringify({ tiers: { code: ['a.js'], danger: [] } }));
   const { CLAUDE_CODE_SESSION_ID: _drop, ...base } = process.env;
-  const env = { ...base, HOME: s.home, PIPELINE_MONITOR_HOME: s.monitorDir, PIPELINE_MONITOR_LOG_DIR: s.logDir };
+  // 收工 hook 從「程式的主資料夾」讀內建的關卡清單:指到這個假的資料夾,它才讀得到上面寫壞的那一份。
+  // (以前借 PIPELINE_MONITOR_HOME 一起指——那個變數現在只管資料的家,規格:紀錄搬到固定的家;LESSONS L17 的第二次)
+  const env = { ...base, HOME: s.home, PIPELINE_MONITOR_HOME: s.monitorDir, PIPELINE_MONITOR_LOG_DIR: s.logDir, PIPELINE_MONITOR_CODE_HOME: s.monitorDir };
   const said = execFileSync('sh', [join(ROOT, 'gate.sh')], { input: JSON.stringify({ session_id: 's1', cwd: s.root, hook_event_name: 'Stop' }), env, encoding: 'utf8' });
   eq('出錯 → 一個字都不印(放行)', said, '');
   const last = readFileSync(join(s.logDir, '_sensor.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).at(-1);

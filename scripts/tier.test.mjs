@@ -3,6 +3,7 @@
  *   沒設定被折成 T0、危險清單空的被講成安全、「需要」被畫成通過、人調的往下或過期還掛著、
  *   sh(remind.sh)跟 node 對「設定了沒」的答案不一樣。
  */
+import { section, check, eq, summary, makeRepo } from './_harness.mjs';   // 排第一個:它先換上假的家,下面的 cli*.mjs 一載入就問家在哪
 import { writeFileSync, mkdirSync, mkdtempSync, rmSync, readFileSync, copyFileSync, utimesSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
@@ -14,7 +15,6 @@ import {
 } from '../lib/tier.mjs';
 import { describeTier } from '../lib/cliTier.mjs';
 import { rerunOf } from '../lib/rounds.mjs';
-import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const LEVELS = JSON.parse(readFileSync(join(ROOT, 'stages.json'), 'utf8')).tierLevels;

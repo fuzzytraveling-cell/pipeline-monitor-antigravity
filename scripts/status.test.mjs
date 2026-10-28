@@ -5,6 +5,7 @@
  *    數量算錯、把「沒問到」當成「沒有」、拿雜訊當基準。
  *    純視覺的東西壞了看得見;這幾條壞了測試全綠、畫面照跑。
  */
+import { section, check, eq, summary, makeRepo } from './_harness.mjs';   // 排第一個:它先換上假的家,下面的 cli*.mjs 一載入就問家在哪
 import { writeFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
@@ -16,7 +17,6 @@ import { describeCheckpoint, describeSensor } from '../lib/cliView.mjs';
 import { gitContext, changeScale, changeHealth, ago, withClock, uncommitted, checkpointRelation } from '../lib/git.mjs';
 import { RETAIN_DAYS } from '../lib/events.mjs';
 import { humanAge } from '../lib/freshness.mjs';
-import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const sha = (dir, ref = 'HEAD') => execFileSync('git', ['rev-parse', ref], { cwd: dir, encoding: 'utf8' }).trim();

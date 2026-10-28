@@ -27,6 +27,7 @@ import { readEvents, RETAIN_DAYS } from './lib/events.mjs';
 import { faultsNow } from './lib/faults.mjs';
 import { installService, uninstallService, restartService, describeService, openDashboard } from './lib/service.mjs';
 import { installPlugin, uninstallPlugin } from './lib/mount.mjs';
+import { moveState } from './lib/paths.mjs';
 import { LOG_DIR, gatherChange, stageFacts } from './lib/cliFacts.mjs';
 import { renderSensor, render } from './lib/cliView.mjs';
 import { renderStages } from './lib/cliStages.mjs';
@@ -81,8 +82,9 @@ async function main() {
 
   // 紀錄只讀一次:感測器那行(活著嗎)、五關那段(跑過什麼)、分級(人調的)共用同一份
   const ev = readEvents(LOG_DIR, ctx.project);
-  // 這台電腦的故障(全機一份,儀表板同一個函式):最上面那一行、感測器那一行、五關那段共用
-  const faults = faultsNow(LOG_DIR, { retainDays: RETAIN_DAYS });
+  // 這台電腦的故障(全機一份,儀表板同一個函式):最上面那一行、感測器那一行、五關那段共用。
+  // 搬家還沒搬完也算在這裡,跟故障同一個位置講(規格:紀錄搬到固定的家 AC-5)
+  const faults = faultsNow(LOG_DIR, { retainDays: RETAIN_DAYS, move: moveState() });
   if (!ctx.hasCommits && at('--checkpoint') === -1) {
     renderSensor(ctx, ev, faults);
     console.log('這個專案還沒有任何 commit,所以還沒有版本可以回去。');

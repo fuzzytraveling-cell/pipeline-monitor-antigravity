@@ -213,6 +213,8 @@ function focusOf(p) {
 /* ═══ 第一層:案件列表 ═══ */
 function projectList() {
   if (!latest?.projects?.length) {
+    // 舊的紀錄還沒搬過來(上面那一條會講):這時候說「還沒有任何案件」就是把「沒讀到」講成「沒有」(R1;規格:紀錄搬到固定的家 AC-5)
+    if (latest?.faults?.moving) return '<p class="muted">這裡還看不到案件：舊的紀錄還沒搬過來（看上面那一條）。</p>';
     return `<p class="muted">還沒有任何案件。<br>在一個 git 專案裡跑
       <code>pipeline-status --checkpoint</code> 就會出現在這裡。</p>`;
   }
