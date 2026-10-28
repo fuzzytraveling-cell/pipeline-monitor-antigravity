@@ -661,26 +661,43 @@ function projectPage(name) {
  *    Claude 自己在對話裡叫了收回(做完了、前提變了、換一張新的):對不回是哪一張,
  *    所以標在**那個對話、收回之前提的每一張**卡上,附 Claude 說的理由,卡照樣掛著——撕不撕你決定(app建議卡 AC-7)。
  *    app 那條記到的是「Claude 叫了這張卡」,不是「卡真的跳出來了」——文案只講 Claude 提了(R2)。
+ * ⚠️ 當場問你要不要開的卡(ask 是 'offer',規格:當場問的卡也收進來)也畫在這裡:看不到你按了哪個鈕,就講看不到——
+ *    不寫「問過你」(app 可能根本沒跳出來)、不寫「你沒回答」「你取消了」(AC-5)。沒有下文的,要貼的話是伺服器照標題湊的那段,
+ *    卡上講明不是 Claude 寫的(AC-4);畫面照印,不自己湊。
  * ⚠️ 一張卡都沒有也要畫這一區:「沒有建議」跟「感測器根本沒記到」長得一樣(老毛病 P5),那句「不代表沒跳過」就是為這種時候寫的。
  */
 function suggestionsBlock(p) {
   const all = p.suggestions ?? [];
   // 已開始的從清單拿掉——那個對話會出現在「對話」裡,留著就是同一件事出現兩次(Oscar 2026-09-15)。
-  // 拿掉不是刪掉:跟「不做了」的一起收在最下面。一張卡不見了,要查得到它是被認成已開始、還是你按了不做了——不然跟弄丟分不出來
-  const open = all.filter((s) => !s.dismissedAt && !s.startedBy);
-  const folded = all.filter((s) => s.dismissedAt || s.startedBy);
+  // 拿掉不是刪掉:跟「不做了」的一起收在最下面。一張卡不見了,要查得到它是被認成已開始、還是你按了不做了——不然跟弄丟分不出來。
+  // 當場問的卡後來在同一個對話又提了同名的卡(supersededAt):跟著後來那一張,這張也收到最下面
+  const isFolded = (s) => !!(s.dismissedAt || s.startedBy || s.supersededAt);
+  const open = all.filter((s) => !isFolded(s));
+  const folded = all.filter(isFolded);
   const sessionHref = (proj, sid) => `#/p/${encodeURIComponent(proj)}/s/${encodeURIComponent(sid)}`;
   const row = (s) => {
     const cut = new Set(s.cut ?? []);
     const prompt = String(s.prompt ?? '');
     const firstLine = prompt.split('\n').find((l) => l.trim()) ?? '';
+    const offer = s.ask === 'offer';
+    const composed = offer && !s.brief;
     const from = s.source === 'app' && s.session && s.fromTitle
       ? ` · 來自 <a href="${sessionHref(p.name, s.session)}">${esc(s.fromTitle)}</a>` : '';
-    const source = s.source === 'app' ? `Claude 在對話裡提的建議卡 · ${ago(s.ts)}${from}` : `Claude 用 --suggest 放的 · ${ago(s.ts)}`;
+    const source = offer ? `Claude 叫了當場問你要不要開的卡 · ${ago(s.ts)}${from}`
+      : s.source === 'app' ? `Claude 在對話裡提的建議卡 · ${ago(s.ts)}${from}` : `Claude 用 --suggest 放的 · ${ago(s.ts)}`;
     // 說明(app 的卡才有)與要貼的話。空的要講「沒有內容」,不是不畫這張卡(R1)
     const lines = [];
+    if (offer) {
+      // 你在那之前說的最後一句(伺服器挑的:同一個對話、比提卡早、系統塞的字不算)。感測器只記前面一段,記滿了加…
+      const said = s.said && typeof s.said.text === 'string' ? s.said.text.replace(/\s+/g, ' ').trim() : '';
+      lines.push(said ? `你那時說：「${esc(said.slice(0, 80))}${said.length > 80 || s.said.cut ? '…' : ''}」` : '紀錄裡看不到你在那之前說的話');
+    }
     if (s.tldr) lines.push(`說明：${esc(s.tldr)}${cut.has('tldr') ? '…（已截短）' : ''}`);
-    if (prompt.trim()) lines.push(`要貼的話：${esc(firstLine.slice(0, 80))}${firstLine.length > 80 || prompt.trim() !== firstLine.trim() ? '…' : ''}`);
+    if (composed) {
+      // 記到的只是 Claude 叫了:app 也可能拒絕、根本沒讓它跳出來(〈app建議卡換工具〉記過這條路,D 第一輪)
+      lines.push('看不到你按了哪個鈕（開新對話、在這裡做、還是沒按就傳了新訊息），也看不到卡有沒有真的跳出來');
+      lines.push(prompt.trim() ? 'Claude 沒寫說明。「複製」拿到的這段是監視器照標題湊的，不是 Claude 寫的說明' : 'Claude 沒寫說明');
+    } else if (prompt.trim()) lines.push(`要貼的話：${esc(firstLine.slice(0, 80))}${firstLine.length > 80 || prompt.trim() !== firstLine.trim() ? '…' : ''}`);
     else lines.push(s.tldr ? '這張卡沒有要貼的話' : '這張卡沒有內容');
     if (cut.has('prompt')) {
       lines.push(`已截短：要貼的話太長,紀錄只留得下前面一段${s.source === 'app' ? `;完整的在原本那個對話裡${s.fromTitle ? `（${esc(s.fromTitle)}）` : ''}` : ''}`);
@@ -689,19 +706,25 @@ function suggestionsBlock(p) {
       lines.push(s.openIn.project ? `要開在別的專案：<a href="#/p/${encodeURIComponent(s.openIn.project)}">${esc(s.openIn.name ?? s.openIn.project)}</a>`
         : s.openIn.name ? `要開在別的資料夾：${esc(s.openIn.name)}` : '要開在別的資料夾（路徑太長,沒記完整）');
     }
+    // 當場問的卡有下文、但找不到照它開的對話(AC-2):照實講是哪一種下文,卡照樣掛著
+    if (offer && s.brief && !s.startedBy) {
+      lines.push(s.brief.via === 'same-title' ? 'Claude 後來叫了同名的卡、直接開對話，但找不到照它開的對話' : 'Claude 補了開新對話的說明，但找不到照它開的對話');
+    }
+    // 提卡之後、你下一句話之前 Claude 接著動了工(AC-5):只是提示——接著動工也有別的原因(L25),不收卡
+    if (offer && s.workedAfter && !isFolded(s)) lines.push('之後 Claude 接著在這個對話動了工，可能是你選了在這裡做；做完了就按「不做了」');
     // Claude 後來在這個對話裡叫過收回(AC-7):分不出是不是這一張,照實講,附它說的理由。記到的是「叫了收回」,不是「收回成功」(R2)
     const wd = Array.isArray(s.withdrawals) ? s.withdrawals : [];
     if (wd.length) {
       const reasons = wd.slice(0, 3).map((w) => (w.reason ? `「${esc(w.reason)}${w.cut ? '…' : ''}」` : '（沒寫理由）')).join('、');
-      // 已經收起來的卡(已開始、你說不做了)沒有「不做了」按鈕,不叫人去按一顆不存在的按鈕
-      const next = s.dismissedAt || s.startedBy ? '' : '，過時的話按「不做了」';
+      // 已經收起來的卡(已開始、你說不做了、跟著同名的那張)沒有「不做了」按鈕,不叫人去按一顆不存在的按鈕
+      const next = isFolded(s) ? '' : '，過時的話按「不做了」';
       lines.push(`⚠️ Claude 後來在這個對話裡叫過 ${wd.length} 次收回建議卡，理由：${reasons}${wd.length > 3 ? ` 等 ${wd.length} 次` : ''}——分不出收回的是不是這一張${next}`);
     }
     // Claude 後來在這個對話裡照你的話開了之前提的某一張(只帶代號的那一次,規格:app建議卡換工具 AC-4):一樣分不出是哪一張,照實講、不收卡。
     // 記到的是「Claude 叫了開卡」,不是「開成了」(R2)
     const op = Array.isArray(s.opens) ? s.opens : [];
     if (op.length) {
-      const next = s.dismissedAt || s.startedBy ? '' : '，是這一張的話按「不做了」';
+      const next = isFolded(s) ? '' : '，是這一張的話按「不做了」';
       lines.push(`⚠️ Claude 後來在這個對話裡照你的話叫過 ${op.length} 次開先前提的建議卡——分不出要開的是不是這一張、也看不到有沒有開成${next}`);
     }
     // 收起來的理由:看得到的事實優先(真的有對話這樣開頭),再來才是你按的
@@ -711,14 +734,16 @@ function suggestionsBlock(p) {
         ? `<a href="${sessionHref(s.startedProject?.project ?? p.name, s.startedBy)}">${esc(s.startedTitle)}</a>${where}`
         : '有對話這樣開頭了,但那個對話不在儀表板列得出來的專案裡';
       lines.push(`已開始：${link}${s.dismissedAt ? ` · 你 ${ago(s.dismissedAt)}按過「不做了」` : ''}`);
+    } else if (s.supersededAt) {
+      lines.push(`後來同一個對話又提了一張同名的卡（${ago(s.supersededAt)}），看那一張${s.dismissedAt ? ` · 你 ${ago(s.dismissedAt)}按過「不做了」` : ''}`);
     } else if (s.dismissedAt) {
       lines.push(`你 ${ago(s.dismissedAt)}說不做了`);
     }
     const copy = prompt.trim()
-      ? `<button class="copy" data-copy="${esc(prompt)}">${cut.has('prompt') ? '複製前面這一段' : '複製說明'}</button>` : '';
-    const dismiss = s.dismissedAt || s.startedBy ? ''
+      ? `<button class="copy" data-copy="${esc(prompt)}">${composed ? '複製監視器湊的話' : cut.has('prompt') ? '複製前面這一段' : '複製說明'}</button>` : '';
+    const dismiss = isFolded(s) ? ''
       : `<button class="mini-btn" data-dismiss="${esc(s.id)}" data-proj="${esc(p.name)}">不做了</button>`;
-    return `<div class="srow ${s.dismissedAt || s.startedBy ? 'closed' : ''}">
+    return `<div class="srow ${isFolded(s) ? 'closed' : ''}">
       <span class="sname">${esc(s.title)}${cut.has('title') ? '…' : ''}</span>
       <span class="smeta">${source}</span>
       ${lines.map((l) => `<span class="smeta">${l}</span>`).join('')}
@@ -742,7 +767,7 @@ function suggestionsBlock(p) {
   const toolNote = p.appCardsSince === undefined ? ''
     : tools === undefined ? '（app 換過做卡的工具那一段，服務還在跑舊的程式、講不出來：跑一次 <code>pipeline-status --serve-restart</code>）'
     : !tools || typeof tools !== 'object' ? ''
-    : [tools.oldLast && tools.newFirst ? `app 換過做建議卡的工具：這台電腦最後一次記到舊的是 ${clock(tools.oldLast)}、第一次記到新的是 ${clock(tools.newFirst)}，中間跳的卡可能沒記到。`
+    : [tools.oldLast && tools.newFirst ? `app 換過做建議卡的工具：這台電腦最後一次記到舊的是 ${clock(tools.oldLast)}、第一次記到新的是 ${clock(tools.newFirst)}，中間跳的卡可能沒記到；那時已經開著、之後沒重開的對話裡跳的，也可能沒記到。`
         : tools.oldLast ? `app 換過做建議卡的工具，感測器還沒記到新的那一種：最後一次記到舊的是 ${clock(tools.oldLast)}，之後跳的卡可能都沒記到。` : '',
        ...(Array.isArray(tools.unknown) ? tools.unknown : []).map((u) =>
          `⚠️ 感測器記到 app 一個認不得的工具 <code>${esc(u.tool)}</code>（第一次 ${clock(u.first)}）——可能是 app 又換了做建議卡的工具，那種卡這裡看不到。`)].join('');
@@ -757,11 +782,13 @@ function suggestionsBlock(p) {
       ${incomingNote}
     </div>`;
   }
+  // 每一張只算一種,跟卡上那一行同一個先後:已開始 → 後來又提了同名的卡 → 你說不做了(加起來就是收起來的張數)
   const started = folded.filter((s) => s.startedBy).length;
+  const later = folded.filter((s) => !s.startedBy && s.supersededAt).length;
   const foldKey = `sg-fold|${p.name}`;
   const foldedBox = folded.length
     ? `<details class="acl-box sg-fold" data-fold="${esc(foldKey)}"${foldOpen(foldKey, false) ? ' open' : ''}>
-        <summary>收起來的 ${folded.length} 張（已開始 ${started}、你說不做了 ${folded.length - started}）</summary>
+        <summary>收起來的 ${folded.length} 張（已開始 ${started}${later ? `、後來又提了同名的卡 ${later}` : ''}、你說不做了 ${folded.length - started - later}）</summary>
         <div class="slist">${folded.map(row).join('')}</div>
       </details>` : '';
   // 說明分三層(工地工班風畫面 AC-10):外面一句講怎麼用;一直都成立的那幾句說明收進「這一區看不到的」——收起來的字還在網頁上。
@@ -773,6 +800,7 @@ function suggestionsBlock(p) {
       <p class="section-note">Claude 覺得該另開一個對話做的事。這裡開不了對話：<b>複製說明</b>，在 app 開新對話貼進第一句。${oldSince}${toolNote}</p>
       <details class="why" data-fold="${esc(whyKey)}"${foldOpen(whyKey, false) ? ' open' : ''}><summary>這一區看不到的</summary>
         <p>有對話真的照這段說明開了，這張會自己收到最下面（點開看得到是哪個對話）；不想做了按<b>不做了</b>。</p>
+        <p>當場問你要不要開的卡也在這裡，但看不到你按了哪個鈕；選了在這裡做的，要自己按<b>不做了</b>。</p>
         <p>這一區看不到卡在 app 裡是怎麼不見的（你按掉、或被後來的新卡擠掉）——那種卡在這裡會繼續掛著。
         Claude 自己在對話裡叫了收回（做完了、前提變了、換了一張新的）、或照你的話叫了開先前提的某一張，會標在那個對話先前提的卡上，但分不出是哪一張；過時的要自己按「不做了」。${oldSince ? '' : since}</p>
       </details>
