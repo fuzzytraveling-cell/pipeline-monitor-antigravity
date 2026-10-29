@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { detectChecks, describeCheckFailure } from '../lib/cliStamp.mjs';
 import { describeCheckpoint, describeSensor } from '../lib/cliView.mjs';
+import { loseUnsavedLine, UNSAVED_WHETHER } from '../lib/scope.mjs';
 import { gitContext, changeScale, changeHealth, ago, withClock, uncommitted, checkpointRelation } from '../lib/git.mjs';
 import { RETAIN_DAYS } from '../lib/events.mjs';
 import { humanAge } from '../lib/freshness.mjs';
@@ -123,6 +124,11 @@ section('L14：章不能用的時候,畫面上不准出現 reset --hard');
         okDirty.includes('stash') && okDirty.indexOf('stash') < okDirty.indexOf('reset --hard'), okDirty);
   const okNull = text({ rel: { state: 'ok', commitsAfter: 0 }, dirty: null, files: 3 });
   check('問不到有沒有沒存的 → 說問不到,而且還是先給 stash', okNull.includes('問不到') && okNull.includes('stash'), okNull);
+  // 「會丟掉幾個」「問不到」跟儀表板還原點那一行同一句(lib/scope.mjs;規格:先講commit再講蓋章 AC-9、AC-11)
+  check('有 3 個沒 commit → 終端機講的就是 lib 那一句', okDirty.includes(`⚠️ ${loseUnsavedLine(3)}。想留著先打：`), okDirty);
+  const okBoth = text({ rel: { state: 'ok', commitsAfter: 2 }, dirty: 3, files: 3 });
+  check('之後也有存檔 → 「也會丟掉」照舊', okBoth.includes(`⚠️ ${loseUnsavedLine(3, true)}。想留著先打：`) && loseUnsavedLine(3, true).startsWith('回去也會丟掉'), okBoth);
+  check('問不到 → 終端機講的就是 lib 那一句', okNull.includes(`⚠️ ${UNSAVED_WHETHER}。保險起見先打：`), okNull);
   const clean = text({ rel: { state: 'ok', commitsAfter: 0 }, files: 0 });
   check('章就是現在、什麼都沒改 → 沒有回去的指令(沒有地方可以回)', !clean.includes('reset --hard'), clean);
 }

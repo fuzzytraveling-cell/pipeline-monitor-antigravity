@@ -14,7 +14,7 @@ import process from 'node:process';
 import { describeFreshness, STALE_AFTER_SECONDS } from '../lib/freshness.mjs';
 import { createApp } from '../server.mjs';
 import { SUGGEST_TOOL, sessionView } from '../lib/rounds.mjs';
-import { changeScope } from '../lib/scope.mjs';
+import { changeScope, STAMP_HELP, GREEN_IS_NOT_CORRECT } from '../lib/scope.mjs';
 import { tierLines } from '../lib/tier.mjs';
 import { cardLines, screenStages } from '../lib/collect.mjs';
 import { stageLine } from '../lib/stageLines.mjs';
@@ -535,20 +535,20 @@ section('當場問的卡(規格:當場問的卡也收進來 AC-1、AC-2、AC-4�
   }
 }
 
-section('分級卡與未檢查清單:只看得到還沒存的時候不畫「沒有改動」那張綠臉(真的跑 ui/app.js 的 statTier／statChanges;規格:這一輪的起點 AC-4、AC-5)', 'P5');
+section('分級卡與存檔與蓋章卡:只看得到還沒存的時候不畫「沒有改動」那張綠臉(真的跑 ui/app.js 的 statTier／statChanges;規格:這一輪的起點 AC-4、AC-5,先講commit再講蓋章 AC-5)', 'P5');
 {
   // 跟 suggestionsBlock 同一種做法:原封不動拿出來跑,補上它們用到的外部名字。拿不出來要紅——不准安靜地跳過(L20)
   const src = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8');
   const pick = (name, sig) => src.match(new RegExp(`^function ${name}\\(${sig}\\) \\{\\n[\\s\\S]*?\\n\\}\\n`, 'm'))?.[0] ?? null;
   const one = (name) => src.match(new RegExp(`^const ${name} = .*;$`, 'm'))?.[0] ?? null;
-  const code = [one('OLD_LINE'), one('mark'), pick('scopeOfOldServer', 'c'), pick('statChanges', 'c'), pick('statTier', 'c, p')];
-  check('從 ui/app.js 拿得出 scopeOfOldServer、statChanges、statTier(拿不出來這一段就什麼都沒測到)', code.every(Boolean));
+  const code = [one('OLD_LINE'), one('mark'), pick('statChanges', 'c'), pick('statTier', 'c, p')];
+  check('從 ui/app.js 拿得出 statChanges、statTier(拿不出來這一段就什麼都沒測到)', code.every(Boolean));
   const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const ago = (iso) => (iso ? '3 分鐘前' : '');
   const cpOk = (c) => !!c?.checkpoint && c?.checkpointRelation?.state === 'ok';
-  // foldOpen:檔名清單收起來的記憶(工地工班風畫面 AC-13),這裡一律當沒記過
-  const ui = code.every(Boolean) ? new Function('esc', 'ago', 'cpOk', 'foldOpen', `${code.join('\n')}; return { statChanges, statTier };`)(esc, ago, cpOk, () => false) : null;
-  const empty = { total: 0, newCount: 0, uncommittedCount: 0, groups: [] };
+  // foldOpen:檔名清單收起來的記憶(工地工班風畫面 AC-13),這裡一律當沒記過;latest:最上層的 stampHelp(commit 跟蓋章差在哪),照伺服器的做法給
+  const ui = code.every(Boolean) ? new Function('esc', 'ago', 'cpOk', 'foldOpen', 'latest', `${code.join('\n')}; return { statChanges, statTier };`)(esc, ago, cpOk, () => false, { stampHelp: STAMP_HELP }) : null;
+  const empty = { total: 0, newCount: 0, uncommittedCount: 0, groups: [], unsaved: { count: 0, groups: [] }, saved: { count: 0, groups: [] } };
   // 分級卡的那幾句是伺服器照 lib/tier.mjs 的 tierLines 算好的(lines;規格:終端機與網頁說同一句)——這裡照伺服器的做法附上
   const unseen = { state: 'unseen', basis: { kind: 'head', why: 'not-found', origin: null } };
   const blind = { path: '/x', files: empty, scope: changeScope({ kind: 'head', why: 'not-found', origin: null }, ago),
@@ -556,20 +556,16 @@ section('分級卡與未檢查清單:只看得到還沒存的時候不畫「沒�
   const tierHtml = ui?.statTier(blind, { name: 'p' }) ?? '';
   const filesHtml = ui?.statChanges(blind) ?? '';
   check('分級卡:看不全、不是安全的綠臉、不寫「沒有改動」', /看不全/.test(tierHtml) && !/data-tone="safe"/.test(tierHtml) && !/沒有改動/.test(tierHtml), tierHtml);
-  check('未檢查清單:看不全、講存檔過的看不到', /看不全/.test(filesHtml) && /存檔過的看不到/.test(filesHtml) && !/沒有改動/.test(filesHtml), filesHtml);
-  const own = changeScope({ kind: 'origin', why: null, origin: { at: '2026-09-22T01:00:00Z', from: 'prompt', sessions: 1 } }, ago);
-  // 還沒存的有幾個、比例尺那一句:伺服器照 lib/scope.mjs 算好放進卡片(lines;規格:終端機與網頁說同一句)——這裡照伺服器的做法附上
-  const ownHtml = ui?.statChanges({ path: '/x', scope: own, lines: cardLines({ unsaved: 1 }), files: { total: 2, newCount: 0, uncommittedCount: 1,
-    groups: [{ dir: 'src', items: [{ name: 'a.js', isNew: false, uncommitted: true }, { name: 'b.js', isNew: false, uncommitted: false }] }] } }) ?? '';
-  check('從起點算:標「這一輪改過的檔案(含已存檔的)」、講從哪一刻算起,每個檔照舊標還沒存',
-    /這一輪改過的檔案（含已存檔的）/.test(ownHtml) && /這個對話第一句話/.test(ownHtml) && /其中 <b>1 個還沒存/.test(ownHtml), ownHtml);
+  check('存檔與蓋章卡:都 commit 了,但 commit 過、還沒蓋章的看不到——講看不到,不寫「沒有改動」',
+    /<div class="big">都 commit 了<\/div>/.test(filesHtml) && /這裡看不到（找不到這一輪開始時的版本）/.test(filesHtml) && !/沒有改動/.test(filesHtml), filesHtml);
   const moved = { path: '/x', files: empty, scope: changeScope({ kind: 'origin', why: null, moved: true, origin: { at: '2026-09-22T01:00:00Z', from: 'prompt', sessions: 1 } }, ago) };
   const movedHtml = ui?.statChanges(moved) ?? '';
   check('這一輪中間切過分支、現在跟開始時一樣:看不全,不寫「沒有改動」', /看不全/.test(movedHtml) && /切過分支/.test(movedHtml) && !/沒有改動/.test(movedHtml), movedHtml);
   const eight = changeScope({ kind: 'origin', why: null, commits: 8, origin: { at: '2026-09-22T01:00:00Z', from: 'A' } }, ago);
-  const scaleHtml = ui?.statChanges({ path: '/x', scope: eight, scale: { median: 2, max: 20 }, lines: cardLines({ scale: { median: 2, max: 20 }, commitsNote: eight.commitsNote }),
-    files: { total: 22, newCount: 0, uncommittedCount: 0, groups: [] } }) ?? '';
-  check('比例尺講「一次存檔」,而且講這裡是 8 次存檔加起來的(L6)', /一次存檔（commit）通常 2 個/.test(scaleHtml) && /8 次存檔加起來/.test(scaleHtml), scaleHtml);
+  const scaleHtml = ui?.statChanges({ path: '/x', scope: eight, scale: { median: 2, max: 20 }, lines: cardLines({ scale: { median: 2, max: 20 }, commitsNote: eight.commitsNote, dirty: 0 }),
+    files: { total: 22, newCount: 0, uncommittedCount: 0, groups: [], unsaved: { count: 0, groups: [] }, saved: { count: 22, groups: [] } } }) ?? '';
+  check('比例尺講「一次存檔」,而且講這裡是 8 次存檔加起來的(L6);收在「commit 跟蓋章差在哪？」裡',
+    /<details class="why"[^>]*><summary>commit 跟蓋章差在哪？<\/summary>[\s\S]*一次存檔（commit）通常 2 個[\s\S]*8 次存檔加起來[\s\S]*<\/details>/.test(scaleHtml), scaleHtml);
   // 案件首頁(Oscar 第一個看到的畫面)也不准把「看不全」講成「沒有待檢查的檔案」
   const ovSrc = [pick('focusOf', 'p'), pick('overview', 'p')];
   check('從 ui/app.js 拿得出 focusOf、overview', ovSrc.every(Boolean));
@@ -579,11 +575,108 @@ section('分級卡與未檢查清單:只看得到還沒存的時候不畫「沒�
   const ovCard = { path: '/x', ladder: { uncommitted: 0 }, checkpoint: null, files: empty, scope: blind.scope };
   const ovHtml = ov?.({ name: 'p', mainRoot: '/x', cards: [ovCard], sessions: [{ id: 's1', title: '調標籤', lastTs: '2026-09-22T01:00:00Z', closedAt: null, card: ovCard }] }) ?? '';
   check('案件首頁:看不全,不寫「沒有待檢查的檔案」', /看不全/.test(ovHtml) && !/沒有待檢查的檔案/.test(ovHtml), ovHtml.slice(0, 600));
-  // 常駐服務還沒重啟(舊的伺服器不給 scope):照當時的字畫,不當掉、不假裝知道這一輪
-  const old = ui?.statChanges({ path: '/x', files: empty }) ?? '';
-  check('舊的服務沒給 scope:照「還沒存檔的改動」畫,不當掉', /還沒存檔（commit）的改動/.test(old) && !/這一輪/.test(old), old);
+  // 常駐服務還沒重啟(這一版以前的伺服器不給「還沒 commit 的是哪些」):不拿標了還沒存的那幾個硬湊(那一份會漏),講服務還在跑舊的程式
+  const old = ui?.statChanges({ path: '/x', files: { total: 3, newCount: 0, uncommittedCount: 1, groups: [] }, scope: blind.scope }) ?? '';
+  check('舊的服務沒給還沒 commit 的那一份:講服務還在跑舊的程式,不當掉、不湊數字(規格:先講commit再講蓋章 AC-10)',
+    /服務還在跑舊的程式/.test(old) && !/class="num"/.test(old) && !/undefined|NaN|\bnull\b/.test(old), old);
   check('畫面不 import 新檔(常駐服務只送啟動那一刻白名單裡的檔案,多一個新檔,重啟之前整個畫面載不進來)',
     !/from '\/scope\.mjs'/.test(src) && [...src.matchAll(/^import .* from '([^']+)'/gm)].every((m) => m[1] === '/freshness.mjs'), [...src.matchAll(/^import .* from '([^']+)'/gm)].map((m) => m[1]).join(','));
+}
+
+section('存檔與蓋章卡:先講 commit 了沒,都 commit 了才講還沒蓋章;問不到不講成都 commit 了;不打勾、不變綠(真的跑 ui/app.js 的 statChanges;規格:先講commit再講蓋章 AC-1、AC-3~AC-8)', 'P10');
+{
+  const src = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8');
+  const pick = (name, sig) => src.match(new RegExp(`^function ${name}\\(${sig}\\) \\{\\n[\\s\\S]*?\\n\\}\\n`, 'm'))?.[0] ?? null;
+  const one = (name) => src.match(new RegExp(`^const ${name} = .*;$`, 'm'))?.[0] ?? null;
+  const code = [one('OLD_LINE'), one('mark'), pick('statChanges', 'c')];
+  check('從 ui/app.js 拿得出 statChanges(拿不出來這一段就什麼都沒測到)', code.every(Boolean));
+  const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const ago = (iso) => (iso ? '3 分鐘前' : '');
+  const draw = code.every(Boolean) ? new Function('esc', 'ago', 'foldOpen', 'latest', `${code.join('\n')}; return statChanges;`)(esc, ago, () => false, { stampHelp: STAMP_HELP }) : () => '';
+  const g = (dir, ...names) => ({ dir, items: names.map((n) => ({ name: n, isNew: n.startsWith('new'), uncommitted: null })) });
+  const many = (n, p = 'f') => Array.from({ length: n }, (_, i) => `${p}${i}.md`);
+  const fl = ({ total, unsaved, saved }) => ({ total, newCount: 0, uncommittedCount: null, groups: [], unsaved, saved });
+  const stamped = changeScope({ kind: 'checkpoint', why: null, origin: null, commits: 4 }, ago);
+  const card = (scope, files, dirty) => draw({ path: '/x', scope, files, lines: cardLines({ dirty }) });
+  // Oscar 10/29 第一張截圖那一刻:蓋章之後改過 23 個,其中 3 個沒 commit
+  const p1 = card(stamped, fl({ total: 23, unsaved: { count: 3, groups: [g('根目錄', 'config.json'), g('suite', 'a.py', 'new-b.py')] }, saved: { count: 20, groups: [g('docs', ...many(20))] } }), 3);
+  check('AC-7:標題「存檔與蓋章」、小字「commit 了沒、蓋章了沒」;「未檢查清單」與舊的小標都不見了',
+    /<h3 class="ctitle">存檔與蓋章<\/h3><div class="label">commit 了沒、蓋章了沒<\/div>/.test(p1) && !/未檢查清單|還沒重新檢查的檔案|含已存檔的/.test(p1), p1);
+  check('AC-1:大字是還沒 commit 的 3 個', /<span class="num">3<\/span><span class="unit">個檔案還沒 commit<\/span>/.test(p1), p1);
+  const fold = p1.match(/<details class="more" data-fold="saved\|\/x">[\s\S]*?<\/details>/)?.[0] ?? '';
+  const outside = p1.replace(fold, '');
+  check('AC-1:清單列那 3 個,新檔照舊標;已經 commit 的不混在外面', ['config.json', 'a.py', 'new-b.py · 新檔案'].every((n) => outside.includes(n)) && !outside.includes('f0.md'), outside);
+  check('AC-1:「其中 N 個還沒存進保險箱」那一行不再出現', !/其中|保險箱/.test(p1), p1);
+  check('AC-3:「另外 20 個已經 commit、還沒蓋章」收著(沒有 open),點開列那 20 個',
+    /<summary>另外 20 個已經 commit、還沒蓋章<\/summary>/.test(fold) && !/data-fold="saved\|\/x" open/.test(fold) && fold.includes('f19.md'), fold || p1);
+  const only = card(stamped, fl({ total: 3, unsaved: { count: 3, groups: [g('src', 'a', 'b', 'c')] }, saved: { count: 0, groups: [] } }), 3);
+  check('AC-3:已經 commit 的是 0 → 那一行不出現', !/另外/.test(only), only);
+  // 第二張截圖那一刻:都 commit 了,蓋章之後改過 23 個
+  const p2 = card(stamped, fl({ total: 23, unsaved: { count: 0, groups: [] }, saved: { count: 23, groups: [g('docs', ...many(23))] } }), 0);
+  check('AC-4:都 commit 了 → 大字「23 個檔案還沒蓋章」,底下講是蓋章之後改的、在那個資料夾跑哪個指令',
+    /<span class="num">23<\/span><span class="unit">個檔案還沒蓋章<\/span>/.test(p2) && /都 commit 了，這些是蓋章之後改的。要蓋章：在那個資料夾跑 <code>pipeline-status --checkpoint<\/code>/.test(p2), p2);
+  check('AC-4:清單照舊只露前 5 個,其餘收進「還有 18 個檔案」', /<summary>還有 18 個檔案<\/summary>/.test(p2) && p2.includes('f4.md'), p2);
+  const again = card(stamped, fl({ total: 0, unsaved: { count: 0, groups: [] }, saved: { count: 0, groups: [] } }), 0);
+  check('AC-4:重新蓋章之後照舊「沒有改動」「現在的檔案跟蓋章時一模一樣」', /<div class="big">沒有改動<\/div>/.test(again) && /現在的檔案跟蓋章時一模一樣/.test(again), again);
+  check('P10:三種都不打勾、不畫安全的綠', [p1, p2, again].every((h) => !/✅|✓|data-tone="safe"/.test(h) && /data-tone="change"/.test(h)));
+  // AC-5:沒有能用的章、找得到這一輪的起點
+  const own = changeScope({ kind: 'origin', why: null, origin: { at: '2026-09-22T01:00:00Z', from: 'prompt', sessions: 1 } }, ago);
+  const o1 = card(own, fl({ total: 2, unsaved: { count: 1, groups: [g('src', 'a.js')] }, saved: { count: 1, groups: [g('src', 'b.js')] } }), 1);
+  check('AC-5:沒有能用的章、還有沒 commit 的 →「另外 1 個已經 commit、還沒蓋章(只算這一輪改的)」', /另外 1 個已經 commit、還沒蓋章（只算這一輪改的）/.test(o1), o1);
+  const o2 = card(own, fl({ total: 2, unsaved: { count: 0, groups: [] }, saved: { count: 2, groups: [g('src', 'a.js', 'b.js')] } }), 0);
+  check('AC-5:沒有能用的章、都 commit 了 → 講還沒有能用的章、只算這一輪', /個檔案還沒蓋章/.test(o2) && /都 commit 了，還沒有能用的章；這裡只算這一輪改的/.test(o2), o2);
+  check('AC-8:從哪一刻算起收在說明裡', /<details class="why"[\s\S]*這個對話第一句話[\s\S]*<\/details>/.test(o2), o2);
+  // AC-5:找不到這一輪的起點、還有沒 commit 的;一個 commit 都沒有
+  const lost = changeScope({ kind: 'head', why: 'not-found', origin: null }, ago);
+  const b1 = card(lost, fl({ total: 2, unsaved: { count: 2, groups: [g('src', 'a.js', 'b.js')] }, saved: { count: 0, groups: [] } }), 2);
+  check('AC-5:找不到起點 → 講 commit 過、還沒蓋章的看不到,不寫「另外 0 個」',
+    /commit 過、還沒蓋章的有哪些，這裡看不到（找不到這一輪開始時的版本）/.test(b1) && !/另外/.test(b1), b1);
+  const none = changeScope({ kind: 'head', why: 'no-commits', origin: null }, ago);
+  const n1 = card(none, fl({ total: 2, unsaved: { count: 2, groups: [g('src', 'a.js', 'b.js')] }, saved: { count: 0, groups: [] } }), 2);
+  check('AC-5:一個 commit 都沒有 → 加一句還沒有東西可以蓋章', /還沒有任何 commit，所以也還沒有東西可以蓋章/.test(n1), n1);
+  // AC-6:問不到哪些還沒 commit
+  const unk = card(stamped, fl({ total: 5, unsaved: null, saved: null }), null);
+  check('AC-6:問不到 → 大字問不到、講問不到;不講都 commit 了、也不講還沒蓋章',
+    /<div class="big">問不到<\/div>/.test(unk) && /問不到你有沒有還沒 commit 的檔案。/.test(unk) && !/都 commit 了|個檔案還沒蓋章|個檔案還沒 commit/.test(unk), unk);
+  // AC-8:最下面收著「commit 跟蓋章差在哪？」
+  const help = p1.match(/<details class="why" data-fold="why\|\/x\|changes">[\s\S]*?<\/details>/)?.[0] ?? '';
+  check('AC-8:「commit 跟蓋章差在哪？」預設收著,三句說明照伺服器給的印,蓋章的指令標成指令、接著講全綠不等於功能正確',
+    /<summary>commit 跟蓋章差在哪？<\/summary>/.test(help) && help.includes(STAMP_HELP.commit) && help.includes(STAMP_HELP.order)
+      && help.includes('蓋章（<code>pipeline-status --checkpoint</code>）') && help.includes(GREEN_IS_NOT_CORRECT), help || p1);
+  check('AC-8:全部改了幾個收在裡面(蓋章之後的改動:23 個)', help.includes('蓋章之後的改動：23 個檔案。'), help);
+  const leaks = [p1, only, p2, again, o1, o2, b1, n1, unk].filter((h) => /undefined|NaN|\bnull\b|\[object/.test(h));
+  check('每一種都不把 undefined／null／NaN 印到畫面上', leaks.length === 0, leaks.join('\n---\n'));
+}
+
+section('還原點那一行照實講:有沒 commit 的才說會丟掉幾個、問不到講問不到、一個都沒有不掛 ⚠️;舊的服務沒給那一句照以前提醒(真的跑 ui/app.js 的 statRestore;規格:先講commit再講蓋章 AC-9、AC-10)', 'P10');
+{
+  const src = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8');
+  const pick = (name, sig) => src.match(new RegExp(`^function ${name}\\(${sig}\\) \\{\\n[\\s\\S]*?\\n\\}\\n`, 'm'))?.[0] ?? null;
+  const one = (name) => src.match(new RegExp(`^const ${name} = .*;$`, 'm'))?.[0] ?? null;
+  const code = [one('OLD_LINE'), one('cpOk'), pick('statRestore', 'c')];
+  check('從 ui/app.js 拿得出 statRestore(拿不出來這一段就什麼都沒測到)', code.every(Boolean));
+  const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const draw = code.every(Boolean) ? new Function('esc', 'ago', 'clock', 'foldOpen', `${code.join('\n')}; return statRestore;`)(esc, () => '17 小時前', () => '10/28 16:55', () => false) : () => '';
+  const base = { path: '/x', checkpoint: { commit: 'a'.repeat(40), at: '2026-10-28T08:55:00Z', checks: ['lint', 'test'] },
+                 checkpointRelation: { state: 'ok', commitsAfter: 4 }, backupBranch: '備份-2026-10-29-0931', cpVersion: null };
+  const at = (dirty, lines = cardLines({ stamped: true, relation: base.checkpointRelation, dirty })) => draw({ ...base, dirty, lines });
+  const three = at(3);
+  check('3 個沒 commit → ⚠️ 回去會丟掉你還沒 commit 的 3 個檔案', /<div class="hint warn">⚠️ 回去會丟掉你還沒 commit 的 3 個檔案<\/div>/.test(three), three);
+  const zero = at(0);
+  check('0 個 →「現在沒有還沒 commit 的檔案」,不帶 ⚠️、不說會丟掉',
+    /<div class="hint">現在沒有還沒 commit 的檔案<\/div>/.test(zero) && !/會丟掉/.test(zero), zero);
+  const unknown = at(null);
+  check('問不到 → ⚠️ 問不到你有沒有還沒 commit 的檔案(問不到 ≠ 沒有)', /<div class="hint warn">⚠️ 問不到你有沒有還沒 commit 的檔案<\/div>/.test(unknown), unknown);
+  check('複製回去的指令照舊在(含 cd、先留備份分支)', /data-copy="cd &quot;\/x&quot; &amp;&amp; git branch 備份-2026-10-29-0931 &amp;&amp; git reset --hard aaaaaaa"/.test(zero), zero);
+  const { restoreUnsaved, unsavedWhether, ...oldLines } = cardLines({ stamped: true, relation: base.checkpointRelation, dirty: 0 });
+  const old = at(0, oldLines);
+  check('舊的服務沒給那一句 → 不知道有沒有,照以前提醒;不印 undefined', /⚠️ 回去會丟掉還沒 commit 的東西/.test(old) && !/undefined|\bnull\b/.test(old), old);
+  // 頁面最上面那一條:這一版以前的服務有 sharedLines、沒有 stampHelp——只看 sharedLines 認不出來(AC-10)
+  const banner = src.match(/^function oldServerBanner\(\) \{\n[\s\S]*?\n\}\n/m)?.[0] ?? null;
+  const bannerOf = (latest) => (banner ? new Function('latest', `${banner}; return oldServerBanner();`)(latest) : '');
+  check('從 ui/app.js 拿得出 oldServerBanner', !!banner);
+  check('上一版的服務(有 sharedLines、沒有 stampHelp)→ 最上面講服務還在跑舊的程式', /--serve-restart/.test(bannerOf({ projects: [], sharedLines: {} })));
+  check('這一版的服務 → 不講', bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP }) === '');
 }
 
 section('上一手的對話頁:講明資料夾換人了,不畫資料夾現在的分支、還原點、改動、分級;五關那一格不給按資料夾記的按鈕(真的跑 ui/app.js 的 sessionPage;規格:新對話接手舊資料夾 AC-5)', 'P6');

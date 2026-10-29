@@ -147,9 +147,10 @@ const stageState = (st) => st.state === 'current' ? 'ran' : (st.state ?? 'none')
 const OLD_LINE = '（服務還在跑舊的程式）';
 /** 伺服器給的句子裡把一段標起來(粗體、指令的樣子)。找不到那一段就照原樣——只影響長相,不影響字 */
 const mark = (text, part, tag = 'b') => { const t = esc(text), m = esc(part ?? ''); return m && t.includes(m) ? t.replace(m, () => `<${tag}>${m}</${tag}>`) : t; };
-/** 舊的服務一頁講一次怎麼修;每個缺字的地方只放上面那句短的 */
+/** 舊的服務一頁講一次怎麼修;每個缺字的地方只放上面那句短的。
+ *  stampHelp 是存檔與蓋章卡那一版才有的(規格:先講commit再講蓋章 AC-10)——那一版以前的服務有 sharedLines,只看它認不出來 */
 function oldServerBanner() {
-  return latest && !('sharedLines' in latest)
+  return latest && (!('sharedLines' in latest) || !('stampHelp' in latest))
     ? '<p class="fault" data-tone="amber">🟡 儀表板的服務還在跑舊的程式，有幾句畫不出來——跑 <code>pipeline-status --serve-restart</code></p>' : '';
 }
 /** 清單收合的狀態:key 是「工作區|關」。沒記過就用 dflt(驗收清單預設展開;收起來的建議卡預設收著);記在 localStorage,重新整理也記得。畫面每幾秒重畫一次,不能靠 DOM 記 */
@@ -278,6 +279,12 @@ function statRestore(c) {
   // 說明分三層(工地工班風畫面 AC-10):會害你丟東西、誤會結果的那兩句留在外面(全綠不等於功能正確、回去會丟掉沒存的),
   // 解釋「為什麼」的收進「為什麼？」——收起來的字還在網頁上,不是刪掉
   const whyKey = `why|${c.path}|restore`;
+  // 回去會丟掉什麼,照實講(規格:先講commit再講蓋章 AC-9):以前這一行永遠掛著,都 commit 了也照樣說「會丟掉」——
+  // Oscar 以為還有東西沒存、別張卡算錯了(2026-10-29)。句子跟終端機「怎麼回去」那一段同一句(伺服器照 lib/scope.mjs 算好的 c.lines),
+  // 個數跟三階梯、存檔與蓋章卡同一份。一個都沒有才拿掉 ⚠️——問不到 ≠ 沒有。舊的服務沒給那一句:不知道有沒有,照以前那樣提醒
+  const lose = q && 'restoreUnsaved' in q
+    ? (c.dirty === 0 ? `<div class="hint">${esc(q.restoreUnsaved)}</div>` : `<div class="hint warn">⚠️ ${esc(q.restoreUnsaved)}</div>`)
+    : '<div class="hint warn">⚠️ 回去會丟掉還沒 commit 的東西</div>';
   return `<div class="stat" data-note="restore" data-tone="restore">
     <h3 class="ctitle">還原點</h3><div class="label">你回得去哪裡</div>
     <div class="big">${esc(c.cpVersion ? `v${c.cpVersion}` : clock(cp.at))}</div>
@@ -285,7 +292,7 @@ function statRestore(c) {
     <div class="pills">${pills}</div>
     <div class="hint">當時這幾項全綠。${say(q?.green)}</div>
     <button class="copy" data-copy="${esc(cmd)}">複製回去的指令</button>
-    <div class="hint warn">⚠️ 回去會丟掉還沒存（commit）的東西</div>
+    ${lose}
     <details class="why" data-fold="${esc(whyKey)}"${foldOpen(whyKey, false) ? ' open' : ''}><summary>為什麼？</summary>
       <p>這個網頁<b>不會</b>幫你還原，按鈕只是複製指令。指令<b>已經含 cd</b>，貼到終端機、或直接貼給 Claude 都可以——貼給 Claude 的話，它會先問過你才動手。</p>
       ${rel.commitsAfter ? `<p>蓋章之後你存了 ${rel.commitsAfter} 次：指令會先把它們留在分支 <code>${esc(c.backupBranch ?? '')}</code> 上，再回去。</p>` : ''}
@@ -325,62 +332,72 @@ function statLadder(c) {
   </div>`;
 }
 
-/** 舊的服務(還沒 --serve-restart)沒給 scope:那時它的「改動」有章比章、沒章比上一次存檔,照當時的字畫,不假裝知道這一輪 */
-function scopeOfOldServer(c) {
-  return cpOk(c)
-    ? { label: '蓋章之後改過、還沒重新檢查的檔案', note: null, empty: '現在的檔案跟蓋章時一模一樣。', short: '蓋章之後', blind: false, emptyBlind: false, commitsNote: null }
-    : { label: '還沒存檔（commit）的改動', note: null, empty: '現在的檔案跟上一個存檔一模一樣。', short: '', blind: false, emptyBlind: false, commitsNote: null };
-}
-
 function statChanges(c) {
+  // 先講 commit 了沒,都 commit 了才講還沒蓋章(規格:先講commit再講蓋章)。以前大字是「改過幾個」、還沒 commit 的放小字,
+  // 標題又寫死「未檢查清單」:Oscar 每次都要猜這張卡在講 commit 還是蓋章,還沒 commit 的 3 個只有 1 個露在外面(2026-10-29);
+  // 9/15 也把「commit 後還沒被檢查」讀成「還沒 commit」。標題只講主題、不講狀態(AC-7),狀態寫在大字與它底下那一行。
+  // 範圍那幾句(從哪裡算起、看不到哪些)是伺服器用 lib/scope.mjs 算好的(c.scope)——這裡不 import 那支:常駐服務只送它啟動那一刻白名單裡的檔案,
+  // 多一個新檔,更新後還沒重啟的那段時間整個畫面會載不進來
   const f = c.files;
-  // 有章:講的是「蓋章之後改過、還沒重新檢查」——它們多半已經 commit 了,不是「還沒 commit」。
-  // 以前寫「commit後還沒被檢查的檔案」,Oscar 讀成「還沒 commit 的檔案」(2026-09-15)。
-  // 沒有章:講的是這一輪改過的(含已存檔的);找不到這一輪的起點才只講還沒存的。
-  // 字是伺服器用 lib/scope.mjs 算好的(c.scope),終端機與收工 hook 同一句——這裡不 import 那支:常駐服務只送它啟動那一刻白名單裡的檔案,
-  // 多一個新檔,更新後還沒重啟的那段時間整個畫面會載不進來。舊的服務沒給 scope,那時它算的就是「還沒存檔的」,照舊的字畫
-  const sc = c.scope ?? scopeOfOldServer(c);
-  // 還沒存的有幾個、比例尺:伺服器照 lib/scope.mjs 算好的那一句(c.lines),跟終端機同一句;舊的服務沒給 → 講舊的程式
-  const q = c.lines ?? null;
-  const say = (v) => esc(q ? v ?? '' : OLD_LINE);
-  const label = sc.label;
-  const note = sc.note ? `<div class="hint">${esc(sc.note)}。</div>` : '';
-  if (!f) return `<div class="stat" data-note="changes" data-tone="change"><h3 class="ctitle">未檢查清單</h3><div class="label">${label}</div>
-    <div class="big">問不到</div></div>`;
-  // 只看得到還沒存的、或這一輪中間 HEAD 動過的時候,0 不是「沒有改動」(老毛病 P5):存檔過的看不到
-  if (!f.total) return `<div class="stat" data-note="changes" data-tone="change"><h3 class="ctitle">未檢查清單</h3><div class="label">${label}</div>
-    <div class="big">${sc.emptyBlind ? '看不全' : '沒有改動'}</div>
-    <div class="sub">${esc(sc.empty)}</div>${sc.emptyBlind ? '' : note}</div>`;
+  const sc = c.scope ?? {};
+  const q = c.lines ?? {};
+  const card = (body) => `<div class="stat" data-note="changes" data-tone="change">
+    <h3 class="ctitle">存檔與蓋章</h3><div class="label">commit 了沒、蓋章了沒</div>${body}</div>`;
+  if (!f) return card('<div class="big">問不到</div>');
+  // 舊的服務(還沒 --serve-restart)沒給「還沒 commit 的是哪些」:不拿「改過的單子裡標了還沒存的」硬湊——那一份會漏(AC-2),講服務還在跑舊的程式(AC-10)
+  if (!('unsaved' in f)) return card(`<div class="sub">${OLD_LINE}</div>`);
 
   const groupsOf = (gs) => gs.map((g) => `<div class="fgroup">
       <div class="dir">${esc(g.dir)}/</div>
-      <ul>${g.items.map((it) => `<li class="${it.isNew ? 'isnew' : ''}">${esc(it.name)}${
-        it.isNew ? ' · 新檔案' : ''}${it.uncommitted ? ' · <b>還沒存</b>' : ''}</li>`).join('')}</ul>
+      <ul>${g.items.map((it) => `<li class="${it.isNew ? 'isnew' : ''}">${esc(it.name)}${it.isNew ? ' · 新檔案' : ''}</li>`).join('')}</ul>
     </div>`).join('');
   // 檔名只露前 5 個,其餘收在「還有 N 個檔案」(工地工班風畫面 AC-13):改動一多,五關就被擠出第一屏。N 是收起來的真的個數
-  const shown = [], rest = [];
-  let room = 5;
-  for (const g of f.groups) {
-    const head = g.items.slice(0, Math.max(0, room));
-    room -= head.length;
-    if (head.length) shown.push({ ...g, items: head });
-    if (head.length < g.items.length) rest.push({ ...g, items: g.items.slice(head.length) });
-  }
-  const restCount = rest.reduce((n, g) => n + g.items.length, 0);
-  const filesKey = `files|${c.path ?? ''}`;
-  const groups = groupsOf(shown) + (restCount
-    ? `<details class="more" data-fold="${esc(filesKey)}"${foldOpen(filesKey, false) ? ' open' : ''}><summary>還有 ${restCount} 個檔案</summary>${groupsOf(rest)}</details>` : '');
+  const listOf = (gs) => {
+    const shown = [], rest = [];
+    let room = 5;
+    for (const g of gs) {
+      const head = g.items.slice(0, Math.max(0, room));
+      room -= head.length;
+      if (head.length) shown.push({ ...g, items: head });
+      if (head.length < g.items.length) rest.push({ ...g, items: g.items.slice(head.length) });
+    }
+    const restCount = rest.reduce((n, g) => n + g.items.length, 0);
+    const key = `files|${c.path ?? ''}`;
+    return `<div class="files">${groupsOf(shown)}${restCount
+      ? `<details class="more" data-fold="${esc(key)}"${foldOpen(key, false) ? ' open' : ''}><summary>還有 ${restCount} 個檔案</summary>${groupsOf(rest)}</details>` : ''}</div>`;
+  };
+  // 最下面收起來的:commit 跟蓋章差在哪(每一頁都一樣,伺服器放在最上層)、全部改了幾個、比例尺、從哪裡算起(AC-8)。
+  // 「全綠不等於功能正確」、比例尺、從哪裡算起是終端機也講的那幾句,照印
+  const H = latest?.stampHelp ?? null;
+  const whyKey = `why|${c.path ?? ''}|changes`;
+  const help = `<details class="why" data-fold="${esc(whyKey)}"${foldOpen(whyKey, false) ? ' open' : ''}><summary>commit 跟蓋章差在哪？</summary>
+      ${H ? `<p>${esc(H.commit)}</p><p>${mark(H.stamp, 'pipeline-status --checkpoint', 'code')}${q.green ? `<br>${esc(q.green)}` : ''}</p><p>${esc(H.order)}</p>` : `<p>${OLD_LINE}</p>`}
+      ${f.total ? `<p>${esc(sc.title ?? '')}：${f.total} 個檔案。${c.scale && q.scale ? `參考：${esc(q.scale)}。` : ''}${sc.note ? `${esc(sc.note)}。` : ''}</p>` : ''}
+    </details>`;
 
-  return `<div class="stat" data-note="changes" data-tone="change">
-    <h3 class="ctitle">未檢查清單</h3><div class="label">${label}</div>
-    <div class="big"><span class="num">${f.total}</span><span class="unit">個檔案</span></div>
-    ${note}
-    ${f.uncommittedCount === null ? `<div class="sub">${say(q?.unsavedUnknown)}</div>`
-      : f.uncommittedCount > 0 ? `<div class="sub">${q ? `${mark(q.unsaved ?? '', `${f.uncommittedCount} 個還沒存進保險箱（commit）`)}${f.newCount ? `,${f.newCount} 個是新建的` : ''}。` : say()}</div>`
-      : `<div class="sub">都已經存了（commit）${cpOk(c) ? ',只是蓋章之後改的,還沒重新檢查。要檢查：<code>pipeline-status --checkpoint</code>' : ''}。</div>`}
-    <div class="files">${groups}</div>
-    ${c.scale ? `<div class="hint">${q ? `參考:${esc(q.scale ?? '')}。` : say()}</div>` : ''}
-  </div>`;
+  const u = f.unsaved;
+  // 問不到 ≠ 沒有(R1):問不到哪些還沒 commit,就不往下講「都 commit 了」「N 個還沒蓋章」(AC-6)
+  if (u === null) return card(`<div class="big">問不到</div><div class="sub">${q.unsavedWhether ? `${esc(q.unsavedWhether)}。` : OLD_LINE}</div>${help}`);
+
+  // 還有東西沒 commit:大字是還沒 commit 幾個、清單只列它們(AC-1)。已經 commit、還沒蓋章的不消失,收成一行(AC-3)——
+  // 不留的話,commit 完最後幾個,大字會一下從 3 跳成 23。看不到 commit 過的是哪些,就講看不到(AC-5)
+  if (u.count > 0) {
+    const savedKey = `saved|${c.path ?? ''}`;
+    const others = sc.unseen ? `<div class="hint">${esc(sc.unseen)}。</div>`
+      : f.saved?.count && sc.savedTail ? `<details class="more" data-fold="${esc(savedKey)}"${foldOpen(savedKey, false) ? ' open' : ''}><summary>另外 ${f.saved.count} 個${esc(sc.savedTail)}</summary>${groupsOf(f.saved.groups)}</details>`
+      : '';
+    return card(`<div class="big"><span class="num">${u.count}</span><span class="unit">個檔案還沒 commit</span></div>
+    ${listOf(u.groups)}${others}${help}`);
+  }
+  // 都 commit 了,但看不到 commit 過的是哪些:不畫「沒有改動」(老毛病 P5),講看不到
+  if (sc.blind) return card(`<div class="big">都 commit 了</div><div class="sub">${sc.unseen ? `${esc(sc.unseen)}。` : ''}</div>${help}`);
+  // 都 commit 了、跟起點一樣:這一輪中間存過檔或切過分支的話,0 不是「沒有改動」(P5),照伺服器給的那一句講
+  const s = f.saved;
+  if (!s?.count) return card(`<div class="big">${sc.emptyBlind ? '看不全' : '沒有改動'}</div><div class="sub">${esc(sc.empty ?? '')}</div>${help}`);
+  // 都 commit 了:改講還沒蓋章(AC-4)。不加綠色、不打勾——蓋過章也只代表檢查全綠(老毛病 P10)
+  return card(`<div class="big"><span class="num">${s.count}</span><span class="unit">個檔案還沒蓋章</span></div>
+    <div class="sub">${sc.allSaved ? `${esc(sc.allSaved)}。` : ''}要蓋章：在那個資料夾跑 <code>pipeline-status --checkpoint</code></div>
+    ${listOf(s.groups)}${help}`);
 }
 
 /* ═══ 分級:伺服器(lib/tier.mjs)算好,這裡只畫。那幾句是伺服器照 tierLines 算好的(tier.lines),跟終端機的 describeTier 同一句 ═══ */

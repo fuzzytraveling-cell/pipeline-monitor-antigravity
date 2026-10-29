@@ -153,6 +153,18 @@ section('AC-3 共用時,要原文的那一題不准拿到切掉空白的答案',
   execFileSync('git', ['checkout', '-q', 'a.js'], { cwd: r.dir });
 }
 
+section('dirtyPaths:檔名有空白不加引號(要跟改動清單對得上);改名的新舊兩個路徑都算(規格:先講commit再講蓋章 AC-2)', 'P1');
+{
+  writeFileSync(join(r.dir, 'a b.txt'), '1\n');   // git status 不加 -z 會印成 "a b.txt"(帶引號),diff／ls-files 不會
+  execFileSync('git', ['mv', 'a.js', 'moved.js'], { cwd: r.dir });   // 改名、add 過:一筆裡有新舊兩個路徑
+  const s = scene();
+  const o = s.run(`return [...(dirtyPaths(${JSON.stringify(r.dir)}) ?? [])].sort();`);
+  eq('空白檔名照原樣,改名的新舊都在', JSON.stringify(o), JSON.stringify(['a b.txt', 'a.js', 'moved.js']));
+  execFileSync('git', ['mv', 'moved.js', 'a.js'], { cwd: r.dir });
+  rmSync(join(r.dir, 'a b.txt'));
+  s.cleanup();
+}
+
 section('AC-4 刷新結束就丟:下一次刷新一定重新問;中途出錯也一樣丟');
 {
   const s = scene();

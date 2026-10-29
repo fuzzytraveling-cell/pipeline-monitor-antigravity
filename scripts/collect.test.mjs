@@ -12,6 +12,7 @@ import { join, basename, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { collectAll, ladderSteps } from '../lib/collect.mjs';
+import { unquotePath } from '../lib/git.mjs';
 import { codeHome, dataHome } from '../lib/paths.mjs';
 import { readAppTitles, deletedAt, transcriptDirName } from '../lib/appSessions.mjs';
 import { safeName } from '../lib/events.mjs';
@@ -77,6 +78,38 @@ section('未檢查清單:每個檔案標清楚「還沒存」,蓋章之後 commi
   eq('其中 1 個還沒存', files.uncommittedCount, 1);
   check('a.js 已存、b.js 還沒存,各自標對', items['a.js'].uncommitted === false && items['b.js'].uncommitted === true, JSON.stringify(items));
   rmSync(monitorDir, { recursive: true, force: true }); r.cleanup();
+}
+
+section('還沒 commit 幾個:三階梯、還原點那一句、存檔與蓋章卡的大字與清單同一份——改了、commit、又改回蓋章那時候的樣子的檔也算;檔名有空白、雙引號、tab 也對得上(規格:先講commit再講蓋章 AC-1、AC-2、AC-3)', 'P2');
+{
+  // 檔名:空白——git status 不加 -z 會加引號,diff／ls-files 不加;雙引號、tab——diff／ls-files 也會加引號(LESSONS L44,魔鬼教官 2026-10-29)
+  const odd = ['c d.md', 'q"x.md', 'tab\tname.md'];
+  const r = makeRepo({ files: Object.fromEntries(['a.js', 'b.js', ...odd].map((f) => [f, '1\n'])) });
+  const root = out(r.dir, 'rev-parse', '--show-toplevel');
+  const c1 = out(r.dir, 'rev-parse', 'HEAD');
+  for (const f of ['a.js', 'b.js', ...odd]) writeFileSync(join(r.dir, f), '2\n');
+  r.git('add', '-A'); r.git('commit', '-qm', '蓋章之後存的');   // 全部都是蓋章之後改過、已經 commit
+  writeFileSync(join(r.dir, 'a.js'), '1\n');                    // a.js 又改回蓋章那時候的樣子,還沒 commit:不在「改過的」單子裡,三階梯卻算它
+  writeFileSync(join(r.dir, 'c d.md'), '3\n');                  // 檔名有空白、還沒 commit
+  writeFileSync(join(r.dir, 'q"x.md'), '3\n');                  // 檔名有雙引號、還沒 commit
+  writeFileSync(join(r.dir, 'new e.js'), '1\n');                // 新檔,檔名也有空白
+  const monitorDir = monitorWith(root, c1);
+  const card = collectAll({ monitorDir }).projects[0]?.cards?.[0];
+  const names = (x) => (x?.groups ?? []).flatMap((g) => g.items.map((it) => (g.dir === '根目錄' ? '' : `${g.dir}/`) + it.name)).sort();
+  eq('還沒 commit 的:a.js(改回去了也算)、c d.md、new e.js、q"x.md', names(card?.files?.unsaved).join(','), 'a.js,c d.md,new e.js,q"x.md');
+  eq('大字的數字就是清單的長度', card?.files?.unsaved?.count, 4);
+  eq('三階梯第一格同一個數', card?.ladder?.uncommitted, 4);
+  eq('還原點那一行用的個數同一個數', card?.dirty, 4);
+  eq('還原點那一句(跟終端機同一句)', card?.lines?.restoreUnsaved, '回去會丟掉你還沒 commit 的 4 個檔案');
+  eq('已經 commit、還沒蓋章的:b.js 與 tab 那個(檔名照原樣);空白、雙引號那兩個沒被算成已經 commit', names(card?.files?.saved).join(','), 'b.js,tab\tname.md');
+  check('新檔照舊標出來', card?.files?.unsaved?.groups.flatMap((g) => g.items).find((it) => it.name === 'new e.js')?.isNew === true);
+  rmSync(monitorDir, { recursive: true, force: true }); r.cleanup();
+  // git 加的引號拿掉,換回真的檔名;沒加引號的照原樣
+  eq('雙引號', unquotePath('"q\\"x.txt"'), 'q"x.txt');
+  eq('tab', unquotePath('"a\\tb.txt"'), 'a\tb.txt');
+  eq('反斜線', unquotePath('"back\\\\slash.txt"'), 'back\\slash.txt');
+  eq('八進位(中文被寫成位元組時)要整串用 UTF-8 解', unquotePath('"\\346\\226\\207 \\001.txt"'), '文 \u0001.txt');
+  eq('沒加引號的照原樣(空白、中文)', unquotePath('規劃中/a b.md'), '規劃中/a b.md');
 }
 
 section('L14：章之後有存檔 → 卡片帶備份分支名');
