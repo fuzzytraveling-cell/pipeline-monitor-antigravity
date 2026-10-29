@@ -28,6 +28,7 @@ import { rerunLine, tookLine, noRecordLine, stagesBrokenLine, unknownPromptLine,
 import { eLines, eWhere, summaryLine, walkItems, walkSummary, parseWalk } from '../lib/verify.mjs';
 import { faultBanner, faultNotes, sensorParts, sensorOffLine, gateLine, moveLine, noneHereLine, optedOutLine, unreadableLine } from '../lib/faults.mjs';
 import { createApp } from '../server.mjs';
+import { decide } from '../gate.mjs';
 import { safeName } from '../lib/events.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -73,13 +74,6 @@ const CLAUDE_SIDE = {
   'lib/tier.mjs': ['dangerAskLine', 'proposeCodeArea'],   // 收工 hook 叫 Claude 先停下來問的那一段;--tier-init 提議的程式區
 };
 /**
- * 還沒翻的(第 ②、③ 段):做完一支就拿掉一支。結案的時候這張表是空的——下面那一題會紅,提醒你還有沒翻的。
- */
-const NOT_YET = {
-  'lib/cliView.mjs': ['*'], 'lib/cliTier.mjs': ['*'], 'lib/cliStamp.mjs': ['*'],
-  'lib/cliOnOff.mjs': ['*'], 'lib/mount.mjs': ['*'], 'lib/service.mjs': ['*'], 'lib/cliReport.mjs': ['doClear'],
-};
-/**
  * 照原文認的中文:不是給人看的句子,是資料的格式。那個字面一字不差才放過(換了字就要重新判斷)。
  */
 const CODES = {
@@ -103,14 +97,14 @@ section('AC-4:中文只准住在 zhEn(中文, English) 裡——lib、ui/app.js�
 {
   let total = 0;
   for (const f of FILES) {
-    const skip = [...(CLAUDE_SIDE[f] ?? []), ...(NOT_YET[f] ?? [])];
+    const skip = CLAUDE_SIDE[f] ?? [];
     const bad = scanSource(readFileSync(join(ROOT, f), 'utf8'), { skip, codes: new Set(CODES[f] ?? []), noTopLevel: f !== 'ui/app.js' });
     total += bad.length;
     check(`${f}:沒有只寫中文的字串`, bad.length === 0, bad.slice(0, 8).map((b) => `${f}:${b.line} ${b.why}:${b.text}`).join('\n      '));
   }
   check('掃到的檔不是零支(拿不到檔案就什麼都沒測到)', FILES.length > 20, String(FILES.length));
-  check('Claude 那一側、還沒翻的、資料格式這三張表寫的檔都還在(檔改名了,表要跟著改)',
-    [...Object.keys(CLAUDE_SIDE), ...Object.keys(NOT_YET), ...Object.keys(CODES)].every((f) => existsSync(join(ROOT, f))));
+  check('Claude 那一側、資料格式這兩張表寫的檔都還在(檔改名了,表要跟著改)',
+    [...Object.keys(CLAUDE_SIDE), ...Object.keys(CODES)].every((f) => existsSync(join(ROOT, f))));
 }
 
 section('AC-4 的反向測試(老毛病 P4):先寫兩個例子——一個必須抓到、一個必須放過', 'P4');
@@ -863,6 +857,88 @@ section('建議卡那一區(英文):誰叫的、看不到的、已開始、收�
   check('一張都沒有:講「不代表沒跳過」那幾種(which doesn\'t mean none popped up)', /doesn't mean none popped up/.test(none(null)), none(null));
 }
 
+/* ════════════ 第三段:終端機(你自己會打的每個指令,英文) ════════════ */
+
+section('終端機(真的跑 status.mjs,英文):現況、--checkpoint、--clear、--tier、--on／--off、--install、--serve-status——每一種結果都沒有中文、沒有全形空白(AC-3)');
+{
+  const r = makeRepo({ at: T(-90 * MIN), pkg: { name: 'export-app', scripts: { test: 'node -e "process.exit(0)"' } }, files: { 'src/app.js': '1\n', 'src/save.js': 's\n',
+    '.claude/pipeline-stages.json': JSON.stringify({ tiers: { code: ['src/'], danger: ['src/save.js'] } }) } });
+  const root = git(r.dir, 'rev-parse', '--show-toplevel');
+  const monitorDir = mkdtempSync(join(tmpdir(), 'pm-lang-data-'));
+  mkdirSync(join(monitorDir, 'logs')); mkdirSync(join(monitorDir, 'checkpoints'));
+  writeFileSync(join(monitorDir, 'lang.json'), JSON.stringify({ lang: 'en' }));
+  const home = mkdtempSync(join(tmpdir(), 'pm-home-'));
+  writeFileSync(join(monitorDir, 'logs', `${safeName(basename(root))}.jsonl`), [
+    { ts: T(-60 * MIN), hook: 'UserPromptSubmit', prompt: SAID },
+    { ts: T(-50 * MIN), hook: 'PostToolUse', tool: 'Edit', file: join(root, 'src/app.js') },
+    { ts: T(-20 * MIN), hook: 'PreToolUse', tool: 'mcp__Claude_Browser__navigate', in_url: 'http://localhost:3000/' },
+  ].map((o) => JSON.stringify({ session: 's1', cwd: root, ...o })).join('\n') + '\n');
+  const run = (args, { cwd = root, sid = null, env = {} } = {}) => {
+    const { CLAUDE_CODE_SESSION_ID: _drop, ...base } = process.env;
+    const e = { ...base, HOME: home, PIPELINE_MONITOR_HOME: monitorDir, PIPELINE_MONITOR_LOG_DIR: join(monitorDir, 'logs'), ...(sid ? { CLAUDE_CODE_SESSION_ID: sid } : {}), ...env };
+    try { return execFileSync('node', [join(ROOT, 'status.mjs'), ...args], { cwd, encoding: 'utf8', env: e, stdio: ['ignore', 'pipe', 'pipe'] }); }
+    catch (x) { return `${x.stdout ?? ''}${x.stderr ?? ''}`; }
+  };
+  const outs = {};
+  writeFileSync(join(root, 'src/app.js'), '2\n');
+  outs['現況(沒有還原點、有沒 commit 的檔)'] = run([]);
+  outs['--checkpoint(還有沒 commit 的)'] = run(['--checkpoint']);
+  git(root, 'add', '-A'); git(root, 'commit', '-qm', 'export button');
+  outs['--checkpoint(全綠,蓋章)'] = run(['--checkpoint']);
+  writeFileSync(join(root, 'src/save.js'), 'changed\n');
+  writeFileSync(join(root, 'src/new.js'), 'n\n');
+  git(root, 'add', '-A'); git(root, 'commit', '-qm', 'more');
+  writeFileSync(join(root, 'src/app.js'), '3\n');
+  outs['現況(章之後又 commit、又改了,碰到危險清單)'] = run([]);
+  outs['--tier(沒給等級)'] = run(['--tier']);
+  outs['--tier T1(比機器算的低)'] = run(['--tier', 'T1', 'just because']);
+  outs['--clear D(不是驗收那一關)'] = run(['--clear', 'D']);
+  outs['--clear X(認不出)'] = run(['--clear', 'X']);
+  outs['--clear E(你自己的終端機)'] = run(['--clear', 'E']);
+  outs['--clear E(在對話裡跑、沒附話)'] = run(['--clear', 'E'], { sid: 's1' });
+  outs['--clear E(Claude 代記、附了話)'] = run(['--clear', 'E', 'looks good, accepted'], { sid: 's1' });
+  writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'export-app', scripts: { test: 'node -e "console.error(\'boom\'); process.exit(1)"' } }));
+  git(root, 'add', '-A'); git(root, 'commit', '-qm', 'break the test');
+  outs['--checkpoint(跑了沒過)'] = run(['--checkpoint']);
+  writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'export-app', scripts: {} }));
+  git(root, 'add', '-A'); git(root, 'commit', '-qm', 'no checks');
+  outs['--checkpoint(認不出要跑哪些檢查)'] = run(['--checkpoint']);
+  outs['--off(沒裝 plugin:舊接法)'] = run(['--off']);
+  outs['--on(沒裝 plugin:舊接法)'] = run(['--on']);
+  outs['--on(再一次:已經掛上了)'] = run(['--on']);
+  outs['--install'] = run(['--install']);
+  outs['--install(再一次)'] = run(['--install']);
+  outs['--off(plugin 裝好了:退出記錄)'] = run(['--off']);
+  outs['現況(退出記錄之後)'] = run([]);
+  outs['--on(plugin 裝好了:重新加入)'] = run(['--on']);
+  outs['--uninstall'] = run(['--uninstall']);
+  outs['--uninstall(再一次)'] = run(['--uninstall']);
+  outs['--serve-status(假的家:沒裝)'] = run(['--serve-status']);
+  const bare = mkdtempSync(join(tmpdir(), 'pm-bare-'));
+  execFileSync('git', ['init', '-q'], { cwd: bare });
+  outs['一個 commit 都沒有的專案'] = run([], { cwd: bare });
+  outs['一個 commit 都沒有的專案 --checkpoint'] = run(['--checkpoint'], { cwd: bare });
+  outs['不是 git 專案'] = run([], { cwd: tmpdir() });
+  for (const [k, o] of Object.entries(outs)) {
+    noZh(`英文:${k}`, o);
+    check(`……${k}:沒有全形空白(U+3000)`, !o.includes('　'));
+    check(`……${k}:不印程式的錯誤(TypeError、undefined、null)`, !/TypeError|ReferenceError|\bundefined\b|\bnull\b/.test(o), o.slice(0, 400));
+  }
+  const v = outs['現況(章之後又 commit、又改了,碰到危險清單)'];
+  check('還原點:Last time all checks were green,講不等於功能正確;不講 passed／works', /Last time all checks were green/.test(v) && v.includes(en(() => greenIsNotCorrect())), v);
+  check('……「通過的是」不翻成 passed(檢查全綠不准翻成 passed)', !/The ones that passed|passed:/.test(v), v);
+  check('……回去的指令照舊在(章之後有 commit:先留備份分支,英文的名字)', /git branch backup-\d{4}-/.test(v) && /git reset --hard/.test(v), v);
+  check('……還沒 commit 的那一句:not committed yet,不准 unsaved', /not committed yet/.test(v) && !/unsaved/i.test(v), v);
+  check('分級:碰到危險清單 → T2,「需要」那幾行英文(Needs:),不准 passed', /T2/.test(v) && /Needs:/.test(v) && !/passed/i.test(v.slice(v.indexOf('━━ Tier'))), v.slice(v.indexOf('━━ Tier')));
+  check('--checkpoint 跑了沒過:講 ran and failed,不蓋章', /ran and failed\. No stamp\./.test(outs['--checkpoint(跑了沒過)']), outs['--checkpoint(跑了沒過)']);
+  check('--checkpoint 認不出檢查:講是我沒問到,不是沒有檢查', /"I couldn't find out", not "this project has no checks"/.test(outs['--checkpoint(認不出要跑哪些檢查)']), outs['--checkpoint(認不出要跑哪些檢查)']);
+  check('--clear E(你自己的終端機):講你說的,不是系統驗證的', /Recorded: you said E Acceptance is accepted/.test(outs['--clear E(你自己的終端機)']) && /not something the system checked/.test(outs['--clear E(你自己的終端機)']), outs['--clear E(你自己的終端機)']);
+  check('--clear E(Claude 代記):主詞是 the user、講 Claude recorded it for them(不講成你自己按的)', /the user said E Acceptance is accepted \(Claude recorded it for them\)/.test(outs['--clear E(Claude 代記、附了話)']), outs['--clear E(Claude 代記、附了話)']);
+  check('--install:只講捷徑放好了,不講 Claude Code 已經載入了(R2)', /not that Claude Code actually loaded it/.test(outs['--install']), outs['--install']);
+  for (const d of [monitorDir, home, bare]) rmSync(d, { recursive: true, force: true });
+  r.cleanup();
+}
+
 /* ════════════ AC-8:Claude 那一側不換 ════════════ */
 
 section('Claude 那一側這一份不換:設成英文之後,Claude 替你跑的指令照舊整句中文,跟中文的時候一字不差(AC-8)');
@@ -893,6 +969,40 @@ section('Claude 那一側這一份不換:設成英文之後,Claude 替你跑的�
   check('……而且真的是中文(不是兩邊都壞掉、都空的)', zh.every((o) => CJK.test(o)), zh.join('\n---\n').slice(0, 300));
   for (const d of [monitorDir, home]) rmSync(d, { recursive: true, force: true });
   r.cleanup();
+}
+
+section('收工 hook 這一份不換:設成英文之後擋下來的那段話,跟中文的時候一字不差(AC-8)');
+{
+  // 同一個劇本做兩份(收工 hook 擋過會記下來,同一份不能擋第二次):一份家裡寫了英文,一份從來沒選過
+  const once = (lang) => {
+    const r = makeRepo({ at: T(-60 * MIN), files: { 'src/a.js': '1\n', 'src/danger.js': 'd\n',
+      '.claude/pipeline-stages.json': JSON.stringify({ tiers: { code: ['src/'], danger: ['src/danger.js'] } }) } });
+    const root = git(r.dir, 'rev-parse', '--show-toplevel');
+    const monitorDir = mkdtempSync(join(tmpdir(), 'pm-lang-gate-'));
+    mkdirSync(join(monitorDir, 'logs')); mkdirSync(join(monitorDir, 'checkpoints'));
+    copyFileSync(join(ROOT, 'stages.json'), join(monitorDir, 'stages.json'));
+    if (lang) writeFileSync(join(monitorDir, 'lang.json'), JSON.stringify({ lang }));
+    const home = mkdtempSync(join(tmpdir(), 'pm-home-'));
+    mkdirSync(join(home, '.claude', 'skills'), { recursive: true });
+    symlinkSync(ROOT, join(home, '.claude', 'skills', PLUGIN));
+    writeFileSync(join(root, 'src/danger.js'), 'changed\n');
+    writeFileSync(join(monitorDir, 'logs', `${safeName(basename(root))}.jsonl`), [
+      { ts: T(-5 * MIN), hook: 'UserPromptSubmit', prompt: 'please change the saving code' },
+      { ts: T(-4 * MIN), hook: 'PostToolUse', tool: 'Edit', file: join(root, 'src/danger.js') },
+    ].map((o) => JSON.stringify({ session: 's1', cwd: root, ...o })).join('\n') + '\n');
+    const keep = process.env.PIPELINE_MONITOR_HOME;
+    process.env.PIPELINE_MONITOR_HOME = monitorDir;
+    let d;
+    try { d = decide({ payload: { session_id: 's1', cwd: root, hook_event_name: 'Stop', stop_hook_active: false }, monitorDir, skillHome: home }); }
+    finally { process.env.PIPELINE_MONITOR_HOME = keep; }
+    for (const x of [monitorDir, home]) rmSync(x, { recursive: true, force: true });
+    r.cleanup();
+    return { reason: String(d?.reason ?? '').split(root).join('<root>'), missing: d?.missing ?? null };
+  };
+  const zh = once(null), enOnce = once('en');
+  check('收工 hook 有擋(不然什麼都沒比到)', zh.reason.length > 0, JSON.stringify(zh));
+  eq('設成英文:擋下來的那段話跟中文的時候一字不差', enOnce.reason, zh.reason);
+  check('……而且是中文(另一份規格才翻)', CJK.test(enOnce.reason), enOnce.reason.slice(0, 200));
 }
 
 process.exit(summary());

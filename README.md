@@ -30,6 +30,7 @@ pipeline-status --on         # 把感測器掛到**這個**專案（--off 拆掉
 pipeline-status --tier-init  # 設定分級的骨架（程式區）；危險清單在對話裡說「幫我設定分級」
 pipeline-status --tier T2 "理由"   # 這次調高（只准往上）；收回是 --tier-retract
 pipeline-status --serve-install  # 儀表板裝成背景服務（見「網頁版」）
+pipeline-status --lang en    # 換成英文（--lang zh 換回中文；不帶字講現在是哪一種）。儀表板右上角那顆按鈕改的是同一份
 ```
 
 ### 裝感測器（plugin，裝一次就好）

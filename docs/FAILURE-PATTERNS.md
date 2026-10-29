@@ -69,6 +69,7 @@
 網頁要講一句終端機也講的話：句子放 lib、伺服器算好帶過去、網頁照印——`ui/app.js` 不寫第二份；舊的服務沒給那一句，講服務還在跑舊的程式，不自己拼。
 在 docs/ 以外寫 `docs/…` 路徑的任何地方——路徑只住 CLAUDE.md 的表，別處只寫名字（L21）。
 兩種語言各寫一次的規則，一定要有一條**真的跑兩邊**的測試釘住——翻譯得再像也是兩份。
+中英兩份分兩處放（中文一張表、英文另一張表）：改了中文那一句、忘了英文那一句，沒有東西會紅——每一句寫成 zhEn(中文, English) 並排，只寫中文的掃得到（規格：儀表板與終端機中英切換）。
 **釘住它的測試**：`scripts/status.test.mjs` 標 P2 的段落；`scripts/sensor.test.mjs` 真的跑 hook.sh 對 `safeName()` 的那段；
 `scripts/skills.test.mjs` 對 `stages.json` 的 skill 名與 `skills/` 資料夾的那段；
 `scripts/specLink.test.mjs` 標 P2 的段落（規格連結:五關、分級卡、收工 hook 說同一件事）；
@@ -82,7 +83,8 @@
 `scripts/verify.test.mjs` 標 P2 的「好幾份規格的 E」段落；
 `scripts/expiry.test.mjs` 標 P2 的段落（清空之後那一句、感測器那一行的開頭：同一份紀錄，終端機與儀表板真的各跑一次、一字不差）；
 `scripts/ui.test.mjs` 標 P2 的段落（誰說處理完了只算一次：那一句與工班的臉讀同一個 `doneBy`；Claude 回報的不寫你說、你說的照寫、分不出來照講分不出；舊的服務沒給 `doneBy`，網頁不自己從 `closedBy` 猜）；
-`scripts/collect.test.mjs` 標 P2 的「還沒 commit 幾個」段落（三階梯、還原點那一句、存檔與蓋章卡的大字與清單同一份）。
+`scripts/collect.test.mjs` 標 P2 的「還沒 commit 幾個」段落（三階梯、還原點那一句、存檔與蓋章卡的大字與清單同一份）；
+`scripts/lang.test.mjs` 標 P2 的段落（中文只准住在 zhEn(中文, English) 裡：lib、ui/app.js、status.mjs、server.mjs 新加一句只寫中文、英文那一份空著、載入那一刻就定死的一句，都會紅）。
 
 ---
 
