@@ -19,7 +19,10 @@ import process from 'node:process';
 import { scanSource, CJK } from './_zhscan.mjs';
 import { readLang, writeLang, withLang, langFile, LANGS } from '../lib/lang.mjs';
 import { describeFreshness, humanAge } from '../lib/freshness.mjs';
-import { ago, withClock } from '../lib/git.mjs';
+import { ago, withClock, backupBranchName } from '../lib/git.mjs';
+import { cardLines, ladderSteps } from '../lib/collect.mjs';
+import { changeScope, noStampYet, greenIsNotCorrect } from '../lib/scope.mjs';
+import { tierLines, requirementStatus, emptyDangerLine } from '../lib/tier.mjs';
 import { stageLine, specNotes, clProg, clDoneNote, checklistWhy, checklistHead, checklistPartLine, checklistLines, linkLine, calledIsNotPassed } from '../lib/stageLines.mjs';
 import { rerunLine, tookLine, noRecordLine, stagesBrokenLine, unknownPromptLine, noWords, loadStages } from '../lib/rounds.mjs';
 import { eLines, eWhere, summaryLine, walkItems, walkSummary, parseWalk } from '../lib/verify.mjs';
@@ -54,7 +57,7 @@ function noZh(label, text, extra = []) {
   check(label, hits.length === 0, hits.join('\n      '));
 }
 const en = (fn) => withLang('en', fn);
-const strip = (html) => String(html ?? '').replace(/<[^>]*>/g, ' ');
+const strip = (html) => String(html ?? '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ');
 
 /* ════════════ AC-4:中英寫在同一個地方;只寫中文,測試紅 ════════════ */
 
@@ -67,14 +70,13 @@ const CLAUDE_SIDE = {
   'lib/cliReport.mjs': ['doSpec', 'writtenHere', 'doReport', 'doSuggest'],
   'lib/cliTier.mjs': ['doTierInit', 'doTierOff', 'tierNotReady', 'freshInProject', 'doTierReview', 'doTierChecked', 'doTierLater'],
   'lib/rounds.mjs': ['runMode', 'offerPrompt'],    // D 怎麼跑(寫給 Claude 的);照標題湊的那段要貼給新對話(Claude 讀的,也拿來比對「已開始」)
+  'lib/tier.mjs': ['dangerAskLine', 'proposeCodeArea'],   // 收工 hook 叫 Claude 先停下來問的那一段;--tier-init 提議的程式區
 };
 /**
  * 還沒翻的(第 ②、③ 段):做完一支就拿掉一支。結案的時候這張表是空的——下面那一題會紅,提醒你還有沒翻的。
  */
 const NOT_YET = {
-  'ui/app.js': ['projectList', 'statRestore', 'statLadder', 'statChanges', 'statTier', 'overview', 'sessionList', 'projectPage', 'suggestionsBlock', 'optOutLine', 'sessionPage'],
-  'lib/collect.mjs': ['collectAllNow', 'ladderSteps', 'listChangedFiles'],
-  'lib/scope.mjs': ['*'], 'lib/tier.mjs': ['*'], 'lib/cliView.mjs': ['*'], 'lib/cliTier.mjs': ['*'], 'lib/cliStamp.mjs': ['*'],
+  'lib/cliView.mjs': ['*'], 'lib/cliTier.mjs': ['*'], 'lib/cliStamp.mjs': ['*'],
   'lib/cliOnOff.mjs': ['*'], 'lib/mount.mjs': ['*'], 'lib/service.mjs': ['*'], 'lib/cliReport.mjs': ['doClear'],
 };
 /**
@@ -302,6 +304,7 @@ function uiOf(latest, { lang = 'zh', fetch = () => Promise.reject(new Error('測
   const sessionStorage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, String(v)), removeItem: (k) => store.delete(k) };
   const make = new Function('describeFreshness', 'STALE_AFTER_SECONDS', 'document', 'window', 'localStorage', 'sessionStorage', 'location', 'setTimeout', 'setInterval', 'fetch', 'performance', 'console', '__LATEST',
     `${body}\nlatest = __LATEST;\nreturn { workflow, roundWhere, sensorLine, faultBanner, oldServerBanner, langBanner, render, safeRender, switchLang, poll, ago, clock, OLD_LINE, ROLE,
+      statRestore, statLadder, statChanges, statTier, projectList, overview, sessionList, projectPage, suggestionsBlock, optOutLine, sessionPage,
       setLatest: (x) => { latest = x; }, connected: () => connected, LANG };`);
   const api = make(describeFreshness, 60, document, { addEventListener: noop }, { getItem: () => null, setItem: noop }, sessionStorage, loc, noop, noop, fetch,
     { now: () => 0 }, { ...console, error: noop }, latest);   // 壞掉的那一頁會往主控台印錯誤:這裡不看那一行
@@ -663,6 +666,201 @@ section('關卡的英文名(stages.json 的 nameEn):五關照 Oscar 點頭的那
   writeFileSync(join(proj, '.claude', 'pipeline-stages.json'), JSON.stringify({ stages: [{ id: 'A', name: '寫需求', skill: 'spec' }, { id: 'Z', name: 'Ship', nameEn: 'Ship it', skill: 'ship' }] }));
   eq('專案自己覆寫的:英文的時候照它寫的印;它自己寫了 nameEn 才換', en(() => loadStages(ROOT, proj).stages.map((s) => s.name).join(' / ')), '寫需求 / Ship it');
   rmSync(proj, { recursive: true, force: true });
+}
+
+/* ════════════ 第二段:儀表板其餘的卡(還原點、三階梯、存檔與蓋章、分級、案件、對話、建議卡) ════════════ */
+
+/** 英文的整頁資料:檔名、分支、標題、你說的話、Claude 的結論都用英文;伺服器那幾句照 lib 在英文底下算(跟真的伺服器一樣) */
+function enWorld() {
+  return en(() => withClock(() => {
+    const t = (min) => T(-min * MIN);
+    const stages = loadStages(ROOT, tmpdir()).stages;
+    const scope = changeScope({ kind: 'origin', origin: { at: t(90), from: 'prompt', sessions: 2 }, commits: 3 }, ago);
+    const files = {
+      total: 5,
+      unsaved: { count: 3, groups: [{ dir: 'src', items: [{ name: 'export.js', isNew: true }, { name: 'button.js' }, { name: 'menu.js' }] }] },
+      saved: { count: 2, groups: [{ dir: en(() => '(top folder)'), items: [{ name: 'README.md' }, { name: 'package.json' }] }] },
+    };
+    const reqs = requirementStatus(['A', 'C', 'D', 'tests'], { stages, ago, health: { touchedTests: 2 },
+      perStage: new Map([['A', { ts: t(80) }], ['C', { ts: t(40) }]]), cleared: new Map(),
+      reports: new Map([['A', { ts: t(70), verdict: 'ok', note: 'docs/進行中/export-button.md' }]]),
+      rerun: new Map([['D', { state: 'ask', last: { call: { ts: t(30) } }, stage: { id: 'D', verb: 'run' } }]]) });
+    const tierOk = { state: 'ok', levels: { danger: { id: 'T2' } }, basis: { kind: 'head', why: 'no-origin' }, dangerEmpty: true,
+      machine: { id: 'T1', rank: 1, hits: { code: ['src/export.js', 'src/button.js'], danger: [] } }, manual: { id: 'T2', why: 'touches saving', ts: t(20) },
+      manualIgnored: { id: 'T1', ts: t(50) }, final: { id: 'T2', requires: ['A', 'C', 'D', 'tests'] }, requirements: reqs,
+      candidates: ['src/save.js', 'src/sync.js', 'src/store.js', 'src/db.js'], staleNotes: [], upgradable: [] };
+    const sensor = { mount: { state: 'ok', where: 'plugin' }, noneLine: null, lines: sensorParts({ mount: { where: 'plugin' }, lastSeen: t(5), gate: { ts: t(4) } }) };
+    const card = {
+      path: '/work/export-app', project: 'export-app', branch: 'feature/export-button', gone: false, notGit: false,
+      checkpoint: { at: t(180), commit: 'abc1234def', checks: ['test', 'lint'] }, checkpointRelation: { state: 'ok', commitsAfter: 2 },
+      backupBranch: backupBranchName(), cpVersion: '1.4.0', dirty: 3,
+      ladder: { mainName: 'main', uncommitted: 3, webUrl: 'https://github.com/x/export-app',
+        steps: ladderSteps({ uncommitted: 3, unmerged: 2, onMain: false, mainName: 'main', mainHasUpstream: true, mainUnpushed: 1 }) },
+      files, scope, scale: { median: 4, max: 18 },
+      lines: cardLines({ stamped: true, relation: { state: 'ok' }, scale: { median: 4, max: 18 }, commitsNote: scope.commitsNote, unsaved: 3, dirty: 3 }),
+      tier: { ...tierOk, lines: tierLines(tierOk, { ago }) }, sensor, stages: [],
+    };
+    const sess = (o) => ({ id: 's1', title: 'Export button', prompts: 12, lastTs: t(3), closedAt: null, cwd: card.path, card, stages: [], tier: null, ...o });
+    const cards = [
+      { id: 'c1', ts: t(60), source: 'claude', title: 'Write the README', prompt: 'Write a README for the export button\nsecond line', cut: [] },
+      { id: 'c2', ts: t(55), source: 'app', session: 's1', fromTitle: 'Export button', title: 'Check the old exporter', tldr: 'see if anything still uses it', prompt: 'Check whether the old exporter is still used', cut: ['prompt', 'tldr', 'title'],
+        openIn: { project: 'other-app', name: 'other-app' }, withdrawals: [{ reason: 'done already' }, { reason: null }, { reason: 'premise changed', cut: true }, { reason: 'x' }], opens: [{}] },
+      { id: 'c3', ts: t(50), source: 'app', ask: 'offer', session: 's1', fromTitle: 'Export button', title: 'Clean up the CSS', prompt: 'Clean up the CSS\n\nraised in another conversation', said: { text: 'please tidy the styles later', cut: true }, workedAfter: true },
+      { id: 'c4', ts: t(45), source: 'app', ask: 'offer', session: 's1', title: 'Add a dark mode', prompt: '', said: null, brief: { via: 'same-title' } },
+      { id: 'c5', ts: t(44), source: 'app', ask: 'offer', session: 's1', title: 'Add icons', prompt: 'x', brief: { via: 'brief' }, openIn: { name: 'icons-folder' } },
+      { id: 'c6', ts: t(40), source: 'claude', title: 'Started one', prompt: 'p', startedBy: 's9', startedTitle: 'Started conversation', startedProject: { project: 'other-app', name: 'other-app' }, dismissedAt: t(30) },
+      { id: 'c7', ts: t(39), source: 'claude', title: 'Started elsewhere', prompt: 'p', startedBy: 's8' },
+      { id: 'c8', ts: t(38), source: 'app', ask: 'offer', title: 'Superseded', prompt: 'p', supersededAt: t(20), dismissedAt: t(10) },
+      { id: 'c9', ts: t(37), source: 'claude', title: 'Dropped', prompt: '', tldr: 'nothing to paste', dismissedAt: t(5) },
+      { id: 'c10', ts: t(36), source: 'claude', title: 'Empty', prompt: '' },
+      { id: 'c11', ts: t(35), source: 'app', title: 'Open elsewhere', prompt: 'p', openIn: {} },
+    ];
+    const project = {
+      name: 'export-app', displayName: 'export-app', mainRoot: '/work/export-app', optedOut: null, cards: [card], appCardsSince: t(2000),
+      incomingSuggestions: [{ project: 'other-app', name: 'other-app', count: 2 }, { project: 'third', count: 1 }],
+      sessions: [
+        sess({ sharesCwd: true, reopenedByActivity: t(2), tier: card.tier }),
+        sess({ id: 's2', title: null, card: { ...card, gone: true }, closedAt: t(500) }),
+        sess({ id: 's3', title: 'Handed over', movedOn: { at: t(300) }, closedAt: t(400) }),
+        sess({ id: 's4', title: 'Deleted one', deletedAt: t(100), closedAt: t(100) }),
+        ...[5, 6, 7, 8, 9, 10].map((n) => sess({ id: `s${n}`, title: `Closed conversation number ${n} with a long title`, closedAt: t(n * 100) })),
+      ],
+      suggestions: cards,
+    };
+    const empty = { name: 'quiet-app', displayName: 'quiet-app', mainRoot: '/work/quiet-app', optedOut: { at: t(9000) }, optedOutLine: optedOutLine({ at: t(9000), days: 90 }),
+      cards: [], sessions: [], suggestions: [], emptyLine: noRecordLine({ here: 'the bar at the very top', optedOut: true }), noRecords: true, appCardsSince: null };
+    const oldOne = { name: 'old-app', displayName: 'old-app', mainRoot: '/work/old-app', optedOut: { at: null }, cards: [], sessions: [], suggestions: [] };
+    return { generatedAt: NOW, retainDays: 90, lang: 'en', langNote: null, projects: [project, empty, oldOne], faults: { banner: [], blind: false },
+      sharedLines: { calledNotPassed: calledIsNotPassed() }, stampHelp: { commit: 'commit: …', stamp: 'stamp (pipeline-status --checkpoint): …', order: 'Always commit before stamping' },
+      appCardTools: { oldLast: t(3000), newFirst: t(2500), unknown: [{ tool: 'mcp__ccd_session__brand_new', first: t(100) }] } };
+  }));
+}
+
+section('英文那一頁(真的跑 ui/app.js):案件列表、專案頁、對話頁、建議卡、退出記錄——每一頁都沒有中文(AC-3)');
+{
+  const world = enWorld();
+  const ui = uiOf(world, { lang: 'en' });
+  const pages = ['#/', '#/p/export-app', '#/p/export-app/s/s1', '#/p/export-app/s/s2', '#/p/export-app/s/s3', '#/p/quiet-app', '#/p/old-app', '#/p/nope', '#/p/export-app/s/nope'];
+  for (const h of pages) {
+    ui.loc.hash = h;
+    ui.render();
+    noZh(`英文:${h}(頁面)`, strip(`${ui.els.crumb.innerHTML} ${ui.els.app.innerHTML}`));
+    const attrs = [...ui.els.app.innerHTML.matchAll(/(?:title|placeholder)="([^"]*)"/g)].map((m) => m[1]).join(' | ');
+    noZh(`英文:${h}(滑鼠移上去看得到的字、輸入框的提示)`, attrs);
+  }
+  // 舊的服務(沒給新欄位)那幾種:講服務還在跑舊的程式,英文
+  const olds = uiOf({ generatedAt: NOW, projects: [{ name: 'p', mainRoot: '/p', optedOut: { at: T(-60) }, cards: [], sessions: [], suggestions: [] }], lang: 'en' }, { lang: 'en' });
+  olds.loc.hash = '#/p/p';
+  olds.render();
+  noZh('英文:舊的服務(沒有 emptyLine、appCardsSince、optedOutLine、appCardTools)', strip(olds.els.app.innerHTML));
+  ui.loc.hash = '#/';
+  noZh('英文:還沒有任何案件', strip(uiOf({ generatedAt: NOW, projects: [], lang: 'en' }, { lang: 'en' }).projectList()));
+  noZh('英文:舊的紀錄還沒搬過來', strip(uiOf({ generatedAt: NOW, projects: [], faults: { moving: true }, lang: 'en' }, { lang: 'en' }).projectList()));
+}
+
+section('還原點、三階梯、存檔與蓋章、分級:每一種狀態英文都沒有中文;用語對照那幾列(AC-3、AC-5)', 'P5');
+{
+  const world = enWorld();
+  const ui = uiOf(world, { lang: 'en' });
+  const card = world.projects[0].cards[0];
+  const p = world.projects[0];
+  const L = (o) => en(() => withClock(() => cardLines({ stamped: true, relation: { state: 'ok' }, ...o })));
+  // 還原點
+  const restores = {
+    none: ui.statRestore({ ...card, checkpoint: null, lines: L({ stamped: false }) }),
+    broken: ui.statRestore({ ...card, checkpointRelation: { state: 'off-branch' }, lines: L({ relation: { state: 'off-branch' } }) }),
+    gone: ui.statRestore({ ...card, checkpointRelation: { state: 'gone' }, lines: L({ relation: { state: 'gone' } }) }),
+    unknown: ui.statRestore({ ...card, checkpointRelation: null, lines: L({ relation: null }) }),
+    ok: ui.statRestore(card),
+    clean: ui.statRestore({ ...card, dirty: 0, lines: L({ dirty: 0 }) }),
+    dunno: ui.statRestore({ ...card, dirty: null, lines: L({ dirty: null }) }),
+    old: ui.statRestore({ ...card, lines: null }),
+  };
+  for (const [k, h] of Object.entries(restores)) noZh(`英文:還原點 ${k}`, strip(h));
+  check('還沒有還原點 → 「doesn\'t mean you have no good version, only that I haven\'t asked」(AC-5)', restores.none.includes(en(() => noStampYet())) && /haven't asked/.test(restores.none), strip(restores.none));
+  check('還原點那一格不准叫 backup／safe version(標題與小字)', !/backup|safe version/i.test(strip(restores.ok).split('Copy')[0].replace(/backup-\d/g, '')), strip(restores.ok));
+  check('檢查全綠 → all checks green 那一句照講不等於功能正確', restores.ok.includes(en(() => greenIsNotCorrect())), strip(restores.ok));
+  const greenOnly = strip(restores.ok).replace(en(() => greenIsNotCorrect()), '');
+  check('……全綠那一行(拿掉「不等於功能正確」那一句)不准講 works／passed／verified／safe(P4:否定的那一句要放過)', !/\bworks\b|passed|verified|\bsafe\b/i.test(greenOnly), greenOnly);
+  check('一個都沒有就不掛 ⚠️(P10)', !/⚠️ There are no uncommitted/.test(restores.clean) && /There are no uncommitted files right now/.test(restores.clean), strip(restores.clean));
+  check('問不到照樣掛 ⚠️、講 couldn\'t check(問不到 ≠ 沒有)', /⚠️ Couldn't check whether you have files not committed yet/.test(strip(restores.dunno)), strip(restores.dunno));
+  // 三階梯
+  const ladders = [
+    { uncommitted: null, unmerged: null, onMain: false, mainName: null },
+    { uncommitted: 0, unmerged: 0, onMain: true, mainName: 'main', mainHasUpstream: false },
+    { uncommitted: 0, unmerged: 0, onMain: false, mainName: 'main', mainHasUpstream: true, mainUnpushed: null, mergedIntoMain: true, atMainTip: false },
+    { uncommitted: 0, unmerged: 0, onMain: false, mainName: 'main', mainHasUpstream: true, mainUnpushed: 0, mergedIntoMain: true, atMainTip: true },
+    { uncommitted: 0, unmerged: 0, onMain: false, mainName: 'main', mainHasUpstream: true, mainUnpushed: 0, branchMoved: false, atMainTip: false },
+    { uncommitted: 0, unmerged: 0, onMain: false, mainName: 'main', mainHasUpstream: true, mainUnpushed: 0, branchMoved: false, atMainTip: true },
+    { uncommitted: 0, unmerged: 0, onMain: false, mainName: 'main', mainHasUpstream: true, mainUnpushed: 0, atMainTip: false },
+    { uncommitted: 0, unmerged: 0, onMain: false, mainName: 'main', mainHasUpstream: true, mainUnpushed: 0 },
+    { uncommitted: 0, unmerged: null, onMain: false, mainName: 'main', mainHasUpstream: true, mainUnpushed: 2 },
+  ];
+  for (const [i, a] of ladders.entries()) noZh(`英文:三階梯 ${i}`, strip(ui.statLadder({ ...card, ladder: { mainName: a.mainName, steps: en(() => ladderSteps(a)) } })));
+  noZh('英文:三階梯(舊的服務沒給)', strip(ui.statLadder({ ...card, ladder: {} })));
+  check('還沒 commit → not committed yet,不准 unsaved', /3 files not committed yet/.test(strip(ui.statLadder(card))) && !/unsaved/i.test(strip(ui.statLadder(card))), strip(ui.statLadder(card)));
+  // 存檔與蓋章卡(先講commit再講蓋章那幾種狀況)
+  const sc = (o) => en(() => withClock(() => changeScope(o, ago)));
+  const f0 = { total: 0, unsaved: { count: 0, groups: [] }, saved: { count: 0, groups: [] } };
+  const stamped = sc({ kind: 'checkpoint', commits: 4 });
+  const changes = {
+    '還有沒 commit 的(另外 2 個收著)': ui.statChanges(card),
+    '還有沒 commit 的(看不到 commit 過的)': ui.statChanges({ ...card, scope: sc({ kind: 'head', why: 'no-origin' }) }),
+    '都 commit 了、還沒蓋章': ui.statChanges({ ...card, scope: stamped, files: { total: 2, unsaved: { count: 0, groups: [] }, saved: card.files.saved } }),
+    '沒有能用的章(只算這一輪)': ui.statChanges({ ...card, files: { total: 2, unsaved: { count: 0, groups: [] }, saved: card.files.saved } }),
+    '找不到這一輪的起點': ui.statChanges({ ...card, scope: sc({ kind: 'head', why: 'not-found' }), files: f0 }),
+    '一個 commit 都沒有': ui.statChanges({ ...card, scope: sc({ kind: 'head', why: 'no-commits' }), files: f0 }),
+    '問不到': ui.statChanges({ ...card, files: { total: 0, unsaved: null, saved: null } }),
+    '重新蓋章之後(跟章一模一樣)': ui.statChanges({ ...card, scope: stamped, files: f0 }),
+    '中間存過檔、切過分支(看不全)': ui.statChanges({ ...card, scope: sc({ kind: 'origin', moved: true, origin: { at: T(-60), from: 'A' } }), files: f0 }),
+    '連改動都問不到': ui.statChanges({ ...card, files: null }),
+    '舊的服務': ui.statChanges({ ...card, files: { total: 1 } }),
+  };
+  for (const [k, h] of Object.entries(changes)) noZh(`英文:存檔與蓋章 ${k}`, strip(h));
+  check('標題固定 Commit & stamp,小字固定 Committed? Stamped?(Oscar 10/29 點頭)', Object.values(changes).every((h) => h.includes('Commit &amp; stamp') && h.includes('Committed? Stamped?')));
+  const dunno = strip(changes['問不到']);
+  check('問不到 → couldn\'t check;不准出現 everything is committed、not stamped yet(AC-5)', /Couldn't check/.test(dunno) && !/everything is committed|all committed|not stamped yet/i.test(dunno), dunno);
+  check('還有沒 commit 的:大字講 3 files not committed yet,收著的講 2 more files committed, not stamped yet', /3 files not committed yet/.test(strip(changes['還有沒 commit 的(另外 2 個收著)']))
+    && /2 more files committed, not stamped yet/.test(strip(changes['還有沒 commit 的(另外 2 個收著)'])), strip(changes['還有沒 commit 的(另外 2 個收著)']));
+  check('都 commit 了:講 not stamped yet,不准 approved／certified', /2 files not stamped yet/.test(strip(changes['都 commit 了、還沒蓋章'])) && !/approved|certified/i.test(Object.values(changes).map(strip).join(' ')), strip(changes['都 commit 了、還沒蓋章']));
+  check('看不全 → can\'t see all of it(P5:0 不是沒有改動)', /Can't see all of it/.test(strip(changes['中間存過檔、切過分支(看不全)'])), strip(changes['中間存過檔、切過分支(看不全)']));
+  check('存檔與蓋章卡不准講 unsaved(檔案在你電腦上是存了的,L45)', !/unsaved/i.test(Object.values(changes).map(strip).join(' ')));
+  // 分級卡
+  const tl = (t) => ({ ...t, lines: en(() => withClock(() => tierLines(t, { ago }))) });
+  const tiers = {
+    unset: tl({ state: 'unset' }), off: tl({ state: 'off', off: { at: T(-3600), why: 'docs only' } }), broken: tl({ state: 'broken', from: '/w/.claude/pipeline-stages.json', why: 'x' }),
+    noBase: tl({ state: 'no-base' }), unknown: tl({ state: 'unknown' }), noChange: tl({ state: 'no-change', dangerEmpty: true, levels: { danger: { id: 'T2' } } }),
+    unseen: tl({ state: 'unseen', basis: { kind: 'head', why: 'not-found' } }), weird: tl({ state: 'weird' }), ok: card.tier,
+    machine: tl({ ...card.tier, manual: null, manualIgnored: null, upgradable: ['T2'], machine: { id: 'T2', rank: 2, hits: { code: [], danger: ['src/a.js', 'src/b.js', 'src/c.js', 'src/d.js'] } } }),
+  };
+  for (const [k, t] of Object.entries(tiers)) noZh(`英文:分級卡 ${k}`, strip(ui.statTier({ ...card, tier: t }, p)));
+  noZh('英文:分級卡(舊的服務沒給那幾句)', strip(ui.statTier({ ...card, tier: { ...card.tier, lines: null } }, p)));
+  const unset = strip(ui.statTier({ ...card, tier: tiers.unset }, p));
+  check('還沒設定 → Not set up yet,不准變成 T0(R1)', /Not set up yet/.test(unset) && !/T0/.test(unset), unset);
+  const noChange = strip(ui.statTier({ ...card, tier: tiers.noChange }, p));
+  check('危險清單是空的 → 講明永遠不會出現第三級(will never come up)', /danger list is empty, so T2 will never come up/.test(noChange), noChange);
+  const ok = strip(ui.statTier({ ...card, tier: tiers.ok }, p));
+  check('你調高的 → you said T2(主詞照中文);機器算的 → the machine worked out', /you said T2/.test(ok) && /machine worked out T1/.test(ok), ok);
+  check('「需要」那幾行:跑過講 ran 加多久,Claude 說的講 Claude said,不准 passed', /ran [^;]+ ago; Claude said/.test(ok) && !/passed/i.test(ok.replace(/"called", not "passed"/g, '')), ok);
+  check('只看得到還沒 commit 的:講實際可能更高(might)', /might really be higher/.test(ok), ok);
+  check('分級卡英文的「需要」:補測試 → Add tests', /Add tests/.test(ok), ok);
+  check('調高的表單:理由的提示是英文', /placeholder="Reason \(required\)"/.test(ui.statTier({ ...card, tier: tiers.machine }, p)), ui.statTier({ ...card, tier: tiers.machine }, p));
+}
+
+section('建議卡那一區(英文):誰叫的、看不到的、已開始、收回、你說不做了——主詞照中文,不補猜的(AC-3、AC-5)', 'P7');
+{
+  const world = enWorld();
+  const ui = uiOf(world, { lang: 'en' });
+  const p = world.projects[0];
+  const html = ui.suggestionsBlock(p);
+  noZh('英文:建議卡那一區', strip(html));
+  check('當場問的卡:講 Claude raised,不講 you were asked／you answered(看不到你按了哪個鈕)', /Claude raised a card asking you on the spot/.test(html) && !/you answered|you were asked|you cancel/i.test(strip(html)), strip(html).slice(0, 400));
+  check('你那時說的話照原文、用英文的引號', html.includes('“please tidy the styles later…”'), strip(html));
+  check('Claude 叫了收回:講 tried to withdraw、分不出是不是這一張(不講成收回成功)', /tried to withdraw a suggestion card 4 times/.test(html) && /Can't tell whether it was this card/.test(html), strip(html));
+  check('湊的那段講明是監視器湊的,不是 Claude 寫的', /put together by the monitor from the title, not written by Claude/.test(html), strip(html));
+  const none = (since) => strip(ui.suggestionsBlock({ ...p, suggestions: [], appCardsSince: since }));
+  for (const v of [undefined, null, T(-600)]) noZh(`英文:一張建議卡都沒有(appCardsSince=${v})`, none(v));
+  check('一張都沒有:講「不代表沒跳過」那幾種(which doesn\'t mean none popped up)', /doesn't mean none popped up/.test(none(null)), none(null));
 }
 
 /* ════════════ AC-8:Claude 那一側不換 ════════════ */

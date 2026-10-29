@@ -617,7 +617,7 @@ section('專案自己寫的關卡讀不懂:不准讓整頁儀表板不見、不�
   const code = src.match(/^function stagesNoteLine\(c\) \{\n[\s\S]*?\n\}\n/m)?.[0] ?? null;
   check('從 ui/app.js 拿得出 stagesNoteLine(拿不出來這一段就什麼都沒測到)', !!code);
   const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  const note = code ? new Function('esc', `const zhEn = (zh) => zh;\n${code}; return stagesNoteLine;`)(esc) : () => '';
+  const note = code ? new Function('esc', `const zhEn = (zh) => zh; const many = (n, one, more = one + 's') => n + ' ' + (n === 1 ? one : more);\n${code}; return stagesNoteLine;`)(esc) : () => '';
   check('網頁照印伺服器給的那一句(跳脫過);沒有就不畫', note({ stagesNote: '⚠️ <x>' }).includes('⚠️ &lt;x&gt;') && note({ stagesNote: null }) === '');
   good.r.cleanup();
   for (const d of [monitorDir, home]) rmSync(d, { recursive: true, force: true });

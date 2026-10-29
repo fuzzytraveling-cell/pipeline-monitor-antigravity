@@ -333,7 +333,7 @@ section('還沒搬完:畫面講得出來,不講成「沒有」;錯誤代號不�
   const src = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8').match(/^function projectList\(\) \{\n[\s\S]*?\n\}\n/m);
   check('從 ui/app.js 拿得出 projectList(拿不出來這一段就什麼都沒測到)', !!src);
   if (src) {
-    const list = (latest) => new Function('latest', `const zhEn = (zh) => zh;\n${src[0]}; return projectList();`)(latest);
+    const list = (latest) => new Function('latest', `const zhEn = (zh) => zh; const many = (n, one, more = one + 's') => n + ' ' + (n === 1 ? one : more);\n${src[0]}; return projectList();`)(latest);
     const moving = list({ projects: [], faults: { moving: true } });
     check('還沒搬完 → 不准說「還沒有任何案件」', !moving.includes('還沒有任何案件') && moving.includes('還沒搬過來'), moving);
     check('真的沒有 → 照舊說還沒有任何案件', list({ projects: [], faults: { moving: false } }).includes('還沒有任何案件'));

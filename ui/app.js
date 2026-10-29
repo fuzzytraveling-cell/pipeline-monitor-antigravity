@@ -16,6 +16,8 @@ import { describeFreshness, STALE_AFTER_SECONDS } from '/freshness.mjs';
 
 const LANG = document.documentElement?.dataset?.lang === 'en' ? 'en' : 'zh';
 const zhEn = (zh, en) => (LANG === 'en' ? en : zh);
+/** 英文的單複數(1 file／2 files):數字是句子的一部分。只在英文那一份裡用 */
+const many = (n, one, more = `${one}s`) => `${n} ${n === 1 ? one : more}`;
 
 const POLL_MS = 5000;
 let latest = null, connected = false;
@@ -248,28 +250,30 @@ function focusOf(p) {
 function projectList() {
   if (!latest?.projects?.length) {
     // 舊的紀錄還沒搬過來(上面那一條會講):這時候說「還沒有任何案件」就是把「沒讀到」講成「沒有」(R1;規格:紀錄搬到固定的家 AC-5)
-    if (latest?.faults?.moving) return '<p class="muted">這裡還看不到案件：舊的紀錄還沒搬過來（看上面那一條）。</p>';
-    return `<p class="muted">還沒有任何案件。<br>在一個 git 專案裡跑
-      <code>pipeline-status --checkpoint</code> 就會出現在這裡。</p>`;
+    if (latest?.faults?.moving) return zhEn('<p class="muted">這裡還看不到案件：舊的紀錄還沒搬過來（看上面那一條）。</p>', '<p class="muted">No projects can be seen here yet: the old records haven\'t been moved over (see the bar above).</p>');
+    return zhEn(`<p class="muted">還沒有任何案件。<br>在一個 git 專案裡跑
+      <code>pipeline-status --checkpoint</code> 就會出現在這裡。</p>`, `<p class="muted">No projects yet.<br>Run
+      <code>pipeline-status --checkpoint</code> in a git project and it will show up here.</p>`);
   }
   const cards = latest.projects.map((p) => {
     // 小格子畫的是「最近在動的那個對話」這一輪走到哪,而且把它的名字寫出來(focusOf)。
     // 還原點是每個工作區各一個,放在案件卡上說不清是誰的——拿掉,點進去看。
     const { session, liveCount } = focusOf(p);
-    const off = p.optedOut ? ' · 已退出記錄' : '';
+    const off = p.optedOut ? zhEn(' · 已退出記錄', ' · opted out of recording') : '';
     const body = session
       ? `<div class="mini">${session.stages.filter(sensed).map((s) => `<span data-s="${stageState(s)}"></span>`).join('')}</div>
-      <div class="meta focus">最近在動：${esc(session.title ?? '（還沒有標題）')}</div>
-      <div class="meta">${esc(roundWhere(session.stages))} · 共 ${liveCount} 個進行中的對話${off}</div>`
-      : `<div class="meta">${liveCount ? `${liveCount} 個進行中的對話（它們的工作區都不在了）` : '沒有進行中的對話'}${off}</div>`;
+      <div class="meta focus">${zhEn('最近在動：', 'Recently active: ')}${esc(session.title ?? zhEn('（還沒有標題）', '(no title yet)'))}</div>
+      <div class="meta">${esc(roundWhere(session.stages))}${zhEn(` · 共 ${liveCount} 個進行中的對話`, ` · ${many(liveCount, 'conversation')} in progress`)}${off}</div>`
+      : `<div class="meta">${liveCount ? zhEn(`${liveCount} 個進行中的對話（它們的工作區都不在了）`, `${many(liveCount, 'conversation')} in progress (their workspaces are all gone)`)
+        : zhEn('沒有進行中的對話', 'No conversations in progress')}${off}</div>`;
     return `<button class="pcard" data-go="${esc(p.name)}">
       <h3>${esc(p.displayName ?? p.name)}</h3>
       ${body}
     </button>`;
   }).join('');
   return `<div class="block">
-      <h2 class="section serif">案件</h2>
-      <p class="section-note">只列有紀錄或有還原點的專案。</p>
+      <h2 class="section serif">${zhEn('案件', 'Projects')}</h2>
+      <p class="section-note">${zhEn('只列有紀錄或有還原點的專案。', 'Only projects with records or a restore point are listed.')}</p>
       <div class="projects">${cards}</div>
     </div>`;
 }
@@ -283,21 +287,23 @@ function statRestore(c) {
   // 終端機也講的那幾句是伺服器照 lib/scope.mjs 算好的(c.lines);舊的服務沒給 → 講舊的程式(規格:終端機與網頁說同一句)
   const q = c.lines ?? null;
   const say = (v) => esc(q ? v ?? '' : OLD_LINE);
+  const head = zhEn('<h3 class="ctitle">還原點</h3><div class="label">你回得去哪裡</div>', '<h3 class="ctitle">Restore point</h3><div class="label">Where you can go back to</div>');
   if (!cp) return `<div class="stat" data-note="restore" data-tone="restore">
-    <h3 class="ctitle">還原點</h3><div class="label">你回得去哪裡</div>
-    <div class="big">還沒有</div>
+    ${head}
+    <div class="big">${zhEn('還沒有', 'None yet')}</div>
     <div class="sub">${say(q?.notStamped)}</div>
-    <div class="hint">在那個資料夾跑 <code>pipeline-status --checkpoint</code></div></div>`;
+    <div class="hint">${zhEn('在那個資料夾跑 <code>pipeline-status --checkpoint</code>', 'Run <code>pipeline-status --checkpoint</code> in that folder')}</div></div>`;
 
   // ⚠️ L14:章指的版本不在這條分支上(歷史被改寫過)時,這張卡**不給**回去的指令。
   //    2026-09-11 主資料夾就是這樣:章指著清歷史之前的版本,複製回去會跳到另一條歷史。
   const rel = c.checkpointRelation;
   if (!cpOk(c)) {
     return `<div class="stat" data-note="restore" data-tone="restore">
-    <h3 class="ctitle">還原點</h3><div class="label">你回得去哪裡</div>
-    <div class="big">失效</div>
-    <div class="sub">${ago(cp.at)}蓋的章已經不能用：${say(q?.broken)}</div>
-    <div class="hint">⚠️ 所以這裡<b>不給</b>回去的指令。重新蓋一個：<code>pipeline-status --checkpoint</code></div></div>`;
+    ${head}
+    <div class="big">${zhEn('失效', 'Unusable')}</div>
+    <div class="sub">${zhEn(`${ago(cp.at)}蓋的章已經不能用：${say(q?.broken)}`, `The stamp from ${ago(cp.at)} can't be used anymore: ${say(q?.broken)}`)}</div>
+    <div class="hint">${zhEn('⚠️ 所以這裡<b>不給</b>回去的指令。重新蓋一個：<code>pipeline-status --checkpoint</code>',
+      '⚠️ So this <b>doesn\'t</b> give a command to go back. Stamp again: <code>pipeline-status --checkpoint</code>')}</div></div>`;
   }
 
   // ⚠️ 一定要帶 cd。少了它,這一行會在終端機**當下所在的資料夾**執行——
@@ -317,18 +323,21 @@ function statRestore(c) {
   // 個數跟三階梯、存檔與蓋章卡同一份。一個都沒有才拿掉 ⚠️——問不到 ≠ 沒有。舊的服務沒給那一句:不知道有沒有,照以前那樣提醒
   const lose = q && 'restoreUnsaved' in q
     ? (c.dirty === 0 ? `<div class="hint">${esc(q.restoreUnsaved)}</div>` : `<div class="hint warn">⚠️ ${esc(q.restoreUnsaved)}</div>`)
-    : '<div class="hint warn">⚠️ 回去會丟掉還沒 commit 的東西</div>';
+    : zhEn('<div class="hint warn">⚠️ 回去會丟掉還沒 commit 的東西</div>', '<div class="hint warn">⚠️ Going back will lose anything not committed yet</div>');
+  const n = rel.commitsAfter;
   return `<div class="stat" data-note="restore" data-tone="restore">
-    <h3 class="ctitle">還原點</h3><div class="label">你回得去哪裡</div>
+    ${head}
     <div class="big">${esc(c.cpVersion ? `v${c.cpVersion}` : clock(cp.at))}</div>
-    <div class="sub">${ago(cp.at)}存的${c.cpVersion ? `（${esc(clock(cp.at))}）` : ''}</div>
+    <div class="sub">${zhEn(`${ago(cp.at)}存的${c.cpVersion ? `（${esc(clock(cp.at))}）` : ''}`, `stamped ${ago(cp.at)}${c.cpVersion ? ` (${esc(clock(cp.at))})` : ''}`)}</div>
     <div class="pills">${pills}</div>
-    <div class="hint">當時這幾項全綠。${say(q?.green)}</div>
-    <button class="copy" data-copy="${esc(cmd)}">複製回去的指令</button>
+    <div class="hint">${zhEn('當時這幾項全綠。', 'These checks were all green at the time. ')}${say(q?.green)}</div>
+    <button class="copy" data-copy="${esc(cmd)}">${zhEn('複製回去的指令', 'Copy the command to go back')}</button>
     ${lose}
-    <details class="why" data-fold="${esc(whyKey)}"${foldOpen(whyKey, false) ? ' open' : ''}><summary>為什麼？</summary>
-      <p>這個網頁<b>不會</b>幫你還原，按鈕只是複製指令。指令<b>已經含 cd</b>，貼到終端機、或直接貼給 Claude 都可以——貼給 Claude 的話，它會先問過你才動手。</p>
-      ${rel.commitsAfter ? `<p>蓋章之後你存了 ${rel.commitsAfter} 次：指令會先把它們留在分支 <code>${esc(c.backupBranch ?? '')}</code> 上，再回去。</p>` : ''}
+    <details class="why" data-fold="${esc(whyKey)}"${foldOpen(whyKey, false) ? ' open' : ''}><summary>${zhEn('為什麼？', 'Why?')}</summary>
+      <p>${zhEn('這個網頁<b>不會</b>幫你還原，按鈕只是複製指令。指令<b>已經含 cd</b>，貼到終端機、或直接貼給 Claude 都可以——貼給 Claude 的話，它會先問過你才動手。',
+        'This page <b>won\'t</b> restore anything for you; the button only copies the command. The command <b>already includes cd</b>, so you can paste it into a terminal or straight to Claude; if you paste it to Claude, it will ask you before doing anything.')}</p>
+      ${n ? zhEn(`<p>蓋章之後你存了 ${n} 次：指令會先把它們留在分支 <code>${esc(c.backupBranch ?? '')}</code> 上，再回去。</p>`,
+        `<p>You committed ${many(n, 'time')} after the stamp: the command first keeps ${n === 1 ? 'that commit' : 'those commits'} on the branch <code>${esc(c.backupBranch ?? '')}</code>, then goes back.</p>`) : ''}
     </details>
   </div>`;
 }
@@ -349,19 +358,21 @@ function statLadder(c) {
   // 狀態與文案是伺服器算好的(lib/collect.mjs 的 ladderSteps,被測試釘住);這裡只畫。
   // ⚠️ 只有 done 亮燈。none(沒有東西)跟 unknown(問不到)都不亮——
   //    空的分支曾經亮了兩格「都存好了／已經併進去了」,Oscar 一眼就看出那是假的(LESSONS L16)。
-  const TITLE = { commit: 'commit 存進這條分支', merge: `merge 併進 ${esc(L.mainName ?? '主線')}`, push: 'push 推到 GitHub' };
-  const steps = L.steps ?? ['commit', 'merge', 'push'].map((id) => ({ id, state: 'unknown', text: '問不到' }));
+  const TITLE = { commit: zhEn('commit 存進這條分支', 'commit to this branch'), merge: zhEn(`merge 併進 ${esc(L.mainName ?? '主線')}`, `merge into ${esc(L.mainName ?? 'the main line')}`),
+                  push: zhEn('push 推到 GitHub', 'push to GitHub') };
+  const steps = L.steps ?? ['commit', 'merge', 'push'].map((id) => ({ id, state: 'unknown', text: zhEn('問不到', 'couldn\'t check') }));
   const caps = steps.map((st, i) => cap(i + 1, st.state === 'done', TITLE[st.id] ?? esc(st.id), esc(st.text))).join('');
 
   // 沒有任何一格是「還有東西沒做」或「問不到」,才算安全——空的分支也算安全,它沒有東西會丟
   const allSafe = steps.every((st) => st.state === 'done' || st.state === 'none');
   return `<div class="stat" data-note="ladder" data-tone="${allSafe ? 'safe' : 'alert'}">
-    <h3 class="ctitle">三階梯</h3><div class="label">東西走到哪了</div>
+    ${zhEn('<h3 class="ctitle">三階梯</h3><div class="label">東西走到哪了</div>', '<h3 class="ctitle">Three steps</h3><div class="label">How far things have got</div>')}
     <div class="pipe">${caps}</div>
     ${L.webUrl ? `<div class="hint"><a class="ext" href="${esc(L.webUrl)}" target="_blank"
-      rel="noreferrer">在 GitHub 上看 ↗</a></div>` : ''}
-    <details class="why" data-fold="${esc(`why|${c.path}|ladder`)}"${foldOpen(`why|${c.path}|ladder`, false) ? ' open' : ''}><summary>為什麼會退回去？</summary>
-      <p>這三格是<b>現在的事實</b>，不是你走過的最遠距離：併完之後又動了新東西，它就會退回去。</p></details>
+      rel="noreferrer">${zhEn('在 GitHub 上看 ↗', 'See it on GitHub ↗')}</a></div>` : ''}
+    <details class="why" data-fold="${esc(`why|${c.path}|ladder`)}"${foldOpen(`why|${c.path}|ladder`, false) ? ' open' : ''}><summary>${zhEn('為什麼會退回去？', 'Why does it go back?')}</summary>
+      <p>${zhEn('這三格是<b>現在的事實</b>，不是你走過的最遠距離：併完之後又動了新東西，它就會退回去。',
+        'These three are <b>the facts right now</b>, not the furthest you\'ve ever got: if something new changes after merging, they go back.')}</p></details>
   </div>`;
 }
 
@@ -374,15 +385,16 @@ function statChanges(c) {
   const f = c.files;
   const sc = c.scope ?? {};
   const q = c.lines ?? {};
+  // 標題固定(「Commit & stamp」,Oscar 2026-10-29 點頭)、灰色小字固定;大字可以換行,不准被切掉(規格:儀表板與終端機中英切換 AC-6)
   const card = (body) => `<div class="stat" data-note="changes" data-tone="change">
-    <h3 class="ctitle">存檔與蓋章</h3><div class="label">commit 了沒、蓋章了沒</div>${body}</div>`;
-  if (!f) return card('<div class="big">問不到</div>');
+    ${zhEn('<h3 class="ctitle">存檔與蓋章</h3><div class="label">commit 了沒、蓋章了沒</div>', '<h3 class="ctitle">Commit &amp; stamp</h3><div class="label">Committed? Stamped?</div>')}${body}</div>`;
+  if (!f) return card(`<div class="big">${zhEn('問不到', 'Couldn\'t check')}</div>`);
   // 舊的服務(還沒 --serve-restart)沒給「還沒 commit 的是哪些」:不拿「改過的單子裡標了還沒存的」硬湊——那一份會漏(AC-2),講服務還在跑舊的程式(AC-10)
   if (!('unsaved' in f)) return card(`<div class="sub">${OLD_LINE}</div>`);
 
   const groupsOf = (gs) => gs.map((g) => `<div class="fgroup">
       <div class="dir">${esc(g.dir)}/</div>
-      <ul>${g.items.map((it) => `<li class="${it.isNew ? 'isnew' : ''}">${esc(it.name)}${it.isNew ? ' · 新檔案' : ''}</li>`).join('')}</ul>
+      <ul>${g.items.map((it) => `<li class="${it.isNew ? 'isnew' : ''}">${esc(it.name)}${it.isNew ? zhEn(' · 新檔案', ' · new file') : ''}</li>`).join('')}</ul>
     </div>`).join('');
   // 檔名只露前 5 個,其餘收在「還有 N 個檔案」(工地工班風畫面 AC-13):改動一多,五關就被擠出第一屏。N 是收起來的真的個數
   const listOf = (gs) => {
@@ -397,39 +409,40 @@ function statChanges(c) {
     const restCount = rest.reduce((n, g) => n + g.items.length, 0);
     const key = `files|${c.path ?? ''}`;
     return `<div class="files">${groupsOf(shown)}${restCount
-      ? `<details class="more" data-fold="${esc(key)}"${foldOpen(key, false) ? ' open' : ''}><summary>還有 ${restCount} 個檔案</summary>${groupsOf(rest)}</details>` : ''}</div>`;
+      ? `<details class="more" data-fold="${esc(key)}"${foldOpen(key, false) ? ' open' : ''}><summary>${zhEn(`還有 ${restCount} 個檔案`, many(restCount, 'more file'))}</summary>${groupsOf(rest)}</details>` : ''}</div>`;
   };
   // 最下面收起來的:commit 跟蓋章差在哪(每一頁都一樣,伺服器放在最上層)、全部改了幾個、比例尺、從哪裡算起(AC-8)。
   // 「全綠不等於功能正確」、比例尺、從哪裡算起是終端機也講的那幾句,照印
   const H = latest?.stampHelp ?? null;
   const whyKey = `why|${c.path ?? ''}|changes`;
-  const help = `<details class="why" data-fold="${esc(whyKey)}"${foldOpen(whyKey, false) ? ' open' : ''}><summary>commit 跟蓋章差在哪？</summary>
+  const help = `<details class="why" data-fold="${esc(whyKey)}"${foldOpen(whyKey, false) ? ' open' : ''}><summary>${zhEn('commit 跟蓋章差在哪？', 'What\'s the difference between commit and stamp?')}</summary>
       ${H ? `<p>${esc(H.commit)}</p><p>${mark(H.stamp, 'pipeline-status --checkpoint', 'code')}${q.green ? `<br>${esc(q.green)}` : ''}</p><p>${esc(H.order)}</p>` : `<p>${OLD_LINE}</p>`}
-      ${f.total ? `<p>${esc(sc.title ?? '')}：${f.total} 個檔案。${c.scale && q.scale ? `參考：${esc(q.scale)}。` : ''}${sc.note ? `${esc(sc.note)}。` : ''}</p>` : ''}
+      ${f.total ? zhEn(`<p>${esc(sc.title ?? '')}：${f.total} 個檔案。${c.scale && q.scale ? `參考：${esc(q.scale)}。` : ''}${sc.note ? `${esc(sc.note)}。` : ''}</p>`,
+        `<p>${esc(sc.title ?? '')}: ${many(f.total, 'file')}.${c.scale && q.scale ? ` For reference: ${esc(q.scale)}.` : ''}${sc.note ? ` (${esc(sc.note)})` : ''}</p>`) : ''}
     </details>`;
 
   const u = f.unsaved;
   // 問不到 ≠ 沒有(R1):問不到哪些還沒 commit,就不往下講「都 commit 了」「N 個還沒蓋章」(AC-6)
-  if (u === null) return card(`<div class="big">問不到</div><div class="sub">${q.unsavedWhether ? `${esc(q.unsavedWhether)}。` : OLD_LINE}</div>${help}`);
+  if (u === null) return card(`<div class="big">${zhEn('問不到', 'Couldn\'t check')}</div><div class="sub">${q.unsavedWhether ? `${esc(q.unsavedWhether)}${zhEn('。', '.')}` : OLD_LINE}</div>${help}`);
 
   // 還有東西沒 commit:大字是還沒 commit 幾個、清單只列它們(AC-1)。已經 commit、還沒蓋章的不消失,收成一行(AC-3)——
   // 不留的話,commit 完最後幾個,大字會一下從 3 跳成 23。看不到 commit 過的是哪些,就講看不到(AC-5)
   if (u.count > 0) {
     const savedKey = `saved|${c.path ?? ''}`;
-    const others = sc.unseen ? `<div class="hint">${esc(sc.unseen)}。</div>`
-      : f.saved?.count && sc.savedTail ? `<details class="more" data-fold="${esc(savedKey)}"${foldOpen(savedKey, false) ? ' open' : ''}><summary>另外 ${f.saved.count} 個${esc(sc.savedTail)}</summary>${groupsOf(f.saved.groups)}</details>`
+    const others = sc.unseen ? `<div class="hint">${esc(sc.unseen)}${zhEn('。', '.')}</div>`
+      : f.saved?.count && sc.savedTail ? `<details class="more" data-fold="${esc(savedKey)}"${foldOpen(savedKey, false) ? ' open' : ''}><summary>${zhEn(`另外 ${f.saved.count} 個${esc(sc.savedTail)}`, `${many(f.saved.count, 'more file')} ${esc(sc.savedTail)}`)}</summary>${groupsOf(f.saved.groups)}</details>`
       : '';
-    return card(`<div class="big"><span class="num">${u.count}</span><span class="unit">個檔案還沒 commit</span></div>
+    return card(`<div class="big"><span class="num">${u.count}</span><span class="unit">${zhEn('個檔案還沒 commit', u.count === 1 ? 'file not committed yet' : 'files not committed yet')}</span></div>
     ${listOf(u.groups)}${others}${help}`);
   }
   // 都 commit 了,但看不到 commit 過的是哪些:不畫「沒有改動」(老毛病 P5),講看不到
-  if (sc.blind) return card(`<div class="big">都 commit 了</div><div class="sub">${sc.unseen ? `${esc(sc.unseen)}。` : ''}</div>${help}`);
+  if (sc.blind) return card(`<div class="big">${zhEn('都 commit 了', 'All committed')}</div><div class="sub">${sc.unseen ? `${esc(sc.unseen)}${zhEn('。', '.')}` : ''}</div>${help}`);
   // 都 commit 了、跟起點一樣:這一輪中間存過檔或切過分支的話,0 不是「沒有改動」(P5),照伺服器給的那一句講
   const s = f.saved;
-  if (!s?.count) return card(`<div class="big">${sc.emptyBlind ? '看不全' : '沒有改動'}</div><div class="sub">${esc(sc.empty ?? '')}</div>${help}`);
+  if (!s?.count) return card(`<div class="big">${sc.emptyBlind ? zhEn('看不全', 'Can\'t see all of it') : zhEn('沒有改動', 'No changes')}</div><div class="sub">${esc(sc.empty ?? '')}</div>${help}`);
   // 都 commit 了:改講還沒蓋章(AC-4)。不加綠色、不打勾——蓋過章也只代表檢查全綠(老毛病 P10)
-  return card(`<div class="big"><span class="num">${s.count}</span><span class="unit">個檔案還沒蓋章</span></div>
-    <div class="sub">${sc.allSaved ? `${esc(sc.allSaved)}。` : ''}要蓋章：在那個資料夾跑 <code>pipeline-status --checkpoint</code></div>
+  return card(`<div class="big"><span class="num">${s.count}</span><span class="unit">${zhEn('個檔案還沒蓋章', s.count === 1 ? 'file not stamped yet' : 'files not stamped yet')}</span></div>
+    <div class="sub">${sc.allSaved ? `${esc(sc.allSaved)}${zhEn('。', '. ')}` : ''}${zhEn('要蓋章：在那個資料夾跑 <code>pipeline-status --checkpoint</code>', 'To stamp: run <code>pipeline-status --checkpoint</code> in that folder')}</div>
     ${listOf(s.groups)}${help}`);
 }
 
@@ -440,27 +453,27 @@ function statTier(c, p) {
   const q = t.lines ?? null;   // 舊的服務沒給 → 每一句講舊的程式,不自己拼(規格:終端機與網頁說同一句 AC-5)
   const say = (v) => esc(q ? v ?? '' : OLD_LINE);
   const card = (tone, big, sub, extra = '') => `<div class="stat" data-note="tier" data-tone="${tone}">
-    <h3 class="ctitle">分級</h3><div class="label">這次要多小心</div>
+    ${zhEn('<h3 class="ctitle">分級</h3><div class="label">這次要多小心</div>', '<h3 class="ctitle">Tier</h3><div class="label">How careful to be this time</div>')}
     <div class="big">${big}</div>${sub ? `<div class="sub">${sub}</div>` : ''}${extra}</div>`;
   // ⚠️ 沒設定 ≠ T0(R1);讀不懂 ≠ 沒設定。四種各自一張臉——大字是畫面自己的,底下那句是伺服器給的
-  if (t.state === 'unset') return card('change', '還沒設定', q ? mark(q.setupHint, '幫我設定分級') : say());
-  if (t.state === 'off') return card('change', '不分級', q ? mark(q.main, 'pipeline-status --tier-init', 'code') : say());
-  if (t.state === 'broken') return card('alert', '讀不懂', q ? esc(`${q.main}。${q.tail}`) : say());
-  if (t.state === 'no-base') return card('change', '沒有基準', say(q?.main));
-  if (t.state === 'unknown') return card('change', '問不到', say(q?.main));
+  if (t.state === 'unset') return card('change', zhEn('還沒設定', 'Not set up yet'), q ? mark(q.setupHint, zhEn('幫我設定分級', 'set up tiers for me')) : say());
+  if (t.state === 'off') return card('change', zhEn('不分級', 'No tiers'), q ? mark(q.main, 'pipeline-status --tier-init', 'code') : say());
+  if (t.state === 'broken') return card('alert', zhEn('讀不懂', 'Can\'t read it'), q ? esc(zhEn(`${q.main}。${q.tail}`, `${q.main}. ${q.tail}`)) : say());
+  if (t.state === 'no-base') return card('change', zhEn('沒有基準', 'No baseline'), say(q?.main));
+  if (t.state === 'unknown') return card('change', zhEn('問不到', 'Couldn\'t check'), say(q?.main));
   const emptyWarn = q?.emptyWarn ? `<div class="hint">${esc(q.emptyWarn)}</div>` : '';
-  if (t.state === 'no-change') return card('safe', '沒有改動', say(q?.main), emptyWarn);
+  if (t.state === 'no-change') return card('safe', zhEn('沒有改動', 'No changes'), say(q?.main), emptyWarn);
   // 同一個 0 的另一種意思(老毛病 P5):只看得到還沒存的,而還沒存的沒有——不是那張安全的綠臉(規格:這一輪的起點 AC-4)
-  if (t.state === 'unseen') return card('change', '看不全', q ? esc(`${q.main}${q.tail}`) : say());
-  if (t.state !== 'ok') return card('change', '讀不懂', say(q?.main));
+  if (t.state === 'unseen') return card('change', zhEn('看不全', 'Can\'t see all of it'), q ? esc(zhEn(`${q.main}${q.tail}`, `${q.main} ${q.tail}`)) : say());
+  if (t.state !== 'ok') return card('change', zhEn('讀不懂', 'Can\'t read it'), say(q?.main));
 
   const { manual, final } = t;
   // 機器為什麼算這一級／你調高的那一句;只算得到還沒存的:存檔過的看不到,實際可能更高——都是伺服器給的那一句
-  const sub = !q ? say() : manual ? mark(q.main, `你說 ${manual.id}`) : esc(q.why);
+  const sub = !q ? say() : manual ? mark(q.main, zhEn(`你說 ${manual.id}`, `you said ${manual.id}`)) : esc(q.why);
   const blind = q?.blind ? `<div class="hint">${esc(q.blind)}</div>` : '';
   // ✅ 有紀錄而且結案了(Claude 說／你說);⏸ 有紀錄沒結案;⚠️ 沒有紀錄;❔ 問不到／不適用;🔗 規格是別的對話寫的(Claude 說照哪份施工)。沒有「通過」這種狀態(R2)。
   const reqs = q?.reqs?.length
-    ? `<ul class="reqs">${q.reqs.map((r) => `<li data-state="${esc(r.state)}">${esc(r.mark)} ${esc(r.label)}：${esc(r.text)}</li>`).join('')}</ul>`
+    ? `<ul class="reqs">${q.reqs.map((r) => `<li data-state="${esc(r.state)}">${esc(r.mark)} ${esc(r.label)}${zhEn('：', ': ')}${esc(r.text)}</li>`).join('')}</ul>`
     : '';
   const cand = q?.candidates ? `<div class="hint">${esc(q.candidates)}</div>` : '';
   // 危險清單可能過期了(規格:危險清單會過期):句子是伺服器算好的(lib/tier.mjs,跟終端機同一句),這裡只畫。舊的服務沒給就不畫
@@ -468,12 +481,12 @@ function statTier(c, p) {
   const ignored = q?.ignored ? `<div class="hint">${esc(q.ignored)}</div>` : '';
   // 調高:只列比機器算的高的等級,理由必填。收回:只收回你自己調的,回到機器算的——沒有任何按鈕能低於機器算的。
   const control = manual
-    ? `<button class="mini-btn" data-tier-retract data-proj="${esc(p.name)}" data-cwd="${esc(c.path)}">收回</button>`
+    ? `<button class="mini-btn" data-tier-retract data-proj="${esc(p.name)}" data-cwd="${esc(c.path)}">${zhEn('收回', 'Take back')}</button>`
     : t.upgradable.length
       ? `<form class="tierform" data-tier-form data-proj="${esc(p.name)}" data-cwd="${esc(c.path)}">
           <select name="level">${t.upgradable.map((id) => `<option value="${esc(id)}">${esc(id)}</option>`).join('')}</select>
-          <input name="why" placeholder="理由（必填）" required maxlength="200">
-          <button class="mini-btn" type="submit">調高</button></form>`
+          <input name="why" placeholder="${zhEn('理由（必填）', 'Reason (required)')}" required maxlength="200">
+          <button class="mini-btn" type="submit">${zhEn('調高', 'Raise')}</button></form>`
       : '';
   const tone = t.requirements.some((r) => r.state === 'missing') ? 'alert' : 'safe';
   return card(tone, esc(manual ? manual.id : final.id), sub,
@@ -616,43 +629,46 @@ function overview(p) {
   const done = p.sessions.filter((s) => s.closedAt);
   // 中間那格講的是哪個工作區要說出來:最近在動的對話的工作區,沒有的話是主資料夾(focusOf)
   const { session: focus, card } = focusOf(p);
-  const subject = focus ? `最近在動：${focus.title ?? '（還沒有標題）'}` : card ? '主資料夾' : null;
+  const subject = focus ? `${zhEn('最近在動：', 'Recently active: ')}${focus.title ?? zhEn('（還沒有標題）', '(no title yet)')}` : card ? zhEn('主資料夾', 'Main folder') : null;
 
   // 「N 天內」:紀錄只留這麼久(天數只住 lib/events.mjs,伺服器給)。更早結案的對話、更早的紀錄已經清掉——不准講成「還沒有」(規格:90天清空之後的說法 AC-3)
-  const within = Number.isFinite(latest?.retainDays) ? `${latest.retainDays} 天內` : '';
-  // 標題太長就截;截掉的話,滑鼠移上去看得到全名(工地工班風畫面 AC-16)
+  const days = Number.isFinite(latest?.retainDays) ? latest.retainDays : null;
+  const within = days !== null ? zhEn(`${days} 天內`, ` in the last ${days} days`) : '';
+  // 標題太長就截;截掉的話,滑鼠移上去看得到全名(工地工班風畫面 AC-16)。英文一個字比較窄,放得比較多(那是版面,規格 AC-6)
+  const room = zhEn(22, 32);
   const chip = (s) => {
-    const t = s.title ?? '（還沒有標題）';
-    return `<a class="ochip" href="#/p/${encodeURIComponent(p.name)}/s/${encodeURIComponent(s.id)}"${t.length > 22 ? ` title="${esc(t)}"` : ''}>
-      <span class="odot"></span>${esc(t.slice(0, 22))}</a>`;
+    const t = s.title ?? zhEn('（還沒有標題）', '(no title yet)');
+    return `<a class="ochip" href="#/p/${encodeURIComponent(p.name)}/s/${encodeURIComponent(s.id)}"${t.length > room ? ` title="${esc(t)}"` : ''}>
+      <span class="odot"></span>${esc(t.slice(0, room))}</a>`;
   };
   // 已結案只露最近有動作的 5 個(伺服器已經依最後動作排好),其餘收在「還有 N 個」:收起來不是刪掉,N 是真的個數(工地工班風畫面 AC-1)
   const doneKey = `ov-done|${p.name}`, doneAll = foldOpen(doneKey, false), doneMore = done.length - 5;
   const doneChips = (doneAll ? done : done.slice(0, 5)).map(chip).join('')
-    + (doneMore > 0 ? `<button class="ochip ov-more" data-ovfold="${esc(doneKey)}">${doneAll ? '收起 ▴' : `還有 ${doneMore} 個 ▾`}</button>` : '');
+    + (doneMore > 0 ? `<button class="ochip ov-more" data-ovfold="${esc(doneKey)}">${doneAll ? zhEn('收起 ▴', 'Show fewer ▴') : zhEn(`還有 ${doneMore} 個 ▾`, `${doneMore} more ▾`)}</button>` : '');
 
   // ⚠️ 資料夾不見了的卡沒有任何數字——不能拿 undefined 印成「都存好了」(R1)
   // 一張卡都沒有、90 天內一筆紀錄都沒有:連資料夾在哪都不知道——是清空了,不是「還沒有資料」(AC-3)。其他找不到卡的情況照舊
-  const mid = card?.gone ? ['那個資料夾已經不在了'] : card?.notGit ? ['這個資料夾不是 git 專案'] : card ? [
-    card.ladder?.uncommitted === null ? '問不到有沒有沒存的檔案'
-      : card.ladder?.uncommitted ? `${card.ladder.uncommitted} 個檔案沒存` : '都存好了',
-    !card.checkpoint ? '還沒有還原點' : cpOk(card) ? `還原點 ${ago(card.checkpoint.at)}` : '還原點失效',
+  const mid = card?.gone ? [zhEn('那個資料夾已經不在了', 'That folder is gone')] : card?.notGit ? [zhEn('這個資料夾不是 git 專案', 'This folder isn\'t a git project')] : card ? [
+    card.ladder?.uncommitted === null ? zhEn('問不到有沒有沒存的檔案', 'Couldn\'t check for files not committed yet')
+      : card.ladder?.uncommitted ? zhEn(`${card.ladder.uncommitted} 個檔案沒存`, `${many(card.ladder.uncommitted, 'file')} not committed yet`) : zhEn('都存好了', 'All committed'),
+    !card.checkpoint ? zhEn('還沒有還原點', 'No restore point yet') : cpOk(card) ? zhEn(`還原點 ${ago(card.checkpoint.at)}`, `Restore point from ${ago(card.checkpoint.at)}`) : zhEn('還原點失效', 'Restore point unusable'),
     // 0 有兩種意思(老毛病 P5):存檔過的看不到的時候,不准寫「沒有待檢查的檔案」——對話頁那張卡寫的是「看不全」
-    card.files?.total ? `${card.files.total} 個檔案還沒檢查` : card.scope?.emptyBlind ? '看不全：這一輪存檔過的看不到' : '沒有待檢查的檔案',
-  ] : [p.noRecords && !p.cards?.length && within ? `${within}沒有紀錄，也沒有還原點` : '還沒有資料'];
+    card.files?.total ? zhEn(`${card.files.total} 個檔案還沒檢查`, `${many(card.files.total, 'file')} not checked yet`)
+      : card.scope?.emptyBlind ? zhEn('看不全：這一輪存檔過的看不到', 'Can\'t see all of it: this round\'s commits can\'t be seen') : zhEn('沒有待檢查的檔案', 'No files waiting to be checked'),
+  ] : [p.noRecords && !p.cards?.length && within ? zhEn(`${within}沒有紀錄，也沒有還原點`, `No records${within}, and no restore point`) : zhEn('還沒有資料', 'No data yet')];
 
   return `<div class="ov">
     <div class="ov-col">
-      <div class="ov-h">正在跑的對話</div>
-      ${live.length ? live.map(chip).join('') : '<div class="muted">沒有進行中的對話</div>'}
+      <div class="ov-h">${zhEn('正在跑的對話', 'Conversations in progress')}</div>
+      ${live.length ? live.map(chip).join('') : `<div class="muted">${zhEn('沒有進行中的對話', 'No conversations in progress')}</div>`}
     </div>
     <div class="ov-mid">
       <div class="ov-hub"><span></span><span></span><span></span></div>
-      <div class="ov-state">${subject ? `<div class="ov-subject"${subject.length > 21 ? ` title="${esc(subject)}"` : ''}>${esc(subject.slice(0, 21))}</div>` : ''}${mid.map((t) => `<div>${esc(t)}</div>`).join('')}</div>
+      <div class="ov-state">${subject ? `<div class="ov-subject"${subject.length > zhEn(21, 30) ? ` title="${esc(subject)}"` : ''}>${esc(subject.slice(0, zhEn(21, 30)))}</div>` : ''}${mid.map((t) => `<div>${esc(t)}</div>`).join('')}</div>
     </div>
     <div class="ov-col ov-right">
-      <div class="ov-h">已結案</div>
-      ${done.length ? doneChips : `<div class="muted">${within}沒有結案的對話</div>`}
+      <div class="ov-h">${zhEn('已結案', 'Closed')}</div>
+      ${done.length ? doneChips : `<div class="muted">${zhEn(`${within}沒有結案的對話`, `No closed conversations${within}`)}</div>`}
     </div>
     <svg class="ov-wires" aria-hidden="true"></svg>
   </div>`;
@@ -665,44 +681,48 @@ function sessionList(p) {
     // 以前一律寫「還沒有任何對話紀錄,去掛上感測器」——清空之後感測器明明掛著(規格:90天清空之後的說法 AC-3)。
     // 舊的服務沒給這一欄 → 不自己湊一句,講服務還在跑舊的程式(AC-5,跟 appCardsSince 同一個做法)
     if (!('emptyLine' in p)) {
-      return `<div class="block"><p class="muted">這個專案沒有對話可以列——儀表板的服務還在跑舊的程式，分不出是從來沒記過、還是超過保留期限清掉了。
-        重啟它：<code>pipeline-status --serve-restart</code></p></div>`;
+      return zhEn(`<div class="block"><p class="muted">這個專案沒有對話可以列——儀表板的服務還在跑舊的程式，分不出是從來沒記過、還是超過保留期限清掉了。
+        重啟它：<code>pipeline-status --serve-restart</code></p></div>`, `<div class="block"><p class="muted">No conversations to list for this project: the dashboard service is still running the old program, so it can't tell whether nothing was ever recorded or the records were cleared after the retention period.
+        Restart it: <code>pipeline-status --serve-restart</code></p></div>`);
     }
     if (p.emptyLine) return `<div class="block"><p class="muted">${esc(p.emptyLine)}</p></div>`;
-    return `<div class="block"><p class="muted">這個案件還沒有任何對話紀錄。<br>
+    return zhEn(`<div class="block"><p class="muted">這個案件還沒有任何對話紀錄。<br>
       在那個資料夾跑 <code>pipeline-status --on</code> 掛上感測器,
-      之後的對話就會出現在這裡。</p></div>`;
+      之後的對話就會出現在這裡。</p></div>`, `<div class="block"><p class="muted">This project has no conversation records yet.<br>
+      Run <code>pipeline-status --on</code> in that folder to hook up the sensor,
+      and later conversations will show up here.</p></div>`);
   }
   const row = (s) => {
     // 這一輪走到哪:現在這一關的名字,比「x/4」更像人話
     const seen = s.stages.find((x) => x.state === 'seen');
-    const where = roundWhere(s.stages) + (seen ? ' · 開過瀏覽器,還沒有人說驗收過' : '');
+    const where = roundWhere(s.stages) + (seen ? zhEn(' · 開過瀏覽器,還沒有人說驗收過', ' · a browser was opened, nobody has said it\'s accepted yet') : '');
     return `<div class="srow ${s.closedAt ? 'closed' : ''}">
       <a class="sname" href="#/p/${encodeURIComponent(p.name)}/s/${encodeURIComponent(s.id)}">
-        ${esc(s.title ?? '（還沒有標題）')}</a>
-      <span class="smeta">${s.prompts} 則訊息 · 最後動作 ${ago(s.lastTs)}
-        · ${esc(where)}${s.sharesCwd ? ' · ⚠️ 與其他對話共用工作區' : ''}${s.movedOn ? ' · 資料夾已換給別的對話' : ''}${
-        s.reopenedByActivity ? ` · 結案後又有動作（${ago(s.reopenedByActivity)}）,算回進行中` : ''}</span>
+        ${esc(s.title ?? zhEn('（還沒有標題）', '(no title yet)'))}</a>
+      <span class="smeta">${zhEn(`${s.prompts} 則訊息 · 最後動作 ${ago(s.lastTs)}`, `${many(s.prompts, 'message')} · last activity ${ago(s.lastTs)}`)}
+        · ${esc(where)}${s.sharesCwd ? zhEn(' · ⚠️ 與其他對話共用工作區', ' · ⚠️ shares its workspace with other conversations') : ''}${s.movedOn ? zhEn(' · 資料夾已換給別的對話', ' · the folder was handed to another conversation') : ''}${
+        s.reopenedByActivity ? zhEn(` · 結案後又有動作（${ago(s.reopenedByActivity)}）,算回進行中`, ` · activity after closing (${ago(s.reopenedByActivity)}), counted as in progress again`) : ''}</span>
       ${s.deletedAt
-        ? `<span class="muted">已在 app 裡刪除</span>`
+        ? `<span class="muted">${zhEn('已在 app 裡刪除', 'Deleted in the app')}</span>`
         : `<button class="mini-btn" data-close="${esc(s.id)}" data-proj="${esc(p.name)}"
         data-cwd="${esc(s.cwd ?? '')}" data-undo="${s.closedAt ? 1 : 0}">
-        ${s.closedAt ? '取消結案' : '結案'}</button>`}
+        ${s.closedAt ? zhEn('取消結案', 'Reopen') : zhEn('結案', 'Close')}</button>`}
     </div>`;
   };
   // 進行中的全部列出;已結案的排在後面,跟 Overview 一樣只露最近有動作的 5 個,其餘收在「還有 N 個」(工地工班風畫面 AC-17)
   const live = p.sessions.filter((s) => !s.closedAt), closed = p.sessions.filter((s) => s.closedAt);
   const key = `sl-done|${p.name}`, all = foldOpen(key, false), more = closed.length - 5;
   return `<div class="block">
-      <h2 class="section serif">對話</h2>
+      <h2 class="section serif">${zhEn('對話', 'Conversations')}</h2>
       <div class="slist">${[...live, ...(all ? closed : closed.slice(0, 5))].map(row).join('')}</div>
-      ${more > 0 ? `<button class="mini-btn sl-more" data-ovfold="${esc(key)}">${all ? '收起已結案的對話 ▴' : `還有 ${more} 個已結案的對話 ▾`}</button>` : ''}
+      ${more > 0 ? `<button class="mini-btn sl-more" data-ovfold="${esc(key)}">${all ? zhEn('收起已結案的對話 ▴', 'Hide closed conversations ▴')
+        : zhEn(`還有 ${more} 個已結案的對話 ▾`, `${more} more closed ${more === 1 ? 'conversation' : 'conversations'} ▾`)}</button>` : ''}
     </div>`;
 }
 
 function projectPage(name) {
   const p = latest?.projects?.find((x) => x.name === name);
-  if (!p) return `<p class="muted">找不到「${esc(name)}」。<a href="#/">回列表</a></p>`;
+  if (!p) return zhEn(`<p class="muted">找不到「${esc(name)}」。<a href="#/">回列表</a></p>`, `<p class="muted">Can't find "${esc(name)}". <a href="#/">Back to the list</a></p>`);
   return `<div class="block">
       <h2 class="section serif">Overview</h2>
       ${overview(p)}
@@ -738,67 +758,82 @@ function suggestionsBlock(p) {
     const offer = s.ask === 'offer';
     const composed = offer && !s.brief;
     const from = s.source === 'app' && s.session && s.fromTitle
-      ? ` · 來自 <a href="${sessionHref(p.name, s.session)}">${esc(s.fromTitle)}</a>` : '';
-    const source = offer ? `Claude 叫了當場問你要不要開的卡 · ${ago(s.ts)}${from}`
-      : s.source === 'app' ? `Claude 在對話裡提的建議卡 · ${ago(s.ts)}${from}` : `Claude 用 --suggest 放的 · ${ago(s.ts)}`;
+      ? `${zhEn(' · 來自 ', ' · from ')}<a href="${sessionHref(p.name, s.session)}">${esc(s.fromTitle)}</a>` : '';
+    const source = offer ? zhEn(`Claude 叫了當場問你要不要開的卡 · ${ago(s.ts)}${from}`, `Claude raised a card asking you on the spot whether to start it · ${ago(s.ts)}${from}`)
+      : s.source === 'app' ? zhEn(`Claude 在對話裡提的建議卡 · ${ago(s.ts)}${from}`, `A suggestion card Claude raised in a conversation · ${ago(s.ts)}${from}`)
+      : zhEn(`Claude 用 --suggest 放的 · ${ago(s.ts)}`, `Placed by Claude with --suggest · ${ago(s.ts)}`);
     // 說明(app 的卡才有)與要貼的話。空的要講「沒有內容」,不是不畫這張卡(R1)
     const lines = [];
     if (offer) {
       // 你在那之前說的最後一句(伺服器挑的:同一個對話、比提卡早、系統塞的字不算)。感測器只記前面一段,記滿了加…
       const said = s.said && typeof s.said.text === 'string' ? s.said.text.replace(/\s+/g, ' ').trim() : '';
-      lines.push(said ? `你那時說：「${esc(said.slice(0, 80))}${said.length > 80 || s.said.cut ? '…' : ''}」` : '紀錄裡看不到你在那之前說的話');
+      const t = said ? `${esc(said.slice(0, 80))}${said.length > 80 || s.said.cut ? '…' : ''}` : '';
+      lines.push(said ? zhEn(`你那時說：「${t}」`, `You said then: “${t}”`) : zhEn('紀錄裡看不到你在那之前說的話', 'The records don\'t show what you said before that'));
     }
-    if (s.tldr) lines.push(`說明：${esc(s.tldr)}${cut.has('tldr') ? '…（已截短）' : ''}`);
+    if (s.tldr) lines.push(zhEn(`說明：${esc(s.tldr)}${cut.has('tldr') ? '…（已截短）' : ''}`, `Summary: ${esc(s.tldr)}${cut.has('tldr') ? '… (shortened)' : ''}`));
     if (composed) {
       // 記到的只是 Claude 叫了:app 也可能拒絕、根本沒讓它跳出來(〈app建議卡換工具〉記過這條路,D 第一輪)
-      lines.push('看不到你按了哪個鈕（開新對話、在這裡做、還是沒按就傳了新訊息），也看不到卡有沒有真的跳出來');
-      lines.push(prompt.trim() ? 'Claude 沒寫說明。「複製」拿到的這段是監視器照標題湊的，不是 Claude 寫的說明' : 'Claude 沒寫說明');
-    } else if (prompt.trim()) lines.push(`要貼的話：${esc(firstLine.slice(0, 80))}${firstLine.length > 80 || prompt.trim() !== firstLine.trim() ? '…' : ''}`);
-    else lines.push(s.tldr ? '這張卡沒有要貼的話' : '這張卡沒有內容');
+      lines.push(zhEn('看不到你按了哪個鈕（開新對話、在這裡做、還是沒按就傳了新訊息），也看不到卡有沒有真的跳出來',
+        'Can\'t see which button you pressed (new conversation, do it here, or a new message without pressing either), or whether the card actually popped up'));
+      lines.push(prompt.trim() ? zhEn('Claude 沒寫說明。「複製」拿到的這段是監視器照標題湊的，不是 Claude 寫的說明', 'Claude didn\'t write a description. What "Copy" gives you was put together by the monitor from the title, not written by Claude')
+        : zhEn('Claude 沒寫說明', 'Claude didn\'t write a description'));
+    } else if (prompt.trim()) {
+      const t = `${esc(firstLine.slice(0, 80))}${firstLine.length > 80 || prompt.trim() !== firstLine.trim() ? '…' : ''}`;
+      lines.push(zhEn(`要貼的話：${t}`, `To paste: ${t}`));
+    } else lines.push(s.tldr ? zhEn('這張卡沒有要貼的話', 'This card has nothing to paste') : zhEn('這張卡沒有內容', 'This card has no content'));
     if (cut.has('prompt')) {
-      lines.push(`已截短：要貼的話太長,紀錄只留得下前面一段${s.source === 'app' ? `;完整的在原本那個對話裡${s.fromTitle ? `（${esc(s.fromTitle)}）` : ''}` : ''}`);
+      lines.push(zhEn(`已截短：要貼的話太長,紀錄只留得下前面一段${s.source === 'app' ? `;完整的在原本那個對話裡${s.fromTitle ? `（${esc(s.fromTitle)}）` : ''}` : ''}`,
+        `Shortened: the text to paste was too long, so the records only kept the first part${s.source === 'app' ? `; the full text is in the original conversation${s.fromTitle ? ` (${esc(s.fromTitle)})` : ''}` : ''}`));
     }
     if (s.openIn) {
-      lines.push(s.openIn.project ? `要開在別的專案：<a href="#/p/${encodeURIComponent(s.openIn.project)}">${esc(s.openIn.name ?? s.openIn.project)}</a>`
-        : s.openIn.name ? `要開在別的資料夾：${esc(s.openIn.name)}` : '要開在別的資料夾（路徑太長,沒記完整）');
+      lines.push(s.openIn.project ? `${zhEn('要開在別的專案：', 'To be opened in another project: ')}<a href="#/p/${encodeURIComponent(s.openIn.project)}">${esc(s.openIn.name ?? s.openIn.project)}</a>`
+        : s.openIn.name ? zhEn(`要開在別的資料夾：${esc(s.openIn.name)}`, `To be opened in another folder: ${esc(s.openIn.name)}`)
+        : zhEn('要開在別的資料夾（路徑太長,沒記完整）', 'To be opened in another folder (the path was too long to record in full)'));
     }
     // 當場問的卡有下文、但找不到照它開的對話(AC-2):照實講是哪一種下文,卡照樣掛著
     if (offer && s.brief && !s.startedBy) {
-      lines.push(s.brief.via === 'same-title' ? 'Claude 後來叫了同名的卡、直接開對話，但找不到照它開的對話' : 'Claude 補了開新對話的說明，但找不到照它開的對話');
+      lines.push(s.brief.via === 'same-title' ? zhEn('Claude 後來叫了同名的卡、直接開對話，但找不到照它開的對話', 'Claude later raised a card with the same name and started a conversation directly, but no conversation started from it can be found')
+        : zhEn('Claude 補了開新對話的說明，但找不到照它開的對話', 'Claude added a description for starting a new conversation, but no conversation started from it can be found'));
     }
     // 提卡之後、你下一句話之前 Claude 接著動了工(AC-5):只是提示——接著動工也有別的原因(L25),不收卡
-    if (offer && s.workedAfter && !isFolded(s)) lines.push('之後 Claude 接著在這個對話動了工，可能是你選了在這裡做；做完了就按「不做了」');
+    if (offer && s.workedAfter && !isFolded(s)) {
+      lines.push(zhEn('之後 Claude 接著在這個對話動了工，可能是你選了在這裡做；做完了就按「不做了」', 'After that Claude kept working in this conversation; maybe you chose to do it here. When it\'s done, press "Not doing it"'));
+    }
     // Claude 後來在這個對話裡叫過收回(AC-7):分不出是不是這一張,照實講,附它說的理由。記到的是「叫了收回」,不是「收回成功」(R2)
     const wd = Array.isArray(s.withdrawals) ? s.withdrawals : [];
     if (wd.length) {
-      const reasons = wd.slice(0, 3).map((w) => (w.reason ? `「${esc(w.reason)}${w.cut ? '…' : ''}」` : '（沒寫理由）')).join('、');
+      const reasons = wd.slice(0, 3).map((w) => (w.reason ? zhEn(`「${esc(w.reason)}${w.cut ? '…' : ''}」`, `“${esc(w.reason)}${w.cut ? '…' : ''}”`) : zhEn('（沒寫理由）', '(no reason given)'))).join(zhEn('、', ', '));
       // 已經收起來的卡(已開始、你說不做了、跟著同名的那張)沒有「不做了」按鈕,不叫人去按一顆不存在的按鈕
-      const next = isFolded(s) ? '' : '，過時的話按「不做了」';
-      lines.push(`⚠️ Claude 後來在這個對話裡叫過 ${wd.length} 次收回建議卡，理由：${reasons}${wd.length > 3 ? ` 等 ${wd.length} 次` : ''}——分不出收回的是不是這一張${next}`);
+      const next = isFolded(s) ? '' : zhEn('，過時的話按「不做了」', '; if it\'s out of date, press "Not doing it"');
+      lines.push(zhEn(`⚠️ Claude 後來在這個對話裡叫過 ${wd.length} 次收回建議卡，理由：${reasons}${wd.length > 3 ? ` 等 ${wd.length} 次` : ''}——分不出收回的是不是這一張${next}`,
+        `⚠️ Claude later tried to withdraw a suggestion card ${many(wd.length, 'time')} in this conversation; reasons: ${reasons}${wd.length > 3 ? ` and others (${wd.length} in all)` : ''}. Can't tell whether it was this card${next}`));
     }
     // Claude 後來在這個對話裡照你的話開了之前提的某一張(只帶代號的那一次,規格:app建議卡換工具 AC-4):一樣分不出是哪一張,照實講、不收卡。
     // 記到的是「Claude 叫了開卡」,不是「開成了」(R2)
     const op = Array.isArray(s.opens) ? s.opens : [];
     if (op.length) {
-      const next = isFolded(s) ? '' : '，是這一張的話按「不做了」';
-      lines.push(`⚠️ Claude 後來在這個對話裡照你的話叫過 ${op.length} 次開先前提的建議卡——分不出要開的是不是這一張、也看不到有沒有開成${next}`);
+      const next = isFolded(s) ? '' : zhEn('，是這一張的話按「不做了」', '; if it was this one, press "Not doing it"');
+      lines.push(zhEn(`⚠️ Claude 後來在這個對話裡照你的話叫過 ${op.length} 次開先前提的建議卡——分不出要開的是不是這一張、也看不到有沒有開成${next}`,
+        `⚠️ Claude later, at your word, tried ${many(op.length, 'time')} to start a suggestion card raised earlier in this conversation. Can't tell whether it was this card, or whether it got started${next}`));
     }
     // 收起來的理由:看得到的事實優先(真的有對話這樣開頭),再來才是你按的
     if (s.startedBy) {
-      const where = s.startedProject ? `（在 ${esc(s.startedProject.name ?? s.startedProject.project)}）` : '';
+      const where = s.startedProject ? zhEn(`（在 ${esc(s.startedProject.name ?? s.startedProject.project)}）`, ` (in ${esc(s.startedProject.name ?? s.startedProject.project)})`) : '';
       const link = s.startedTitle
         ? `<a href="${sessionHref(s.startedProject?.project ?? p.name, s.startedBy)}">${esc(s.startedTitle)}</a>${where}`
-        : '有對話這樣開頭了,但那個對話不在儀表板列得出來的專案裡';
-      lines.push(`已開始：${link}${s.dismissedAt ? ` · 你 ${ago(s.dismissedAt)}按過「不做了」` : ''}`);
+        : zhEn('有對話這樣開頭了,但那個對話不在儀表板列得出來的專案裡', 'A conversation started this way, but it isn\'t in any project the dashboard can list');
+      const pressed = s.dismissedAt ? zhEn(` · 你 ${ago(s.dismissedAt)}按過「不做了」`, ` · you pressed "Not doing it" ${ago(s.dismissedAt)}`) : '';
+      lines.push(`${zhEn('已開始：', 'Started: ')}${link}${pressed}`);
     } else if (s.supersededAt) {
-      lines.push(`後來同一個對話又提了一張同名的卡（${ago(s.supersededAt)}），看那一張${s.dismissedAt ? ` · 你 ${ago(s.dismissedAt)}按過「不做了」` : ''}`);
+      const pressed = s.dismissedAt ? zhEn(` · 你 ${ago(s.dismissedAt)}按過「不做了」`, ` · you pressed "Not doing it" ${ago(s.dismissedAt)}`) : '';
+      lines.push(zhEn(`後來同一個對話又提了一張同名的卡（${ago(s.supersededAt)}），看那一張${pressed}`, `The same conversation later raised a card with the same name (${ago(s.supersededAt)}); see that one${pressed}`));
     } else if (s.dismissedAt) {
-      lines.push(`你 ${ago(s.dismissedAt)}說不做了`);
+      lines.push(zhEn(`你 ${ago(s.dismissedAt)}說不做了`, `You said you're not doing it ${ago(s.dismissedAt)}`));
     }
     const copy = prompt.trim()
-      ? `<button class="copy" data-copy="${esc(prompt)}">${composed ? '複製監視器湊的話' : cut.has('prompt') ? '複製前面這一段' : '複製說明'}</button>` : '';
+      ? `<button class="copy" data-copy="${esc(prompt)}">${composed ? zhEn('複製監視器湊的話', 'Copy what the monitor put together') : cut.has('prompt') ? zhEn('複製前面這一段', 'Copy the first part') : zhEn('複製說明', 'Copy the description')}</button>` : '';
     const dismiss = isFolded(s) ? ''
-      : `<button class="mini-btn" data-dismiss="${esc(s.id)}" data-proj="${esc(p.name)}">不做了</button>`;
+      : `<button class="mini-btn" data-dismiss="${esc(s.id)}" data-proj="${esc(p.name)}">${zhEn('不做了', 'Not doing it')}</button>`;
     return `<div class="srow ${isFolded(s) ? 'closed' : ''}">
       <span class="sname">${esc(s.title)}${cut.has('title') ? '…' : ''}</span>
       <span class="smeta">${source}</span>
@@ -809,32 +844,43 @@ function suggestionsBlock(p) {
   // app 的建議卡從什麼時候開始有紀錄(L3):更早跳過的這裡一輩子不會知道,不准讓這一區看起來像「全部都在這裡」。
   // 接點是對話開始時讀的,所以接上之前就開著的對話,之後跳的卡照樣記不到——兩種說法都要帶這半句。
   // 紀錄裡一張都沒有的時候,分不出是沒跳過、沒接上、還是超過保留期限被丟掉了:三種都講,不挑一種
-  const days = Number.isFinite(latest?.retainDays) ? `（${latest.retainDays} 天）` : '';
+  const days = Number.isFinite(latest?.retainDays) ? zhEn(`（${latest.retainDays} 天）`, ` (${latest.retainDays} days)`) : '';
   // ⚠️ appCardsSince 這個欄位**不在**(undefined)跟**是 null** 是兩件事:不在 = 伺服器沒回答這一題——常駐的儀表板服務跑的是它啟動那一刻的程式,
   //    更新之後沒重啟的話,這支新畫面配的是不認得 app 建議卡的舊資料。那時講「紀錄裡沒有」就是把沒問到講成沒有(R1),要講真正的原因跟下一步
   const since = p.appCardsSince === undefined
-    ? '⚠️ 儀表板的服務還在跑舊的程式,它不認得 app 對話裡的建議卡——那種卡就算記到了,這裡現在也看不到。跑一次 <code>pipeline-status --serve-restart</code>,再重新整理這一頁。'
+    ? zhEn('⚠️ 儀表板的服務還在跑舊的程式,它不認得 app 對話裡的建議卡——那種卡就算記到了,這裡現在也看不到。跑一次 <code>pipeline-status --serve-restart</code>,再重新整理這一頁。',
+      '⚠️ The dashboard service is still running the old program and doesn\'t recognize suggestion cards from app conversations: even if such cards were recorded, they can\'t be seen here now. Run <code>pipeline-status --serve-restart</code> once, then reload this page.')
     : p.appCardsSince
-      ? `app 對話裡的建議卡從 ${clock(p.appCardsSince)} 開始有紀錄;更早跳過的、還沒重開的對話裡跳的,這裡不會有。`
-      : `紀錄裡沒有 app 對話裡的建議卡——不代表沒跳過:接上這個功能之前跳的、還沒重開的對話裡跳的、app 換了做卡的工具而感測器還沒接上時跳的、超過保留期限${days}的,這裡都看不到。`;
+      ? zhEn(`app 對話裡的建議卡從 ${clock(p.appCardsSince)} 開始有紀錄;更早跳過的、還沒重開的對話裡跳的,這裡不會有。`,
+        `Suggestion cards from app conversations have been recorded since ${clock(p.appCardsSince)}; earlier ones, and ones from conversations not reopened since, won't be here.`)
+      : zhEn(`紀錄裡沒有 app 對話裡的建議卡——不代表沒跳過:接上這個功能之前跳的、還沒重開的對話裡跳的、app 換了做卡的工具而感測器還沒接上時跳的、超過保留期限${days}的,這裡都看不到。`,
+        `There are no suggestion cards from app conversations in the records, which doesn't mean none popped up: cards from before this feature was hooked up, from conversations not reopened since, from when the app changed its card tool before the sensor caught up, or older than the retention period${days}, can't be seen here.`);
   // app 換過做卡的工具(2026-10-25 實際發生:新卡安靜地一張都進不來)、或記到認不得的 app 對話工具(下次再換的時候):照紀錄裡查得到的時間講,不編換工具的日期(R3)。
   // 兩個日期是整台電腦所有專案一起算的(換工具是整個 app 的事)。欄位不在 = 服務還在跑舊的程式,講不出這一段——照實說(規格:app建議卡換工具 AC-5、AC-8)
   const tools = latest?.appCardTools;
   const toolNote = p.appCardsSince === undefined ? ''
-    : tools === undefined ? '（app 換過做卡的工具那一段，服務還在跑舊的程式、講不出來：跑一次 <code>pipeline-status --serve-restart</code>）'
+    : tools === undefined ? zhEn('（app 換過做卡的工具那一段，服務還在跑舊的程式、講不出來：跑一次 <code>pipeline-status --serve-restart</code>）',
+      ' (the part about the app changing its card tool can\'t be told: the service is still running the old program; run <code>pipeline-status --serve-restart</code> once)')
     : !tools || typeof tools !== 'object' ? ''
-    : [tools.oldLast && tools.newFirst ? `app 換過做建議卡的工具：這台電腦最後一次記到舊的是 ${clock(tools.oldLast)}、第一次記到新的是 ${clock(tools.newFirst)}，中間跳的卡可能沒記到；那時已經開著、之後沒重開的對話裡跳的，也可能沒記到。`
-        : tools.oldLast ? `app 換過做建議卡的工具，感測器還沒記到新的那一種：最後一次記到舊的是 ${clock(tools.oldLast)}，之後跳的卡可能都沒記到。` : '',
+    : [tools.oldLast && tools.newFirst ? zhEn(`app 換過做建議卡的工具：這台電腦最後一次記到舊的是 ${clock(tools.oldLast)}、第一次記到新的是 ${clock(tools.newFirst)}，中間跳的卡可能沒記到；那時已經開著、之後沒重開的對話裡跳的，也可能沒記到。`,
+        `The app changed the tool it uses for suggestion cards: this computer last recorded the old one at ${clock(tools.oldLast)} and first recorded the new one at ${clock(tools.newFirst)}; cards in between might not have been recorded, and neither might cards from conversations already open then and not reopened since.`)
+        : tools.oldLast ? zhEn(`app 換過做建議卡的工具，感測器還沒記到新的那一種：最後一次記到舊的是 ${clock(tools.oldLast)}，之後跳的卡可能都沒記到。`,
+          `The app changed the tool it uses for suggestion cards, and the sensor hasn't recorded the new one yet: the old one was last recorded at ${clock(tools.oldLast)}, and cards after that might not have been recorded.`) : '',
        ...(Array.isArray(tools.unknown) ? tools.unknown : []).map((u) =>
-         `⚠️ 感測器記到 app 一個認不得的工具 <code>${esc(u.tool)}</code>（第一次 ${clock(u.first)}）——可能是 app 又換了做建議卡的工具，那種卡這裡看不到。`)].join('');
+         zhEn(`⚠️ 感測器記到 app 一個認不得的工具 <code>${esc(u.tool)}</code>（第一次 ${clock(u.first)}）——可能是 app 又換了做建議卡的工具，那種卡這裡看不到。`,
+           `⚠️ The sensor recorded an app tool it doesn't recognize, <code>${esc(u.tool)}</code> (first at ${clock(u.first)}); the app might have changed its suggestion-card tool again, and those cards can't be seen here.`))].join('');
   // 卡掛在提建議的那個專案那一頁;要開在**這個**專案的卡,在這一頁指路——不然這一頁說沒有,別頁卻掛著要開在這裡的卡(P5)
-  const incoming = (p.incomingSuggestions ?? []).map((x) =>
-    `別的專案的對話提了 ${x.count} 張要開在這裡的建議卡,掛在 <a href="#/p/${encodeURIComponent(x.project)}">${esc(x.name ?? x.project)}</a> 那一頁。`).join('');
+  const incoming = (p.incomingSuggestions ?? []).map((x) => {
+    const a = `<a href="#/p/${encodeURIComponent(x.project)}">${esc(x.name ?? x.project)}</a>`;
+    return zhEn(`別的專案的對話提了 ${x.count} 張要開在這裡的建議卡,掛在 ${a} 那一頁。`,
+      `Conversations in another project raised ${many(x.count, 'suggestion card')} to be opened here; ${x.count === 1 ? 'it is' : 'they are'} on the ${a} page.`);
+  }).join('');
   const incomingNote = incoming ? `<p class="section-note">${incoming}</p>` : '';
   if (!all.length) {
     return `<div class="block">
-      <h2 class="section serif">建議新增的對話</h2>
-      <p class="section-note">Claude 覺得該另開一個對話做的事會放在這裡。這個專案的對話提的建議,紀錄裡現在一張都沒有。${since}${toolNote}</p>
+      <h2 class="section serif">${zhEn('建議新增的對話', 'Suggested new conversations')}</h2>
+      <p class="section-note">${zhEn('Claude 覺得該另開一個對話做的事會放在這裡。這個專案的對話提的建議,紀錄裡現在一張都沒有。',
+        'Things Claude thinks should get their own conversation show up here. There are no suggestions from this project\'s conversations in the records right now. ')}${since}${toolNote}</p>
       ${incomingNote}
     </div>`;
   }
@@ -844,7 +890,8 @@ function suggestionsBlock(p) {
   const foldKey = `sg-fold|${p.name}`;
   const foldedBox = folded.length
     ? `<details class="acl-box sg-fold" data-fold="${esc(foldKey)}"${foldOpen(foldKey, false) ? ' open' : ''}>
-        <summary>收起來的 ${folded.length} 張（已開始 ${started}${later ? `、後來又提了同名的卡 ${later}` : ''}、你說不做了 ${folded.length - started - later}）</summary>
+        <summary>${zhEn(`收起來的 ${folded.length} 張（已開始 ${started}${later ? `、後來又提了同名的卡 ${later}` : ''}、你說不做了 ${folded.length - started - later}）`,
+          `${many(folded.length, 'folded card')} (started: ${started}${later ? `; a card with the same name raised later: ${later}` : ''}; you said not doing it: ${folded.length - started - later})`)}</summary>
         <div class="slist">${folded.map(row).join('')}</div>
       </details>` : '';
   // 說明分三層(工地工班風畫面 AC-10):外面一句講怎麼用;一直都成立的那幾句說明收進「這一區看不到的」——收起來的字還在網頁上。
@@ -852,16 +899,21 @@ function suggestionsBlock(p) {
   const oldSince = p.appCardsSince === undefined ? since : '';
   const whyKey = `why|sg|${p.name}`;
   return `<div class="block">
-      <h2 class="section serif">建議新增的對話</h2>
-      <p class="section-note">Claude 覺得該另開一個對話做的事。這裡開不了對話：<b>複製說明</b>，在 app 開新對話貼進第一句。${oldSince}${toolNote}</p>
-      <details class="why" data-fold="${esc(whyKey)}"${foldOpen(whyKey, false) ? ' open' : ''}><summary>這一區看不到的</summary>
-        <p>有對話真的照這段說明開了，這張會自己收到最下面（點開看得到是哪個對話）；不想做了按<b>不做了</b>。</p>
+      <h2 class="section serif">${zhEn('建議新增的對話', 'Suggested new conversations')}</h2>
+      <p class="section-note">${zhEn('Claude 覺得該另開一個對話做的事。這裡開不了對話：<b>複製說明</b>，在 app 開新對話貼進第一句。',
+        'Things Claude thinks should get their own conversation. You can\'t start a conversation from here: <b>copy the description</b> and paste it as the first message of a new conversation in the app. ')}${oldSince}${toolNote}</p>
+      <details class="why" data-fold="${esc(whyKey)}"${foldOpen(whyKey, false) ? ' open' : ''}><summary>${zhEn('這一區看不到的', 'What this section can\'t see')}</summary>
+        ${zhEn(`<p>有對話真的照這段說明開了，這張會自己收到最下面（點開看得到是哪個對話）；不想做了按<b>不做了</b>。</p>
         <p>當場問你要不要開的卡也在這裡，但看不到你按了哪個鈕；選了在這裡做的，要自己按<b>不做了</b>。</p>
         <p>這一區看不到卡在 app 裡是怎麼不見的（你按掉、或被後來的新卡擠掉）——那種卡在這裡會繼續掛著。
-        Claude 自己在對話裡叫了收回（做完了、前提變了、換了一張新的）、或照你的話叫了開先前提的某一張，會標在那個對話先前提的卡上，但分不出是哪一張；過時的要自己按「不做了」。${oldSince ? '' : since}</p>
+        Claude 自己在對話裡叫了收回（做完了、前提變了、換了一張新的）、或照你的話叫了開先前提的某一張，會標在那個對話先前提的卡上，但分不出是哪一張；過時的要自己按「不做了」。${oldSince ? '' : since}</p>`,
+        `<p>When a conversation really starts from a card's description, the card folds away to the bottom by itself (open it to see which conversation); if you don't want to do it, press <b>Not doing it</b>.</p>
+        <p>Cards that asked you on the spot whether to start them are here too, but which button you pressed can't be seen; if you chose to do it here, press <b>Not doing it</b> yourself.</p>
+        <p>This section can't see how a card disappeared in the app (you dismissed it, or a newer card pushed it out): such cards stay here.
+        When Claude itself withdraws a card in a conversation (done, the premise changed, replaced by a new one), or, at your word, starts one raised earlier, that's marked on the cards that conversation raised earlier, but it can't tell which one; press "Not doing it" yourself on the out-of-date ones. ${oldSince ? '' : since}</p>`)}
       </details>
       ${incomingNote}
-      ${open.length ? `<div class="slist">${open.map(row).join('')}</div>` : '<p class="section-note">現在沒有還沒處理的建議。</p>'}
+      ${open.length ? `<div class="slist">${open.map(row).join('')}</div>` : `<p class="section-note">${zhEn('現在沒有還沒處理的建議。', 'No suggestions waiting right now.')}</p>`}
       ${foldedBox}
     </div>`;
 }
@@ -873,33 +925,38 @@ function optOutLine(p) {
     // 那一句是伺服器給的,跟終端機感測器那一行同一句(lib/faults.mjs 的 optedOutLine)。以前寫「之前的紀錄還在」——
     // 退出之後不再記,舊的照樣滿 90 天清掉,那句遲早變假的(規格:90天清空之後的說法 AC-4)。舊的服務沒給 → 講服務還在跑舊的程式(AC-5)
     const line = 'optedOutLine' in p ? esc(p.optedOutLine ?? '')
-      : `這個專案已退出記錄${p.optedOut.at ? `（${esc(ago(p.optedOut.at))}）` : ''}。（儀表板的服務還在跑舊的程式，重啟它：<code>pipeline-status --serve-restart</code>）`;
+      : zhEn(`這個專案已退出記錄${p.optedOut.at ? `（${esc(ago(p.optedOut.at))}）` : ''}。（儀表板的服務還在跑舊的程式，重啟它：<code>pipeline-status --serve-restart</code>）`,
+        `This project opted out of recording${p.optedOut.at ? ` (${esc(ago(p.optedOut.at))})` : ''}. (The dashboard service is still running the old program; restart it: <code>pipeline-status --serve-restart</code>)`);
     return `<p class="section-note">${line}
-      <button class="mini-btn" data-optout="${esc(p.mainRoot)}" data-undo="1">重新加入記錄</button></p>`;
+      <button class="mini-btn" data-optout="${esc(p.mainRoot)}" data-undo="1">${zhEn('重新加入記錄', 'Start recording again')}</button></p>`;
   }
-  return `<p class="section-note">感測器會記這個專案的每個對話（只在這台電腦上）。
-    <button class="mini-btn" data-optout="${esc(p.mainRoot)}" data-undo="0">退出記錄</button></p>`;
+  return `<p class="section-note">${zhEn('感測器會記這個專案的每個對話（只在這台電腦上）。', 'The sensor records every conversation in this project (only on this computer).')}
+    <button class="mini-btn" data-optout="${esc(p.mainRoot)}" data-undo="0">${zhEn('退出記錄', 'Stop recording')}</button></p>`;
 }
 
 /* ═══ 第三層:一個對話 ═══ */
 function sessionPage(name, sid) {
   const p = latest?.projects?.find((x) => x.name === name);
   const s = p?.sessions.find((x) => x.id === sid);
-  if (!s) return `<p class="muted">找不到這個對話。<a href="#/p/${encodeURIComponent(name)}">回對話清單</a></p>`;
+  if (!s) return zhEn(`<p class="muted">找不到這個對話。<a href="#/p/${encodeURIComponent(name)}">回對話清單</a></p>`, `<p class="muted">Can't find this conversation. <a href="#/p/${encodeURIComponent(name)}">Back to the conversation list</a></p>`);
   // 伺服器算好的兩種旁白(規格:agent回報與故障記號 AC-2、AC-5),跟終端機同一句,這裡只畫:
   // 沒算成你說的話的訊息(沒見過的格式)、這一輪碰到的那段「感測器或收工 hook 壞過」
   const notes = [s.unknownNote, ...(s.faultNotes ?? [])].filter(Boolean).map((t) => `<p class="section-note">${esc(t)}</p>`).join('');
   const c = s.card;
-  if (!c) return `<p class="muted">這個對話的工作區找不到了（${esc(s.cwd ?? '?')}）。</p>`;
+  if (!c) return zhEn(`<p class="muted">這個對話的工作區找不到了（${esc(s.cwd ?? '?')}）。</p>`, `<p class="muted">This conversation's workspace can't be found (${esc(s.cwd ?? '?')}).</p>`);
+  const title = esc(s.title ?? zhEn('（還沒有標題）', '(no title yet)'));
+  const meta = zhEn(`${s.prompts} 則訊息 · 最後動作 ${ago(s.lastTs)}`, `${many(s.prompts, 'message')} · last activity ${ago(s.lastTs)}`);
+  const closed = s.closedAt ? zhEn(` · 已於 ${ago(s.closedAt)}結案`, ` · closed ${ago(s.closedAt)}`) : '';
   // 工作區的資料夾已經不在了(worktree 被刪):git 那三張卡沒有東西可講,五關的紀錄還在,照畫。
   // ⚠️ 以前這裡照樣去讀 c.sensor.state → 整頁炸掉 → 被當成「斷線」(2026-09-15 Oscar 點進去就斷)。
   if (c.gone) {
     return `
     <div class="block">
-      <h2 class="section serif">${esc(s.title ?? '（還沒有標題）')}</h2>
-      <p class="section-note">${s.prompts} 則訊息 · 最後動作 ${ago(s.lastTs)}</p>${notes}
-      <p class="section-note">⚠️ 這個對話的工作區資料夾已經不在了（${esc(s.cwd ?? '')}）——
-        還原點、三階梯、改動都沒有東西可講。下面五關的紀錄還在。</p>
+      <h2 class="section serif">${title}</h2>
+      <p class="section-note">${meta}</p>${notes}
+      <p class="section-note">${zhEn(`⚠️ 這個對話的工作區資料夾已經不在了（${esc(s.cwd ?? '')}）——
+        還原點、三階梯、改動都沒有東西可講。下面五關的紀錄還在。`, `⚠️ This conversation's workspace folder is gone (${esc(s.cwd ?? '')}), so
+        the restore point, the three steps and the changes have nothing to show. The five stages' records below are still there.`)}</p>
     </div>
     <div class="block">
       <h2 class="section serif">My Agent work flow</h2>
@@ -912,10 +969,11 @@ function sessionPage(name, sid) {
   if (s.movedOn) {
     return `
     <div class="block">
-      <h2 class="section serif">${esc(s.title ?? '（還沒有標題）')}</h2>
-      <p class="section-note">${s.prompts} 則訊息 · 最後動作 ${ago(s.lastTs)}${s.closedAt ? ` · 已於 ${ago(s.closedAt)}結案` : ''}</p>${notes}
-      <p class="section-note">⚠️ 這個資料夾 ${ago(s.movedOn.at)}換到另一條分支、給別的對話用了——
-        分支、還原點、改動、分級是那個對話的，這裡不畫。下面五關是這個對話當時的紀錄。</p>
+      <h2 class="section serif">${title}</h2>
+      <p class="section-note">${meta}${closed}</p>${notes}
+      <p class="section-note">${zhEn(`⚠️ 這個資料夾 ${ago(s.movedOn.at)}換到另一條分支、給別的對話用了——
+        分支、還原點、改動、分級是那個對話的，這裡不畫。下面五關是這個對話當時的紀錄。`, `⚠️ This folder switched to another branch ${ago(s.movedOn.at)} and was handed to another conversation:
+        the branch, restore point, changes and tier belong to that conversation, so they aren't drawn here. The five stages below are this conversation's records from back then.`)}</p>
     </div>
     <div class="block">
       <h2 class="section serif">My Agent work flow</h2>
@@ -925,8 +983,9 @@ function sessionPage(name, sid) {
 
   // 共用工作區:改動與分級一個資料夾一份(lib/collect.mjs 的 sessionTier),別的對話改的也算在裡面——講清楚,不讓人以為那些都是這個對話做的
   const warn = s.sharesCwd
-    ? `<p class="section-note">⚠️ 這個工作區還有別的對話在用,所以下面的 git 狀態與分級是<b>共用的</b>——
-       不是這個對話獨有：別的對話改的也算在裡面。</p>` : '';
+    ? zhEn(`<p class="section-note">⚠️ 這個工作區還有別的對話在用,所以下面的 git 狀態與分級是<b>共用的</b>——
+       不是這個對話獨有：別的對話改的也算在裡面。</p>`, `<p class="section-note">⚠️ Other conversations are also using this workspace, so the git status and tier below are <b>shared</b>,
+       not this conversation's alone: changes made by the other conversations count too.</p>`) : '';
 
   // 「叫了不等於通過」那一句是伺服器給的(終端機同一句),字不改;破折號前面那半句是重點、後面小字(工地工班風畫面 AC-10)
   const called = String(latest?.sharedLines?.calledNotPassed ?? OLD_LINE);
@@ -936,9 +995,8 @@ function sessionPage(name, sid) {
 
   return `
     <div class="block">
-      <h2 class="section serif">${esc(s.title ?? '（還沒有標題）')}</h2>
-      <p class="section-note"><span class="mono">${esc(c.branch ?? '沒有分支')}</span> · ${s.prompts} 則訊息 ·
-        最後動作 ${ago(s.lastTs)}${s.closedAt ? ` · 已於 ${ago(s.closedAt)}結案` : ''}</p>
+      <h2 class="section serif">${title}</h2>
+      <p class="section-note"><span class="mono">${esc(c.branch ?? zhEn('沒有分支', 'no branch'))}</span> · ${meta}${closed}</p>
       ${notes}${warn}
       <div class="stats">${statRestore(c)}${statLadder(c)}${statChanges(c)}${statTier({ ...c, tier: s.tier ?? c.tier }, p)}</div>
     </div>

@@ -334,7 +334,8 @@ h2.section { font-size: var(--text-subheading); letter-spacing: var(--tracking-s
    ① 大字講事實 ② 一行講最要緊的後果 ③ 解釋「為什麼」收進「為什麼？」。會害你丟東西、誤會結果的那幾句是 ②,留在外面 */
 .hint.warn { color: var(--color-off-black); font-size: var(--text-body-sm); font-weight: var(--font-weight-medium); }
 .why { margin-top: 8px; font-size: var(--text-caption); color: var(--color-graphite); }
-.why > summary, .more > summary { cursor: pointer; color: var(--color-smoke); list-style: none; width: max-content; }
+/* 寬度照字,但不超過卡片:英文比中文長,放不下就換行,不准凸出卡片外(規格:儀表板與終端機中英切換 AC-6) */
+.why > summary, .more > summary { cursor: pointer; color: var(--color-smoke); list-style: none; width: max-content; max-width: 100%; }
 .why > summary::-webkit-details-marker, .more > summary::-webkit-details-marker { display: none; }
 .why > summary::before { content: 'ⓘ '; }
 .more > summary::before { content: '▸ '; }

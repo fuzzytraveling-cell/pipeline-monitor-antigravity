@@ -14,7 +14,8 @@ import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { detectChecks, describeCheckFailure } from '../lib/cliStamp.mjs';
 import { describeCheckpoint, describeSensor } from '../lib/cliView.mjs';
-import { loseUnsavedLine, UNSAVED_WHETHER } from '../lib/scope.mjs';
+import { loseUnsavedLine, unsavedWhether } from '../lib/scope.mjs';
+const UNSAVED_WHETHER = unsavedWhether();   // 中文那一份(測試沒設語言)
 import { gitContext, changeScale, changeHealth, ago, withClock, uncommitted, checkpointRelation } from '../lib/git.mjs';
 import { RETAIN_DAYS } from '../lib/events.mjs';
 import { humanAge } from '../lib/freshness.mjs';

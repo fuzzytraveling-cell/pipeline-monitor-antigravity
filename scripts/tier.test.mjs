@@ -360,7 +360,7 @@ section('危險清單會過期:清單定好之後才新加的程式檔、清單�
   const code = [one('OLD_LINE'), one('mark'), pick('statTier', 'c, p')];
   check('從 ui/app.js 拿得出 statTier(與它的小幫手)', code.every(Boolean));
   const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  const statTier = code.every(Boolean) ? new Function('esc', 'ago', `const zhEn = (zh) => zh;\n${code.join('\n')}; return statTier;`)(esc, () => '3 小時前') : null;
+  const statTier = code.every(Boolean) ? new Function('esc', 'ago', `const zhEn = (zh) => zh; const many = (n, one, more = one + 's') => n + ' ' + (n === 1 ? one : more);\n${code.join('\n')}; return statTier;`)(esc, () => '3 小時前') : null;
   const line = staleLines(s0, { dangerId: LEVELS.danger.id, ago: () => '3 小時前' })[0];
   const t = { state: 'ok', machine: { rank: 1, id: LEVELS.code.id, hits: { danger: [], code: ['src/x.js'] } }, manual: null, basis: null,
     final: { id: LEVELS.code.id }, requirements: [], candidates: [], upgradable: [], staleNotes: [line] };
