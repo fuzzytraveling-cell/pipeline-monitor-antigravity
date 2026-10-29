@@ -39,6 +39,10 @@ h1 { font-size: var(--text-subheading); letter-spacing: var(--tracking-subheadin
   background: var(--color-off-black); color: var(--color-parchment); border-color: var(--color-off-black);
 }
 
+/* 中英切換:按了之後換不成的那一句(連不上、服務還在跑舊的程式、寫不進去)寫在按鈕旁。空的時候不佔位置 */
+.lang-note { font-size: var(--text-caption); color: var(--color-smoke); }
+.lang-note:empty { display: none; }
+
 main { padding: var(--spacing-24); max-width: var(--page-max-width); margin: 0 auto; }
 h2.section { font-size: var(--text-subheading); letter-spacing: var(--tracking-subheading);
   margin: 0 0 4px; }

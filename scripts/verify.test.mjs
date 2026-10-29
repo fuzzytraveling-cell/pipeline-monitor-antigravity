@@ -413,7 +413,7 @@ section('畫面:E 那一格畫三句話與逐條的清單;Claude 走完沒有打
   const parts = [one('stageState'), one('OLD_LINE'), one('FACE'), fn('roundStage'), fn('eyes'), fn('agent'), fn('workflow')];
   check('從 ui/app.js 拿得出 workflow 與它用到的小函式(拿不出來這一段就什麼都沒測到)', parts.every(Boolean), parts.map((p, i) => (p ? '' : i)).join(','));
   const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  const wf = parts.every(Boolean) ? new Function('esc', 'ago', 'ROLE', 'foldOpen', `${parts.join('\n')}; return workflow;`)(esc, ago, {}, () => true) : null;
+  const wf = parts.every(Boolean) ? new Function('esc', 'ago', 'ROLE', 'foldOpen', `const zhEn = (zh) => zh;\n${parts.join('\n')}; return workflow;`)(esc, ago, {}, () => true) : null;
   const s = scene();
   s.write([said(-30 * MIN, '驗收一下'), callV(-20 * MIN), act(-19 * MIN), rep(-15 * MIN, 'found', '第 1 趟\nAC-1 看到了：首頁寫著「歡迎回來」\nAC-2 沒看到：應該是藍色，畫面上是灰色')]);
   const card = s.project()?.cards?.[0];
@@ -600,7 +600,7 @@ section('魔鬼教官第二輪:網頁對話列那一句,Claude 代記的驗收�
   // roundWhere 問「走到哪一關」的是 roundStage(五關發光的那一顆也問它,老毛病 P2),一起拿出來
   const code = ['roundStage', 'roundWhere'].map((n) => src.match(new RegExp(`^function ${n}\\(stages\\) \\{\\n[\\s\\S]*?\\n\\}\\n`, 'm'))?.[0] ?? null);
   check('從 ui/app.js 拿得出 roundWhere 與 roundStage(拿不出來這一段就什麼都沒測到)', code.every(Boolean));
-  const rw = code.every(Boolean) ? new Function(`${code.join('\n')}; return roundWhere;`)() : () => '';
+  const rw = code.every(Boolean) ? new Function(`const zhEn = (zh) => zh;\n${code.join('\n')}; return roundWhere;`)() : () => '';
   const e = (o) => ({ id: 'E', name: '驗收', type: 'browser', skill: 'verify', ...o });
   eq('Claude 代記 → 講 Claude 代記', rw([e({ state: 'done', ewhere: 'Claude 代記：你說驗收過了' })]), '這一輪走到 E 驗收（Claude 代記：你說驗收過了）');
   eq('你自己按的 → 你說驗收過了', rw([e({ state: 'done', ewhere: '你說驗收過了' })]), '這一輪走到 E 驗收（你說驗收過了）');

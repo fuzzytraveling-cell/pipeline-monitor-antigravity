@@ -416,7 +416,7 @@ section('D 那一格:擱著(held)的樣子、那一句與花了多久——句�
   check('從 ui/app.js 拿得出 workflow 與它用到的那幾個(拿不出來這一段就什麼都沒測到)', parts.every(Boolean), parts.map((p, i) => (p ? '' : i)).join(','));
   const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const ago = (iso) => (iso ? '5 分鐘前' : '');
-  const wf = parts.every(Boolean) ? new Function('esc', 'ago', 'ROLE', 'foldOpen', `${parts.join('\n')}; return workflow;`)(esc, ago, {}, () => true) : null;
+  const wf = parts.every(Boolean) ? new Function('esc', 'ago', 'ROLE', 'foldOpen', `const zhEn = (zh) => zh;\n${parts.join('\n')}; return workflow;`)(esc, ago, {}, () => true) : null;
   const D = (o) => ({ id: 'D', name: '魔鬼教官', skill: 'chaos-check', ranAt: T(-10 * MIN), via: 'skill', calledAs: `${PLUGIN}:chaos-check`, report: { verdict: 'found', note: '找到 3 條\n- [R1] 一條', ts: T(-9 * MIN) }, ...o });
   // 第一個指令關是寫規格那一關(A):D 不能是第一個,不然「還沒記結論」會被畫成「等你點頭開工」
   const card = (st) => ({ path: '/x', sensor: { state: 'ok' }, stages: [{ id: 'A', name: '寫規格', skill: 'spec', state: 'none', line: '這一輪還沒跑' }, st] });
@@ -695,7 +695,7 @@ section('第一輪:案件卡與對話清單的「走到哪」——D 在要不�
   // roundWhere 問「走到哪一關」的是 roundStage(五關發光的那一顆也問它,老毛病 P2),一起拿出來
   const code = ['roundStage', 'roundWhere'].map((n) => src.match(new RegExp(`^function ${n}\\(stages\\) \\{\\n[\\s\\S]*?\\n\\}\\n`, 'm'))?.[0] ?? null);
   check('從 ui/app.js 拿得出 roundWhere 與 roundStage', code.every(Boolean));
-  const rw = code.every(Boolean) ? new Function(`${code.join('\n')}; return roundWhere;`)() : () => '';
+  const rw = code.every(Boolean) ? new Function(`const zhEn = (zh) => zh;\n${code.join('\n')}; return roundWhere;`)() : () => '';
   const st = (o) => [{ id: 'A', name: '寫規格', skill: 'spec', state: 'none' }, { id: 'B', name: '寫程式', type: 'main-conversation', state: 'passed' }, { id: 'D', name: '魔鬼教官', skill: 'chaos-check', ...o }];
   eq('要不要再跑', rw(st({ state: 'stale', rerun: { state: 'ask' } })), '這一輪走到 D 魔鬼教官（要不要再跑由你決定）');
   eq('你說不用再跑', rw(st({ state: 'held', rerun: { state: 'skipped' } })), '這一輪走到 D 魔鬼教官（你說不用再跑）');

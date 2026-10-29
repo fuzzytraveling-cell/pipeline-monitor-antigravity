@@ -349,7 +349,7 @@ function loadPollLoop() {
     });
     const later = (fn, ms) => (stop ? 0 : setTimeout(fn, ms));
     const make = new Function('POLL_MS', 'GIVE_UP_MS', 'fetch', 'setTimeout', 'clearTimeout', 'AbortController', 'document', 'location', 'safeRender', 'paintFreshness',
-      `let latest = null, connected = false, bootVersion = null;\n${poll[0]}\n${loop[0]}\nreturn { pollLoop, connected: () => connected };`);
+      `const zhEn = (zh) => zh;\nconst LANG = 'zh';\nlet latest = null, connected = false, bootVersion = null;\n${poll[0]}\n${loop[0]}\nreturn { pollLoop, connected: () => connected };`);
     let api;
     const paint = () => connectedSeen.push(api?.connected());
     api = make(POLL_MS, GIVE_UP_MS, fakeFetch, later, clearTimeout, AbortController, { activeElement: null }, { reload() {} }, () => {}, paint);
@@ -372,7 +372,7 @@ function loadSuggestionsBlock(latest) {
   const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const ago = (iso) => (iso ? '3 分鐘前' : '');
   const clock = (iso) => (Number.isFinite(new Date(iso).getTime()) ? '9/17 12:00' : '時間對不上');
-  return new Function('esc', 'ago', 'clock', 'foldOpen', 'latest', `${m[0]}; return suggestionsBlock;`)(esc, ago, clock, () => false, latest);
+  return new Function('esc', 'ago', 'clock', 'foldOpen', 'latest', `const zhEn = (zh) => zh;\n${m[0]}; return suggestionsBlock;`)(esc, ago, clock, () => false, latest);
 }
 const TS = '2026-09-17T04:00:00Z';
 const sgCard = (o) => ({ id: 'toolu_1', ts: TS, source: 'app', title: '修徽章', tldr: '一句說明', prompt: '要貼的話', cwd: '/x', session: 's1', target: null, cut: [],
@@ -547,7 +547,7 @@ section('分級卡與存檔與蓋章卡:只看得到還沒存的時候不畫「�
   const ago = (iso) => (iso ? '3 分鐘前' : '');
   const cpOk = (c) => !!c?.checkpoint && c?.checkpointRelation?.state === 'ok';
   // foldOpen:檔名清單收起來的記憶(工地工班風畫面 AC-13),這裡一律當沒記過;latest:最上層的 stampHelp(commit 跟蓋章差在哪),照伺服器的做法給
-  const ui = code.every(Boolean) ? new Function('esc', 'ago', 'cpOk', 'foldOpen', 'latest', `${code.join('\n')}; return { statChanges, statTier };`)(esc, ago, cpOk, () => false, { stampHelp: STAMP_HELP }) : null;
+  const ui = code.every(Boolean) ? new Function('esc', 'ago', 'cpOk', 'foldOpen', 'latest', `const zhEn = (zh) => zh;\n${code.join('\n')}; return { statChanges, statTier };`)(esc, ago, cpOk, () => false, { stampHelp: STAMP_HELP }) : null;
   const empty = { total: 0, newCount: 0, uncommittedCount: 0, groups: [], unsaved: { count: 0, groups: [] }, saved: { count: 0, groups: [] } };
   // 分級卡的那幾句是伺服器照 lib/tier.mjs 的 tierLines 算好的(lines;規格:終端機與網頁說同一句)——這裡照伺服器的做法附上
   const unseen = { state: 'unseen', basis: { kind: 'head', why: 'not-found', origin: null } };
@@ -571,7 +571,7 @@ section('分級卡與存檔與蓋章卡:只看得到還沒存的時候不畫「�
   check('從 ui/app.js 拿得出 focusOf、overview', ovSrc.every(Boolean));
   // overview 要讀伺服器給的保留天數(「N 天內沒有結案的對話」;規格:90天清空之後的說法 AC-3)
   // foldOpen:已結案收起來的記憶(工地工班風畫面 AC-1),這裡一律當沒記過
-  const ov = ovSrc.every(Boolean) ? new Function('esc', 'ago', 'cpOk', 'latest', 'foldOpen', `${ovSrc.join('\n')}; return overview;`)(esc, ago, cpOk, { retainDays: RETAIN_DAYS }, () => false) : null;
+  const ov = ovSrc.every(Boolean) ? new Function('esc', 'ago', 'cpOk', 'latest', 'foldOpen', `const zhEn = (zh) => zh;\n${ovSrc.join('\n')}; return overview;`)(esc, ago, cpOk, { retainDays: RETAIN_DAYS }, () => false) : null;
   const ovCard = { path: '/x', ladder: { uncommitted: 0 }, checkpoint: null, files: empty, scope: blind.scope };
   const ovHtml = ov?.({ name: 'p', mainRoot: '/x', cards: [ovCard], sessions: [{ id: 's1', title: '調標籤', lastTs: '2026-09-22T01:00:00Z', closedAt: null, card: ovCard }] }) ?? '';
   check('案件首頁:看不全,不寫「沒有待檢查的檔案」', /看不全/.test(ovHtml) && !/沒有待檢查的檔案/.test(ovHtml), ovHtml.slice(0, 600));
@@ -592,7 +592,7 @@ section('存檔與蓋章卡:先講 commit 了沒,都 commit 了才講還沒蓋�
   check('從 ui/app.js 拿得出 statChanges(拿不出來這一段就什麼都沒測到)', code.every(Boolean));
   const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const ago = (iso) => (iso ? '3 分鐘前' : '');
-  const draw = code.every(Boolean) ? new Function('esc', 'ago', 'foldOpen', 'latest', `${code.join('\n')}; return statChanges;`)(esc, ago, () => false, { stampHelp: STAMP_HELP }) : () => '';
+  const draw = code.every(Boolean) ? new Function('esc', 'ago', 'foldOpen', 'latest', `const zhEn = (zh) => zh;\n${code.join('\n')}; return statChanges;`)(esc, ago, () => false, { stampHelp: STAMP_HELP }) : () => '';
   const g = (dir, ...names) => ({ dir, items: names.map((n) => ({ name: n, isNew: n.startsWith('new'), uncommitted: null })) });
   const many = (n, p = 'f') => Array.from({ length: n }, (_, i) => `${p}${i}.md`);
   const fl = ({ total, unsaved, saved }) => ({ total, newCount: 0, uncommittedCount: null, groups: [], unsaved, saved });
@@ -656,7 +656,7 @@ section('還原點那一行照實講:有沒 commit 的才說會丟掉幾個、�
   const code = [one('OLD_LINE'), one('cpOk'), pick('statRestore', 'c')];
   check('從 ui/app.js 拿得出 statRestore(拿不出來這一段就什麼都沒測到)', code.every(Boolean));
   const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  const draw = code.every(Boolean) ? new Function('esc', 'ago', 'clock', 'foldOpen', `${code.join('\n')}; return statRestore;`)(esc, () => '17 小時前', () => '10/28 16:55', () => false) : () => '';
+  const draw = code.every(Boolean) ? new Function('esc', 'ago', 'clock', 'foldOpen', `const zhEn = (zh) => zh;\n${code.join('\n')}; return statRestore;`)(esc, () => '17 小時前', () => '10/28 16:55', () => false) : () => '';
   const base = { path: '/x', checkpoint: { commit: 'a'.repeat(40), at: '2026-10-28T08:55:00Z', checks: ['lint', 'test'] },
                  checkpointRelation: { state: 'ok', commitsAfter: 4 }, backupBranch: '備份-2026-10-29-0931', cpVersion: null };
   const at = (dirty, lines = cardLines({ stamped: true, relation: base.checkpointRelation, dirty })) => draw({ ...base, dirty, lines });
@@ -673,7 +673,7 @@ section('還原點那一行照實講:有沒 commit 的才說會丟掉幾個、�
   check('舊的服務沒給那一句 → 不知道有沒有,照以前提醒;不印 undefined', /⚠️ 回去會丟掉還沒 commit 的東西/.test(old) && !/undefined|\bnull\b/.test(old), old);
   // 頁面最上面那一條:這一版以前的服務有 sharedLines、沒有 stampHelp——只看 sharedLines 認不出來(AC-10)
   const banner = src.match(/^function oldServerBanner\(\) \{\n[\s\S]*?\n\}\n/m)?.[0] ?? null;
-  const bannerOf = (latest) => (banner ? new Function('latest', `${banner}; return oldServerBanner();`)(latest) : '');
+  const bannerOf = (latest) => (banner ? new Function('latest', `const zhEn = (zh) => zh;\n${banner}; return oldServerBanner();`)(latest) : '');
   check('從 ui/app.js 拿得出 oldServerBanner', !!banner);
   check('上一版的服務(有 sharedLines、沒有 stampHelp)→ 最上面講服務還在跑舊的程式', /--serve-restart/.test(bannerOf({ projects: [], sharedLines: {} })));
   check('這一版的服務 → 不講', bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP }) === '');
@@ -696,7 +696,7 @@ section('上一手的對話頁:講明資料夾換人了,不畫資料夾現在的
   // workflow 換成會講出它拿到哪個資料夾的替身:E 那一格「你說驗收過了」的按鈕是按資料夾記的,path 在就會畫
   const oldLine = src.match(/^const OLD_LINE = .*;$/m)?.[0] ?? '';   // 「叫了不等於通過」那一句是伺服器給的;舊的服務沒給時用這一句
   const page = code ? new Function('latest', 'esc', 'ago', 'workflow', 'statRestore', 'statLadder', 'statChanges', 'statTier', 'sensorLine', 'stagesNoteLine',
-    `${oldLine}\n${code}; return sessionPage;`)(latest, esc, ago, (c) => `<workflow path=${c.path}>`, stub('restore'), stub('ladder'), stub('changes'), stub('tier'), stub('sensor'), stub('stagesNote')) : null;
+    `const zhEn = (zh) => zh;\n${oldLine}\n${code}; return sessionPage;`)(latest, esc, ago, (c) => `<workflow path=${c.path}>`, stub('restore'), stub('ladder'), stub('changes'), stub('tier'), stub('sensor'), stub('stagesNote')) : null;
   const old = page?.('p', 's0') ?? '';
   check('上一手:講這個資料夾 N 前換到另一條分支、給別的對話用了', /2 天前換到另一條分支、給別的對話用了/.test(old), old);
   check('上一手:不畫還原點、三階梯、改動、分級(那是下一手的)', !/<restore>|<ladder>|<changes>|<tier>/.test(old), old);
@@ -714,7 +714,7 @@ section('五關的工班:笑眼只給「你說處理完了」——Claude 自己
   const parts = [one('stageState'), one('OLD_LINE'), one('FACE'), fn('roundStage'), fn('eyes'), fn('agent'), fn('workflow')];
   check('從 ui/app.js 拿得出 workflow 與畫工班的小函式(拿不出來這一段就什麼都沒測到)', parts.every(Boolean), parts.map((p, i) => (p ? '' : i)).join(','));
   const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  const wf = parts.every(Boolean) ? new Function('esc', 'ago', 'ROLE', 'foldOpen', `${parts.join('\n')}; return workflow;`)(esc, () => '5 分鐘前', {}, () => false) : null;
+  const wf = parts.every(Boolean) ? new Function('esc', 'ago', 'ROLE', 'foldOpen', `const zhEn = (zh) => zh;\n${parts.join('\n')}; return workflow;`)(esc, () => '5 分鐘前', {}, () => false) : null;
   // 這一輪走到的那一關是 done(處理完了):誰說的決定給不給笑眼
   const face = (st) => (wf?.({ path: '/x', sensor: { state: 'ok' }, stages: [{ line: '處理完了', ...st }] }) ?? '')
     .match(new RegExp(`class="agent" data-id="${st.id}" data-face="([a-z]+)"`))?.[1] ?? null;
@@ -748,7 +748,7 @@ section('誰說處理完了只算一次(lib/rounds.mjs 的 doneBy):那一格的�
   const parts = [one('stageState'), one('OLD_LINE'), one('FACE'), fn('roundStage'), fn('eyes'), fn('agent'), fn('workflow')];
   check('從 ui/app.js 拿得出 workflow 與畫工班的小函式(拿不出來這一段就什麼都沒測到)', parts.every(Boolean), parts.map((p, i) => (p ? '' : i)).join(','));
   const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  const wf = parts.every(Boolean) ? new Function('esc', 'ago', 'ROLE', 'foldOpen', `${parts.join('\n')}; return workflow;`)(esc, () => '5 分鐘前', {}, () => false) : null;
+  const wf = parts.every(Boolean) ? new Function('esc', 'ago', 'ROLE', 'foldOpen', `const zhEn = (zh) => zh;\n${parts.join('\n')}; return workflow;`)(esc, () => '5 分鐘前', {}, () => false) : null;
   const paint = (screen) => wf?.({ path: '/x', sensor: { state: 'ok' }, stages: screen }) ?? '';
   const faceOf = (html, id) => html.match(new RegExp(`class="agent" data-id="${id}" data-face="([a-z]+)"`))?.[1] ?? null;
 

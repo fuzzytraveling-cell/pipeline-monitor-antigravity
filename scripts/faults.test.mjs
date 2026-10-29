@@ -244,7 +244,7 @@ section('畫面:每一頁最上面畫伺服器給的那一句;舊的服務沒給
   const ago = () => '3 小時前';
   const code = pick('faultBanner', '');
   check('從 ui/app.js 拿得出 faultBanner(拿不出來這一段就什麼都沒測到)', !!code);
-  const banner = (latest) => (code ? new Function('latest', 'esc', `${code}; return faultBanner;`)(latest, esc)() : '');
+  const banner = (latest) => (code ? new Function('latest', 'esc', `const zhEn = (zh) => zh;\n${code}; return faultBanner;`)(latest, esc)() : '');
   check('舊的服務(沒有 faults 這一欄)→ 講服務還在跑舊的程式、叫你重啟', /還在跑舊的程式/.test(banner({ projects: [] })) && /--serve-restart/.test(banner({ projects: [] })));
   eq('新的服務、沒有故障 → 什麼都不畫', banner({ projects: [], faults: { banner: [] } }), '');
   const red = banner({ projects: [], faults: { banner: [{ tone: 'red', text: '🔴 這台電腦的感測器記不到東西 <x>' }] } });
@@ -256,7 +256,7 @@ section('畫面:每一頁最上面畫伺服器給的那一句;舊的服務沒給
   const s1 = { id: 's1', title: 't', prompts: 1, lastTs: H(1), closedAt: null, stages: [], cwd: '/w', sharesCwd: false, movedOn: null,
                card: { path: '/w', branch: 'b', stages: [] }, unknownNote: '⚠️ 這個對話有 1 則不是你打的 <x>', faultNotes: ['⚠️ 感測器在 3 小時前記不到'] };
   const oldLine = src.match(/^const OLD_LINE = .*;$/m)?.[0] ?? '';   // 「叫了不等於通過」那一句是伺服器給的;舊的服務沒給時用這一句
-  const page = sp ? new Function('latest', 'esc', 'ago', 'workflow', 'statRestore', 'statLadder', 'statChanges', 'statTier', 'sensorLine', 'stagesNoteLine', `${oldLine}\n${sp}; return sessionPage;`)(
+  const page = sp ? new Function('latest', 'esc', 'ago', 'workflow', 'statRestore', 'statLadder', 'statChanges', 'statTier', 'sensorLine', 'stagesNoteLine', `const zhEn = (zh) => zh;\n${oldLine}\n${sp}; return sessionPage;`)(
     { projects: [{ name: 'p', sessions: [s1] }] }, esc, ago, stub('workflow'), stub('r'), stub('l'), stub('c'), stub('t'), stub('sensor'), stub('stagesNote')) : null;
   const html = page?.('p', 's1') ?? '';
   check('對話頁畫「沒算成你說的話」那一句與「感測器記不到」那一句(跳脫過)', html.includes('1 則不是你打的 &lt;x&gt;') && html.includes('感測器在 3 小時前記不到'), html);
@@ -264,7 +264,7 @@ section('畫面:每一頁最上面畫伺服器給的那一句;舊的服務沒給
   const sl = pick('sensorLine', 'c');
   const markSrc = src.match(/^const mark = .*;$/m)?.[0] ?? null;
   check('從 ui/app.js 拿得出 sensorLine(與標粗體的小幫手)', !!sl && !!markSrc);
-  const line = (c, latest = { faults: { banner: [], blind: false } }) => (sl && markSrc ? new Function('latest', 'esc', 'ago', `${markSrc}\n${sl}; return sensorLine;`)(latest, esc, ago)(c) : '');
+  const line = (c, latest = { faults: { banner: [], blind: false } }) => (sl && markSrc ? new Function('latest', 'esc', 'ago', `const zhEn = (zh) => zh;\n${markSrc}\n${sl}; return sensorLine;`)(latest, esc, ago)(c) : '');
   // 伺服器做的事:已掛上、最後一筆、掛壞了、沒掛上那幾句照 lib/faults.mjs 的 sensorParts 算好放進 lines(終端機同一句;規格:終端機與網頁說同一句)
   const linesOf = (mount, lastSeen) => sensorParts({ mount, lastSeen, gate: null, ago, notMountedHow: '。在那個資料夾跑 pipeline-status --on。' });
   const dangling = { state: 'broken', where: 'plugin', paths: ['/h/.claude/skills/pipeline-monitor'], dangling: true };
@@ -422,8 +422,8 @@ section('魔鬼教官第一輪:三種頁面最上面都接了故障橫條(真的
   // 舊的服務那一條(規格:終端機與網頁說同一句 AC-5)也在每一頁最上面,接在故障橫條後面。
   // paint 是把整頁換上去的那一支(內容一樣就不換,工地工班風畫面 AC-3);這裡要看的是 render 交給它的那一整頁
   const paint = (html) => { $app.innerHTML = html; };
-  const render = code.every(Boolean) ? new Function('$app', '$crumb', 'location', 'latest', 'esc', 'projectList', 'projectPage', 'sessionPage', 'faultBanner', 'oldServerBanner', 'paint',
-    `${code.join('\n')}; return render;`)($app, $crumb, location, { projects: [] }, (v) => String(v ?? ''), stub('list'), stub('project'), stub('session'), stub('BANNER'), stub('OLD'), paint) : null;
+  const render = code.every(Boolean) ? new Function('$app', '$crumb', 'location', 'latest', 'esc', 'projectList', 'projectPage', 'sessionPage', 'faultBanner', 'oldServerBanner', 'paint', 'langBanner',
+    `const zhEn = (zh) => zh;\n${code.join('\n')}; return render;`)($app, $crumb, location, { projects: [] }, (v) => String(v ?? ''), stub('list'), stub('project'), stub('session'), stub('BANNER'), stub('OLD'), paint, () => '') : null;
   for (const [hash, what] of [['', '案件列表'], ['#/p/x', '對話清單'], ['#/p/x/s/s1', '對話頁']]) {
     location.hash = hash;
     render?.();

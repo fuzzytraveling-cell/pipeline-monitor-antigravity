@@ -8,8 +8,14 @@
  *    判斷在 lib/freshness.mjs(純函式,被測試釘住),這裡只負責畫。
  * ⚠️ 終端機也講的句子,這裡不寫第二份:句子住 lib,伺服器算好帶過來,這裡照印(規格:終端機與網頁說同一句;老毛病 P2)。
  *    這裡只管放在哪、粗體、大字、按鈕。舊的服務沒給那一句時講服務還在跑舊的程式,不自己拼。
+ * ⚠️ 中英切換(規格:儀表板與終端機中英切換):這裡自己的字一律寫成 zhEn(中文, English),兩種並排——只寫中文,測試會紅(AC-4)。
+ *    一頁只有一種語言,來源只有一個:伺服器送 index.html 時寫在 <html data-lang> 的那一種(第一眼就是對的語言)。
+ *    資料回來說是另一種(終端機切了、別的分頁按了)就整頁重新載入——不在同一頁裡換一半(AC-7)。舊的服務不寫 data-lang、資料也沒有 lang＝中文。
  */
 import { describeFreshness, STALE_AFTER_SECONDS } from '/freshness.mjs';
+
+const LANG = document.documentElement?.dataset?.lang === 'en' ? 'en' : 'zh';
+const zhEn = (zh, en) => (LANG === 'en' ? en : zh);
 
 const POLL_MS = 5000;
 let latest = null, connected = false;
@@ -21,6 +27,7 @@ let bootVersion = null;
 const $app = document.getElementById('app');
 const $fresh = document.getElementById('freshness');
 const $crumb = document.getElementById('crumb');
+const $langNote = document.getElementById('lang-note');
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -29,19 +36,19 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) =>
 /* 每一關在做什麼——用 Oscar 自己那張「蓋房子」對照表的白話。
    形狀畫在 64×66 的格子裡(底下留兩格給影子);eye 是兩隻眼睛中間那一點。顏色在 ui.css,跟著 data-id 走,永遠是那一關的顏色 */
 const ROLE = {
-  A: { house: '建築師畫圖', does: '把需求翻成一條條可以打勾的驗收條件',
+  A: { house: zhEn('建築師畫圖', 'The architect draws the plans'), does: zhEn('把需求翻成一條條可以打勾的驗收條件', 'Turns the request into acceptance criteria you can tick off one by one'),
        // 墨水滴:建築師畫圖用的墨
        shape: '<path d="M32 7C27 15 13 27 13 39c0 11 8.5 18 19 18s19-7 19-18C51 27 37 15 32 7z"/>', eye: [32, 40] },
-  B: { house: '工班施工', does: '照圖蓋,蓋到每條都打勾',
+  B: { house: zhEn('工班施工', 'The crew builds'), does: zhEn('照圖蓋,蓋到每條都打勾', 'Builds to the plans until every item is ticked'),
        // 圓球:就是你在講話的那個對話
        shape: '<circle cx="32" cy="34" r="22"/>', eye: [32, 33] },
-  C: { house: '收尾清場', does: '清掉施工留下的鷹架、暫時變數、複製貼上',
+  C: { house: zhEn('收尾清場', 'Site cleanup'), does: zhEn('清掉施工留下的鷹架、暫時變數、複製貼上', 'Clears away the scaffolding left from building: temporary variables, copy-paste'),
        // 雲朵:清乾淨之後的泡泡
        shape: '<path d="M20 52c-8 0-12-5.5-11-11 1-5 5.5-8 10-7.5C19.5 25.5 25.5 20 33 20c6.5 0 11.5 4 13 9.5 6-.5 11 4.5 10.5 11S51 52 45 52z"/>', eye: [33, 41] },
-  D: { house: '驗屋師傅拿槌子敲牆', does: '不是看漂不漂亮,是找「哪裡是空心的」',
+  D: { house: zhEn('驗屋師傅拿槌子敲牆', 'The inspector taps the walls with a hammer'), does: zhEn('不是看漂不漂亮,是找「哪裡是空心的」', 'Not checking whether it looks nice — looking for where it\'s hollow'),
        // 六角螺帽:敲敲看有沒有鎖緊
        shape: '<path d="M32 10l19.9 11.5v23L32 56 12.1 44.5v-23z"/>', eye: [32, 34] },
-  E: { house: '你自己走進去住一晚', does: '真的開門、開燈、沖馬桶,確認能住人',
+  E: { house: zhEn('你自己走進去住一晚', 'You move in for a night'), does: zhEn('真的開門、開燈、沖馬桶,確認能住人', 'Really open the doors, turn on the lights, flush the toilet: make sure people can live there'),
        // 小房子:你要住進去的那一間
        shape: '<path d="M32 9l22 18v27H10V27z"/>', eye: [32, 40] },
 };
@@ -85,7 +92,7 @@ function agent(st, s, here) {
 
 /* ═══ 新鮮度(AC-1／AC-2) ═══ */
 function paintFreshness() {
-  const f = describeFreshness({ generatedAt: latest?.generatedAt ?? NaN, now: Date.now(), connected });
+  const f = describeFreshness({ generatedAt: latest?.generatedAt ?? NaN, now: Date.now(), connected, lang: LANG });
   $fresh.textContent = f.label;
   $fresh.dataset.state = f.state;
   document.body.classList.toggle('dim', f.dim);
@@ -105,6 +112,8 @@ async function poll() {
       if (bootVersion === null) bootVersion = latest.appVersion;
       else if (latest.appVersion !== bootVersion) { location.reload(); return; }
     }
+    // 資料是另一種語言(終端機 --lang 切了、別的分頁按了):整頁重新載入,首頁跟資料才是同一種(AC-7)。舊的服務沒給這一欄＝中文
+    if ((latest?.lang === 'en' ? 'en' : 'zh') !== LANG && reloadForLang()) return;
     // 使用者正在分級表單裡打理由時,這一輪不重畫——重畫會把打到一半的字洗掉(2026-09-13 實測)。資料照抓,下一輪再畫。
     if (!document.activeElement?.closest?.('[data-tier-form]')) safeRender();
   } catch { connected = false; }   // AC-2:不准靜靜停止更新
@@ -120,20 +129,34 @@ async function pollLoop() {
   await poll();
   setTimeout(pollLoop, POLL_MS);
 }
+/**
+ * 換語言就重新載入一次。⚠️ 十秒內已經為了語言重新載入過、還是對不上,就不再載——不該發生(首頁跟資料每次都重讀同一個設定),
+ * 但真的發生時寧可這一頁照舊、等下一次,也不准一直重新載入、整頁什麼都看不到。
+ */
+function reloadForLang() {
+  let last = 0;
+  try { last = Number(sessionStorage.getItem('pm-lang-reload')) || 0; } catch { /* 記不了就當沒載過 */ }
+  if (Date.now() - last < 10_000) return false;
+  try { sessionStorage.setItem('pm-lang-reload', String(Date.now())); } catch { /* 記不了也照樣載這一次 */ }
+  location.reload();
+  return true;
+}
 
 function ago(iso) {
   if (!iso) return '';
   const s = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
-  if (!Number.isFinite(s)) return '時間對不上';
-  if (s < 60) return `${Math.max(0, s)} 秒前`;
-  const m = Math.round(s / 60); if (m < 60) return `${m} 分鐘前`;
-  const h = Math.round(m / 60); return h < 48 ? `${h} 小時前` : `${Math.round(h / 24)} 天前`;
+  if (!Number.isFinite(s)) return zhEn('時間對不上', '(time doesn\'t line up)');
+  // 英文的單複數是句子的一部分
+  const en = (n, one) => `${n} ${one}${n === 1 ? '' : 's'} ago`;
+  if (s < 60) return zhEn(`${Math.max(0, s)} 秒前`, en(Math.max(0, s), 'second'));
+  const m = Math.round(s / 60); if (m < 60) return zhEn(`${m} 分鐘前`, en(m, 'minute'));
+  const h = Math.round(m / 60); return h < 48 ? zhEn(`${h} 小時前`, en(h, 'hour')) : zhEn(`${Math.round(h / 24)} 天前`, en(Math.round(h / 24), 'day'));
 }
 const clock = (iso) => {
   const d = new Date(iso);
   return Number.isFinite(d.getTime())
     ? `${String(d.getMonth() + 1)}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
-    : '時間對不上';
+    : zhEn('時間對不上', '(time doesn\'t line up)');
 };
 // 狀態是伺服器算好的(lib/rounds.mjs 的 roundView):main／notbuilt／none／passed／current／done／stale／held／seen。
 // 畫面上 current 沿用「ran」的樣式(亮),passed 是劃掉變淡,done 是劃掉但深色(你說處理完了)。
@@ -144,14 +167,19 @@ const stageState = (st) => st.state === 'current' ? 'ran' : (st.state ?? 'none')
  * 以前這裡各寫一份翻譯,改一邊要記得改另一邊(老毛病 P2;規格:終端機與網頁說同一句)。
  * 舊的服務(合併之後還沒 --serve-restart)沒給那一句:不自己拼、不留空白,講服務還在跑舊的程式(AC-5)。
  */
-const OLD_LINE = '（服務還在跑舊的程式）';
+const OLD_LINE = zhEn('（服務還在跑舊的程式）', '(the service is still running the old program)');
 /** 伺服器給的句子裡把一段標起來(粗體、指令的樣子)。找不到那一段就照原樣——只影響長相,不影響字 */
 const mark = (text, part, tag = 'b') => { const t = esc(text), m = esc(part ?? ''); return m && t.includes(m) ? t.replace(m, () => `<${tag}>${m}</${tag}>`) : t; };
 /** 舊的服務一頁講一次怎麼修;每個缺字的地方只放上面那句短的。
  *  stampHelp 是存檔與蓋章卡那一版才有的(規格:先講commit再講蓋章 AC-10)——那一版以前的服務有 sharedLines,只看它認不出來 */
 function oldServerBanner() {
   return latest && (!('sharedLines' in latest) || !('stampHelp' in latest))
-    ? '<p class="fault" data-tone="amber">🟡 儀表板的服務還在跑舊的程式，有幾句畫不出來——跑 <code>pipeline-status --serve-restart</code></p>' : '';
+    ? zhEn('<p class="fault" data-tone="amber">🟡 儀表板的服務還在跑舊的程式，有幾句畫不出來——跑 <code>pipeline-status --serve-restart</code></p>',
+      '<p class="fault" data-tone="amber">🟡 The dashboard service is still running the old program, so a few lines can\'t be drawn: run <code>pipeline-status --serve-restart</code></p>') : '';
+}
+/** 語言設定讀不懂(被改壞、寫了不認得的語言):先用中文,但每一頁最上面講一句,不默默用(AC-7)。句子是伺服器給的,跟終端機同一句 */
+function langBanner() {
+  return latest?.langNote ? `<p class="fault" data-tone="amber">${esc(latest.langNote)}</p>` : '';
 }
 /** 清單收合的狀態:key 是「工作區|關」。沒記過就用 dflt(驗收清單預設展開;收起來的建議卡預設收著);記在 localStorage,重新整理也記得。畫面每幾秒重畫一次,不能靠 DOM 記 */
 const FOLD_KEY = 'pm-fold';
@@ -186,17 +214,22 @@ function roundWhere(stages) {
     // E 驗收:伺服器照 lib/verify.mjs 算好的那一句(Claude 走過一遍,等你查核……);舊的服務沒給就照舊
     // 已經驗收也照這一句:Claude 代記的要講是 Claude 代記(魔鬼教官第二輪:以前 done 寫死「你說驗收過了」,第一輪那條只修了一半)
     // 好幾份規格、有一份讀不到:B 對完的只是讀得到的那幾份,這一句也要講(魔鬼教官第一輪:B 那一行講了,對話列與案件卡沒講)
-    const unread = cur.type === 'main-conversation' && cur.checklist?.unreadable?.length ? `另有 ${cur.checklist.unreadable.length} 份規格讀不到` : '';
-    const tail = cur.type === 'browser' && cur.ewhere ? `（${cur.ewhere}）` : cur.state === 'done' ? (cur.type === 'browser' ? '（你說驗收過了）' : `（處理完了${unread ? `；${unread}` : ''}）`) : unread ? `（${unread}）` : '';
-    return `這一輪走到 ${cur.id} ${cur.name}${tail}`;
+    const n = cur.type === 'main-conversation' ? cur.checklist?.unreadable?.length ?? 0 : 0;
+    const unread = n ? zhEn(`另有 ${n} 份規格讀不到`, `${n} more ${n === 1 ? 'spec' : 'specs'} couldn't be read`) : '';
+    const tail = cur.type === 'browser' && cur.ewhere ? zhEn(`（${cur.ewhere}）`, ` (${cur.ewhere})`)
+      : cur.state === 'done' ? (cur.type === 'browser' ? zhEn('（你說驗收過了）', ' (you said accepted)') : zhEn(`（處理完了${unread ? `；${unread}` : ''}）`, ` (handled${unread ? `; ${unread}` : ''})`))
+      : unread ? zhEn(`（${unread}）`, ` (${unread})`) : '';
+    return zhEn(`這一輪走到 ${cur.id} ${cur.name}${tail}`, `This round is at ${cur.id} ${cur.name}${tail}`);
   }
   const open = at?.open ? at.st : null;
   if (open) {
-    const why = open.type === 'browser' && open.ewhere ? open.ewhere : open.state === 'held' ? '你說不用再跑' : open.rerun?.state === 'ask' ? '要不要再跑由你決定'
-      : open.rerun?.state === 'found' ? '找到問題，還沒處理完' : open.rerun?.state === 'no-report' ? 'Claude 還沒記結論' : '要處理';
-    return `這一輪走到 ${open.id} ${open.name}（${why}）`;
+    const why = open.type === 'browser' && open.ewhere ? open.ewhere : open.state === 'held' ? zhEn('你說不用再跑', 'you said no need to run it again')
+      : open.rerun?.state === 'ask' ? zhEn('要不要再跑由你決定', 'whether to run it again is your call')
+      : open.rerun?.state === 'found' ? zhEn('找到問題，還沒處理完', 'found problems, not handled yet')
+      : open.rerun?.state === 'no-report' ? zhEn('Claude 還沒記結論', 'Claude hasn\'t recorded a conclusion yet') : zhEn('要處理', 'needs attention');
+    return zhEn(`這一輪走到 ${open.id} ${open.name}（${why}）`, `This round is at ${open.id} ${open.name} (${why})`);
   }
-  return '這一輪還沒有紀錄';
+  return zhEn('這一輪還沒有紀錄', 'No record yet this round');
 }
 
 /**
@@ -455,14 +488,15 @@ function statTier(c, p) {
  */
 function sensorLine(c) {
   const m = c.sensor?.mount, q = c.sensor?.lines ?? null;
-  const restart = '（儀表板的服務還在跑舊的程式，重啟它：<code>pipeline-status --serve-restart</code>）';
+  const restart = zhEn('（儀表板的服務還在跑舊的程式，重啟它：<code>pipeline-status --serve-restart</code>）',
+    ' (the dashboard service is still running the old program; restart it: <code>pipeline-status --serve-restart</code>)');
   if (m?.state === 'broken') {
     // ⚠️ 最危險的一種:設定看起來好好的,紀錄卻安靜地停了(LESSONS L13)
-    if (!q) return `<p class="section-note">🔴 感測器掛著,但它指向的檔案不存在${restart}。</p>`;
-    return `<p class="section-note">${mark(q.broken, q.em)}${q.stopped ? `（${esc(q.stopped)}）` : ''}。${esc(c.sensor?.fix ?? '')}</p>`;
+    if (!q) return zhEn(`<p class="section-note">🔴 感測器掛著,但它指向的檔案不存在${restart}。</p>`, `<p class="section-note">🔴 The sensor is hooked up, but the file it points to doesn't exist${restart}.</p>`);
+    return `<p class="section-note">${mark(q.broken, q.em)}${q.stopped ? zhEn(`（${esc(q.stopped)}）`, ` (${esc(q.stopped)})`) : ''}${zhEn('。', '. ')}${esc(c.sensor?.fix ?? '')}</p>`;
   }
   if (m?.state === 'ok') {
-    if (!q || !('noneLine' in c.sensor)) return `<p class="section-note">感測器：已掛上${restart}</p>`;
+    if (!q || !('noneLine' in c.sensor)) return zhEn(`<p class="section-note">感測器：已掛上${restart}</p>`, `<p class="section-note">Sensor: hooked up${restart}</p>`);
     // 收工 hook 活著沒:看心跳,不看設定——「掛著」不等於「活著」(L13)。
     // 三件事各放一顆小標籤,字照伺服器給的、一段都不拆(終端機同一句;工地工班風畫面 AC-10)
     return `<p class="section-note chips">${[q.mounted, q.seen ?? c.sensor.noneLine ?? '', q.gate].map((t) => `<span class="chip">${esc(t)}</span>`).join('')}</p>`;
@@ -471,7 +505,8 @@ function sensorLine(c) {
   if (c.sensor && 'offLine' in c.sensor && (c.sensor.offLine || q)) {
     return `<p class="section-note">${c.sensor.offLine ? esc(c.sensor.offLine) : mark(q.notMounted, 'pipeline-status --on', 'code')}</p>`;
   }
-  return `<p class="section-note">感測器：設定裡找不到——細節跑 <code>pipeline-status</code> 看${restart}。</p>`;
+  return zhEn(`<p class="section-note">感測器：設定裡找不到——細節跑 <code>pipeline-status</code> 看${restart}。</p>`,
+    `<p class="section-note">Sensor: not found in the settings. For details, run <code>pipeline-status</code>${restart}.</p>`);
 }
 
 /** 專案自己寫的關卡讀不懂、先照內建的五關畫:伺服器給的那一句(跟終端機同一句,lib/rounds.mjs)。沒有就不畫 */
@@ -489,11 +524,11 @@ function workflow(c) {
   const rows = c.stages.map((st) => {
     const s = stageState(st);
     const r = ROLE[st.id] ?? { house: '', does: '' };
-    const said = st.type === 'browser' ? '驗收過了' : '處理完了';
+    const said = st.type === 'browser' ? zhEn('驗收過了', 'accepted') : zhEn('處理完了', 'handled');
     // 只有驗收那一關有按鈕(五關自動結案 AC-10):其他關由儀表板自動辨識——按鈕多了會被忽略跳過(Oscar)。跟 CLI 的 --clear 同一種紀錄(source:human)
     // E 還沒被你說驗收過(只開過瀏覽器、Claude 走過一遍等你查核、你說過了之後又改了程式、你說不用再走)都給按鈕;按了是你說的(source:human)
     const stamp = st.type === 'browser' && ['seen', 'ran', 'stale', 'held'].includes(s) && c.path
-      ? `<button class="mini-btn" data-clear="${esc(st.id)}" data-proj="${esc(c.project ?? '')}" data-cwd="${esc(c.path)}">你說${said}</button>` : '';
+      ? `<button class="mini-btn" data-clear="${esc(st.id)}" data-proj="${esc(c.project ?? '')}" data-cwd="${esc(c.path)}">${zhEn(`你說${said}`, `You say it's ${said}`)}</button>` : '';
     // E 驗收:三句話分開講——開過瀏覽器、Claude 說走了一遍、你說驗收過了(E 自動驗收 AC-7)。文案是伺服器照 lib/verify.mjs 算好的,這裡只畫;
     // 「看到了」不劃掉、不打勾(那是 Claude 說的,R2)。舊的服務沒給 elines 就照舊畫一行
     const el = st.type === 'browser' ? st.elines ?? null : null;
@@ -503,14 +538,14 @@ function workflow(c) {
     // 那一句是伺服器照 lib/stageLines.mjs 算好的,跟終端機同一句(B 改到程式檔沒、A 等你點頭、D 要不要再跑由你決定…)。這裡只畫
     const status = 'line' in st ? st.line ?? '' : OLD_LINE;
     const saidArgs = st.args
-      ? `<div class="said">「${esc(st.args.slice(0, 90))}${st.args.length > 90 ? '…' : ''}」</div>` : '';
+      ? `<div class="said">${zhEn(`「${esc(st.args.slice(0, 90))}${st.args.length > 90 ? '…' : ''}」`, `“${esc(st.args.slice(0, 90))}${st.args.length > 90 ? '…' : ''}”`)}</div>` : '';
     // 寫規格那一關的旁白(規格在哪、另寫了一份…):伺服器給的,跟終端機同一句。舊的服務沒給:那一格的狀態列已經講了舊的程式
     const notes = (Array.isArray(st.notes) ? st.notes : []).map((n) => `<div class="said">${esc(n)}</div>`).join('');
     // A 的清單就是規格檔裡的 AC,照檔案畫(AC-5)。解析不了就照原文、找不到就說找不到——不假裝
     // 只有 A 帶完整的清單(有 items);B 只帶進度摘要,進度已經寫在狀態列,這裡不畫——畫下去就是 undefined 的 .map(2026-09-16 實際炸過一次)
     const cl = st.checklist && Array.isArray(st.checklist.items) ? st.checklist : null;
     const aclItems = (x) => `<ul class="acl">${x.items.map((it) => `<li data-state="${esc(it.state)}"${it.inBatch === false ? ' data-batch="out"' : ''}><span class="mark">${it.state === 'checked' ? '✅' : it.state === 'pending' ? '⏳' : '○'}</span>
-          <span><b>${esc(it.id)}</b> ${esc(it.title)}${it.state === 'pending' && it.note ? `<span class="muted">（待討論：${esc(it.note)}）</span>` : ''}${it.inBatch === false ? '<span class="muted">（不在這一批）</span>' : ''}${
+          <span><b>${esc(it.id)}</b> ${esc(it.title)}${it.state === 'pending' && it.note ? `<span class="muted">${zhEn(`（待討論：${esc(it.note)}）`, ` (pending discussion: ${esc(it.note)})`)}</span>` : ''}${it.inBatch === false ? `<span class="muted">${zhEn('（不在這一批）', ' (not in this batch)')}</span>` : ''}${
           it.plain ? `<div class="plain">${esc(it.plain)}</div>` : ''}</span></li>`).join('')}</ul>`;
     // 可收折、預設收起(Oscar 2026-09-16):摘要一行講進度,展開才看每一條;對過的劃掉
     // 預設展開;你收起來就記住,資料每幾秒重畫一次也不會蓋掉你的選擇(Oscar 2026-09-16:一重畫就縮回去,很干擾)
@@ -525,7 +560,7 @@ function workflow(c) {
       : cl.multi ? `<div class="acl">${esc(lineOf(L?.head))}</div>`
         + cl.parts.map((p, i) => (!p.checklist ? ''
           : !p.checklist.parsed ? `<div class="acl muted">${esc(lineOf(L?.parts?.[i]))}</div>`
-          : aclBox(`${c.path ?? ''}|${st.id}|${p.name}`, `驗收清單 · ${esc(lineOf(L?.parts?.[i]))}`, aclItems(p.checklist)))).join('')
+          : aclBox(`${c.path ?? ''}|${st.id}|${p.name}`, zhEn(`驗收清單 · ${esc(lineOf(L?.parts?.[i]))}`, `Acceptance checklist · ${esc(lineOf(L?.parts?.[i]))}`), aclItems(p.checklist)))).join('')
       : cl.missing || !cl.parsed ? `<div class="acl muted">${esc(lineOf(L?.head))}</div>`
       // 分批做的規格(施工對話認規格 AC-8):整份照畫,不在這一批的標出來、淡一點——收工前只要求這一批
       : aclBox(`${c.path ?? ''}|${st.id}`, esc(lineOf(L?.title)),
@@ -543,7 +578,7 @@ function workflow(c) {
     const foldKey = `stage|${c.path ?? ''}|${st.id}`;
     const detail = `<div class="adoes">${esc(r.does)}</div>${saidArgs}${notes}${clHtml}${noteHtml}${eList}`;
     const body = here || s === 'stale' || stamp ? `${detail}${stamp}`
-      : `<details class="amore" data-fold="${esc(foldKey)}"${foldOpen(foldKey, false) ? ' open' : ''}><summary>細節</summary>${detail}</details>`;
+      : `<details class="amore" data-fold="${esc(foldKey)}"${foldOpen(foldKey, false) ? ' open' : ''}><summary>${zhEn('細節', 'Details')}</summary>${detail}</details>`;
 
     return `<div class="railcell" data-state="${s}">
         <span class="rlab">${esc(st.id)}</span>
@@ -557,10 +592,12 @@ function workflow(c) {
           <div class="astatus">${el ? [el.acts, el.walk, el.human].map(esc).join('<br>') : esc(status)}</div>
           ${body}
         </div>
-        <span class="lamp" title="${st.type === 'browser' && st.ewhere ? esc(st.ewhere) : s === 'passed' ? '已走過' : s === 'done' || s === 'ran' ? '現在這一關'
-          : s === 'stale' ? (st.type === 'main-conversation' ? '清單沒對完' : !st.rerun ? '結論過期,要再跑一次'
-            : st.rerun.state === 'no-report' ? 'Claude 還沒記結論' : st.rerun.state === 'found' ? 'Claude 說找到問題,還沒處理完' : '改過程式檔,要不要再跑由你決定')
-          : s === 'held' ? 'Claude 記下你說不用再跑——是你的決定,不是驗過了' : s === 'seen' ? '開過瀏覽器' : '這一輪還沒跑'}"></span>
+        <span class="lamp" title="${st.type === 'browser' && st.ewhere ? esc(st.ewhere) : s === 'passed' ? zhEn('已走過', 'moved on') : s === 'done' || s === 'ran' ? zhEn('現在這一關', 'current stage')
+          : s === 'stale' ? (st.type === 'main-conversation' ? zhEn('清單沒對完', 'checklist not fully checked') : !st.rerun ? zhEn('結論過期,要再跑一次', 'the conclusion is out of date; run it again')
+            : st.rerun.state === 'no-report' ? zhEn('Claude 還沒記結論', 'Claude hasn\'t recorded a conclusion yet') : st.rerun.state === 'found' ? zhEn('Claude 說找到問題,還沒處理完', 'Claude says it found problems, not handled yet')
+            : zhEn('改過程式檔,要不要再跑由你決定', 'code files changed; whether to run it again is your call'))
+          : s === 'held' ? zhEn('Claude 記下你說不用再跑——是你的決定,不是驗過了', 'Claude recorded that you said no need to run it again: your decision, not a check')
+          : s === 'seen' ? zhEn('開過瀏覽器', 'browser was opened') : zhEn('這一輪還沒跑', 'not run yet this round')}"></span>
       </div>`;
   }).join('');
 
@@ -893,8 +930,9 @@ function sessionPage(name, sid) {
 
   // 「叫了不等於通過」那一句是伺服器給的(終端機同一句),字不改;破折號前面那半句是重點、後面小字(工地工班風畫面 AC-10)
   const called = String(latest?.sharedLines?.calledNotPassed ?? OLD_LINE);
-  const cut = called.indexOf('——');
-  const calledHtml = cut > 0 ? `<b>${esc(called.slice(0, cut))}</b><span class="tail">${esc(called.slice(cut + 2))}</span>` : esc(called);
+  const dash = zhEn('——', ' — ');
+  const cut = called.indexOf(dash);
+  const calledHtml = cut > 0 ? `<b>${esc(called.slice(0, cut))}</b><span class="tail">${esc(called.slice(cut + dash.length))}</span>` : esc(called);
 
   return `
     <div class="block">
@@ -920,7 +958,10 @@ function sessionPage(name, sid) {
  */
 function faultBanner() {
   if (!latest) return '';
-  if (!latest.faults) return '<p class="fault" data-tone="amber">🟡 儀表板的服務還在跑舊的程式，感測器跟收工 hook 有沒有壞這裡看不到——跑 <code>pipeline-status --serve-restart</code></p>';
+  if (!latest.faults) {
+    return zhEn('<p class="fault" data-tone="amber">🟡 儀表板的服務還在跑舊的程式，感測器跟收工 hook 有沒有壞這裡看不到——跑 <code>pipeline-status --serve-restart</code></p>',
+      '<p class="fault" data-tone="amber">🟡 The dashboard service is still running the old program, so this page can\'t see whether the sensor or the closing hook is broken: run <code>pipeline-status --serve-restart</code></p>');
+  }
   return (latest.faults.banner ?? []).map((b) => `<p class="fault" data-tone="${b.tone === 'red' ? 'red' : 'amber'}">${esc(b.text)}</p>`).join('');
 }
 
@@ -935,22 +976,25 @@ function route() {
 function render() {
   const r = route();
   const link = (href, t) => `<a href="${href}">${esc(t)}</a><span class="sep">/</span>`;
+  const cases = zhEn('案件', 'Projects');
   if (r.view === 'projects') {
-    $crumb.innerHTML = '<span>案件</span>';
-    paint(faultBanner() + oldServerBanner() + projectList());
+    $crumb.innerHTML = `<span>${cases}</span>`;
+    paint(faultBanner() + langBanner() + oldServerBanner() + projectList());
   } else if (r.view === 'project') {
     // 路由用的是檔名(safeName 過的);麵包屑給人看,要用真的資料夾名
     const p = latest?.projects?.find((x) => x.name === r.project);
-    $crumb.innerHTML = link('#/', '案件') + `<span>${esc(p?.displayName ?? r.project)}</span>`;
-    paint(faultBanner() + oldServerBanner() + projectPage(r.project));
+    $crumb.innerHTML = link('#/', cases) + `<span>${esc(p?.displayName ?? r.project)}</span>`;
+    paint(faultBanner() + langBanner() + oldServerBanner() + projectPage(r.project));
   } else {
     const p = latest?.projects?.find((x) => x.name === r.project);
     const s = p?.sessions.find((x) => x.id === r.session);
-    const t = s?.title ?? '對話';
-    $crumb.innerHTML = link('#/', '案件')
+    // 對話標題照字數截:英文一個字比較窄,放得比較多(規格 AC-6:那是版面)
+    const t = s?.title ?? zhEn('對話', 'Conversation');
+    const room = zhEn(20, 32);
+    $crumb.innerHTML = link('#/', cases)
       + link(`#/p/${encodeURIComponent(r.project)}`, p?.displayName ?? r.project)
-      + `<span${t.length > 20 ? ` title="${esc(t)}"` : ''}>${esc(t.slice(0, 20))}</span>`;
-    paint(faultBanner() + oldServerBanner() + sessionPage(r.project, r.session));
+      + `<span${t.length > room ? ` title="${esc(t)}"` : ''}>${esc(t.slice(0, room))}</span>`;
+    paint(faultBanner() + langBanner() + oldServerBanner() + sessionPage(r.project, r.session));
   }
 }
 /**
@@ -995,6 +1039,9 @@ window.addEventListener('resize', () => {
 async function refresh() { lastHtml = null; await poll(); }
 
 document.addEventListener('click', async (e) => {
+  // 中英切換(AC-1、AC-7):等伺服器回「現在是另一種」才整頁換——按了不等於換了(R2)。換不成就在按鈕旁講換不成,這一頁照舊
+  const ls = e.target.closest('[data-lang-switch]');
+  if (ls) { await switchLang(ls); return; }
   const go = e.target.closest('[data-go]');
   if (go) { location.hash = `#/p/${encodeURIComponent(go.dataset.go)}`; return; }
 
@@ -1005,7 +1052,7 @@ document.addEventListener('click', async (e) => {
   const cp = e.target.closest('[data-copy]');
   if (cp) {
     navigator.clipboard?.writeText(cp.dataset.copy);
-    const old = cp.textContent; cp.textContent = '已複製到剪貼簿';
+    const old = cp.textContent; cp.textContent = zhEn('已複製到剪貼簿', 'Copied to the clipboard');
     setTimeout(() => { cp.textContent = old; }, 1600);
     return;
   }
@@ -1076,15 +1123,39 @@ document.addEventListener('click', async (e) => {
     await refresh();
   } catch { b.disabled = false; }
 });
+/**
+ * 按了中英切換。換成了 → 整頁重新載入(首頁跟資料都照新的那一種送);換不成照實講,這一頁照舊原本那一種(AC-7):
+ *   連不上 → 「連不上，沒有切換」;舊的服務沒有這個位址(回的是一行字,不是 JSON)→ 重啟之後才能切換;寫不進去 → 照講。
+ */
+async function switchLang(btn) {
+  const want = LANG === 'en' ? 'zh' : 'en';
+  const say = (t) => { if ($langNote) $langNote.textContent = t; btn.disabled = false; };
+  btn.disabled = true;
+  if ($langNote) $langNote.textContent = '';
+  let r;
+  try {
+    r = await fetch('/api/lang', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ lang: want }) });
+  } catch { return say(zhEn('連不上，沒有切換', 'Couldn\'t connect, so nothing switched')); }
+  let body = null;
+  try { body = await r.json(); } catch { body = null; }
+  if (!body) return say(zhEn('服務還在跑舊的程式，重啟之後才能切換：pipeline-status --serve-restart', 'The service is still running the old program; you can switch after restarting it: pipeline-status --serve-restart'));
+  if (body.error === 'write') return say(zhEn('語言設定寫不進去，沒有切換', 'Couldn\'t write the language setting, so nothing switched'));
+  if (!r.ok || body.lang !== want) return say(zhEn('沒有切換', 'Nothing switched'));
+  // 這一次是自己按的:不算「為了語言重新載入過」,下一次資料對不上照樣會載
+  try { sessionStorage.removeItem('pm-lang-reload'); } catch { /* 沒記過就算了 */ }
+  location.reload();
+}
+
 // ⚠️ 畫面自己壞掉(某一頁的程式錯)跟資料斷線是兩件事。以前 render 一丟例外就被 poll 的 catch 接走,
 //    右上角寫「斷線」——那是把儀表板自己的 bug 講成別人的問題。這裡接住、照實說是畫面壞了,資料照常。
 function safeRender() {
   try { render(); }
   catch (e) {
-    console.error('畫面壞了', e);
+    console.error(zhEn('畫面壞了', 'this page failed to draw'), e);
     lastHtml = null;   // 下一次畫得出來就換掉這一句,就算跟壞掉之前那一頁一模一樣
-    $app.innerHTML = `<p class="muted">這一頁的畫面壞了（是儀表板自己的問題,不是資料斷線）。
-      <a href="#/">回案件列表</a>，然後把這件事告訴 Claude。</p>`;
+    $app.innerHTML = zhEn(`<p class="muted">這一頁的畫面壞了（是儀表板自己的問題,不是資料斷線）。
+      <a href="#/">回案件列表</a>，然後把這件事告訴 Claude。</p>`, `<p class="muted">This page failed to draw (a problem in the dashboard itself, not a lost connection).
+      <a href="#/">Back to the project list</a>, then tell Claude about it.</p>`);
   }
 }
 window.addEventListener('hashchange', safeRender);

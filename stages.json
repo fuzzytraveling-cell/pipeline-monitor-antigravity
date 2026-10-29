@@ -3,31 +3,37 @@
   "_說明2": "只有讀取端拿這裡判斷哪些呼叫算關卡。要加第六關,只改這裡。",
   "_說明3": "type=browser + tools(正則,比工具名):認的是「開了瀏覽器做動作」,永遠不是「驗收通過」。E 另有 skill(verify):Claude 照這一輪的規格在畫面上走一遍,每條記看到了／沒看到／驗不了——那是「走過一遍」,也不是驗收通過;驗收過了只有人能說(規格:E 自動驗收,路徑看 CLAUDE.md 的表)。",
   "_覆寫": "專案可放 .claude/pipeline-stages.json 覆寫,格式相同。",
+  "_英文名": "nameEn:英文的時候印這個名字(規格:儀表板與終端機中英切換;Oscar 2026-10-29 點頭定了這五個)。專案自己覆寫的關卡沒寫就照 name 印——那是資料,不替它翻。",
   "stages": [
     {
       "id": "A",
       "name": "寫規格",
+      "nameEn": "Spec",
       "skill": "spec"
     },
     {
       "id": "B",
       "name": "寫程式",
+      "nameEn": "Code",
       "type": "main-conversation"
     },
     {
       "id": "C",
       "name": "打掃",
+      "nameEn": "Cleanup",
       "skill": "cleanup"
     },
     {
       "id": "D",
       "name": "魔鬼教官",
+      "nameEn": "Chaos check",
       "skill": "chaos-check",
       "rerunAfterChange": true
     },
     {
       "id": "E",
       "name": "驗收",
+      "nameEn": "Acceptance",
       "type": "browser",
       "tools": "^mcp__(Claude_Browser|claude-in-chrome)__",
       "skill": "verify",

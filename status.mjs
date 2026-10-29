@@ -17,6 +17,8 @@
  *   cliReport（--report／--clear／--spec／--suggest）、cliRerun（--round／--decide）、cliOnOff（--on／--off）；大家共用的事實在 cliFacts。
  *   新指令的程式放進對應的那一支（或新開一支），這裡只加轉接的那一行——以前全部擠在這一支，改一個指令要讀整支、兩個對話一起改就撞。
  * 別的檔案不准 import 這支（以前 lib/collect.mjs 回頭 import 指令，跟這支繞成一圈）；要用什麼，去它住的那一支拿。
+ * 中英切換(規格:儀表板與終端機中英切換):語言設定在這裡讀一次,整個指令用同一種(lib/lang.mjs 的 withLang)——
+ *   句子不自己讀設定,你在一個指令跑到一半的那一刻切了,也不會半中半英。Claude 替你跑的那幾個指令照舊中文(CLAUDE_SIDE)。
  */
 
 import { readFileSync, realpathSync } from 'node:fs';
@@ -36,14 +38,26 @@ import { doCheckpoint } from './lib/cliStamp.mjs';
 import { doClear, doSpec, doReport, doSuggest } from './lib/cliReport.mjs';
 import { doRound, doDecide } from './lib/cliRerun.mjs';
 import { doMount } from './lib/cliOnOff.mjs';
+import { readLang, withLang, zhEn, langBrokenLine, doLang } from './lib/lang.mjs';
+
+/**
+ * Claude 替你跑的那幾個指令:Claude 讀的字跟技能一起換(另一份規格「技能與寫給AI的話中英切換」),這一份不換——
+ * 現在先換,技能照中文找的那幾句就對不上。不管你選了哪一種,照舊整句中文(AC-8)。
+ */
+const CLAUDE_SIDE = ['--round', '--report', '--decide', '--spec', '--suggest', '--tier-init', '--tier-off', '--tier-review', '--tier-checked', '--tier-later'];
 
 /* ══════════════════════════ main ══════════════════════════ */
 
-async function main() {
+async function main(L = { lang: 'zh', state: 'ok' }) {
   const argv = process.argv.slice(2);
   const at = (flag) => argv.indexOf(flag);
   // 旗標後面的自由文字(理由、資料夾),遇到下一個旗標就停
   const after = (flag) => argv.slice(at(flag) + 1).filter((a) => !a.startsWith('--'));
+
+  // 換語言:不需要站在 git 專案裡。它自己講現在是哪一種(含讀不懂),不用再印一次下面那一句
+  if (at('--lang') !== -1) return doLang(after('--lang')[0]);
+  // 語言設定讀不懂:先用中文,但最上面講一句,不默默用(AC-7)。Claude 那一側的指令不讀設定,所以不會走到這裡
+  if (L.state === 'broken') console.log(langBrokenLine());
 
   // 儀表板的背景服務(launchd):裝／拆／重啟／狀態,以及用瀏覽器打開。都不需要站在 git 專案裡
   const serveFlag = ['--serve-install', '--serve-uninstall', '--serve-restart', '--serve-status'].find((f) => at(f) !== -1);
@@ -69,8 +83,8 @@ async function main() {
   const cwd = process.cwd();
   const ctx = gitContext(cwd);
   if (!ctx.isGit) {                             // AC-10
-    console.log('這裡看起來不是一個 git 專案,所以沒有版本可以參照。');
-    console.log(`（目前位置：${cwd}）`);
+    console.log(zhEn('這裡看起來不是一個 git 專案,所以沒有版本可以參照。', 'This doesn\'t look like a git project, so there are no versions to refer to.'));
+    console.log(zhEn(`（目前位置：${cwd}）`, `(current location: ${cwd})`));
     return 0;
   }
   if (at('--on') !== -1 || at('--off') !== -1) return doMount(ctx, at('--on') !== -1);
@@ -87,7 +101,7 @@ async function main() {
   const faults = faultsNow(LOG_DIR, { retainDays: RETAIN_DAYS, move: moveState() });
   if (!ctx.hasCommits && at('--checkpoint') === -1) {
     renderSensor(ctx, ev, faults);
-    console.log('這個專案還沒有任何 commit,所以還沒有版本可以回去。');
+    console.log(zhEn('這個專案還沒有任何 commit,所以還沒有版本可以回去。', 'This project has no commits yet, so there\'s no version to go back to.'));
     return 0;
   }
 
@@ -133,4 +147,9 @@ function isMain() {
   catch { return false; }
 }
 // 一次輸出只取一次「現在」:五關那一行跟分級卡那一行講同一個事件,秒數才不會一邊 7 一邊 8(lib/git.mjs 的 withClock)
-if (isMain()) withClock(main).then((code) => process.exit(code));
+// 語言也只讀一次(withLang);Claude 那一側的指令不讀,照舊中文
+if (isMain()) {
+  const forClaude = CLAUDE_SIDE.some((f) => process.argv.slice(2).includes(f));
+  const L = forClaude ? { lang: 'zh', state: 'ok' } : readLang();
+  withLang(L.lang, () => withClock(() => main(L))).then((code) => process.exit(code));
+}
