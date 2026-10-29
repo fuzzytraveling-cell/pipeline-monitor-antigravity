@@ -841,6 +841,30 @@ section('還原點、三階梯、存檔與蓋章、分級:每一種狀態英文�
   check('調高的表單:理由的提示是英文', /placeholder="Reason \(required\)"/.test(ui.statTier({ ...card, tier: tiers.machine }, p)), ui.statTier({ ...card, tier: tiers.machine }, p));
 }
 
+section('分級卡「需要」那一列,E 必跑的時候(魔鬼教官第一輪):⏸ 的每一種英文都印出過了多久——中文由 tierLines 放最前面,英文住在句子裡,兩邊都不准漏(CLAUDE.md:跑過用 ⏸,一定印出過了多久)', 'P2');
+{
+  const t42 = T(-42 * MIN), t40 = T(-40 * MIN);
+  const stages = en(() => loadStages(ROOT, tmpdir()).stages);
+  const rowOf = (r, viewExtra = {}) => en(() => withClock(() => {
+    const view = { id: 'E', type: 'browser', skill: 'verify', state: 'stale', ranAt: t42, count: 3, actAt: t42, rerun: r, estate: r.estate, report: { ts: t40, note: 'AC-1 看到了：「Export」' }, ...viewExtra };
+    const reqs = requirementStatus(['E'], { stages, perStage: new Map(), cleared: new Map(), health: {}, rerun: new Map([['E', { ...r, view }]]), ago });
+    const t = { state: 'ok', machine: { rank: 1, id: 'T1', hits: { code: ['src/a.js'], danger: [] } }, final: { id: 'T1' }, requirements: reqs, basis: null, levels: { danger: { id: 'T2' } } };
+    return tierLines(t, { ago }).reqs[0];
+  }));
+  const base = { last: { call: { ts: t42 } }, took: null, concluded: { ts: t40, note: 'AC-1 看到了：「Export」' }, stage: { id: 'E', verb: 'walk' } };
+  const rows = {
+    '要不要再走由你決定': rowOf({ ...base, state: 'ask', estate: 'ask', decision: null }),
+    '你說不用再走(沒錨在你的驗收上)': rowOf({ ...base, state: 'skipped', estate: 'skipped', decision: { said: { text: 'no need to walk through again', ts: t40 } } }),
+    'Claude 還沒記結論': rowOf({ ...base, state: 'no-report', estate: 'no-report', concluded: null }),
+    'Claude 走過一遍,等你查核': rowOf({ ...base, state: 'ok', estate: 'ok' }),
+  };
+  for (const [k, row] of Object.entries(rows)) {
+    eq(`${k}:那一列是 ⏸(跑過,沒結案)`, row.mark, '⏸');
+    check(`${k}:英文印出過了多久(N minutes ago)`, /\d+ minutes? ago/.test(row.text), row.text);
+    noZh(`${k}:英文沒有中文(Claude 回報的原文除外)`, row.text, ['「Export」', '看到了']);
+  }
+}
+
 section('建議卡那一區(英文):誰叫的、看不到的、已開始、收回、你說不做了——主詞照中文,不補猜的(AC-3、AC-5)', 'P7');
 {
   const world = enWorld();
