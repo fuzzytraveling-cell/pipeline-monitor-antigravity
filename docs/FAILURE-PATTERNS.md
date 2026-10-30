@@ -268,12 +268,16 @@
 - 假的章把分支寫死成 main：這台 Mac 的 git 系統設定把新專案的預設分支定成 main，GitHub 的機器是 master。
   章要資料夾、分支都對得上之後（新對話接手舊資料夾），那顆假章在 GitHub 上成了別條分支的章。
   連 L24 那種「乾淨家目錄」的模擬都抓不到——設定在系統層，不在家目錄（L24 的第二次）
+- 反方向：測試只在 worktree 跑過（那裡沒有捷徑），搬過家的主資料夾 `logs`、`checkpoints` 卻是捷徑——git 拒答捷徑底下的路徑，
+  privacy.test 把「問不到」當成「沒有忽略」，到主資料夾蓋章才紅（L46，2026-10-29）
 
 ⚠️ 漏掉的方向：本機的綠讓人以為推上去沒事，紅在人已經走了之後才出現。
 
 **哪裡會再犯**：任何測試去跑真的指令、或自己寫一份「應該跟真的一樣」的假資料（章、紀錄）的地方。
 **釘住它的測試**：`scripts/collect.test.mjs` 標 P8 的段落（測試裡的 git 用 GitHub 機器上的預設分支名——`scripts/_harness.mjs` 給的，本機跑也照這樣）；
-`scripts/shellSyntax.test.mjs` 標 P8 的段落（hooks.json 接的每一支 .sh，本機有 dash 就再用 dash 讀一次：這台 Mac 的 sh 是 bash，GitHub 的是 dash）。
+`scripts/shellSyntax.test.mjs` 標 P8 的段落（hooks.json 接的每一支 .sh，本機有 dash 就再用 dash 讀一次：這台 Mac 的 sh 是 bash，GitHub 的是 dash）；
+`scripts/privacy.test.mjs` 標 P8 的段落（造一個 logs 是捷徑的 repo：真的忽略算有、沒忽略抓得到，跟 `git status` 說的一樣）；
+`scripts/home.test.mjs` 標 P8 的段落（家目錄被換掉了不碰舊的地方；跑完全部測試那道檢查，正常搬家不算被搬走）。
 
 ---
 
