@@ -33,5 +33,13 @@ for d in "$TOP" "$MAIN"; do
   [ "$HAS" = "true" ] && exit 0
 done
 
-printf '%s\n' "[產線監視器] 這個專案還沒設定分級（.claude/pipeline-stages.json 沒有 tiers）。回覆使用者的第一句話時,順帶問一句就好,不要打斷他原本的問題,而且只提這一次:要的話說「幫我設定分級」,不需要的話說「這個專案不用分級」。"
+# 語言(規格:技能與寫給AI的話中英切換 AC-5):跟 lib/lang.mjs 讀同一個設定檔(資料的家底下的 lang.json,家怎麼找跟 hook.sh 同一條)。
+# 只認 "en";沒有這個檔、讀不懂、寫了別的字,一律中文——跟 lib/lang.mjs「從來沒選過＝中文、讀不懂先用中文」同一條規則。
+# 讀不懂不另外講:提醒只准一行(讀不懂那一句是儀表板與終端機的事)
+UI_LANG=$(jq -r '.lang // empty' "${PIPELINE_MONITOR_HOME:-$HOME/.pipeline-monitor}/lang.json" 2>/dev/null)
+if [ "$UI_LANG" = "en" ]; then
+  printf '%s\n' "[Pipeline Monitor] This project hasn't set up tiers yet (.claude/pipeline-stages.json has no tiers). When you reply to the user's first message, just ask about it in one sentence, without interrupting their actual question, and only this once: if they want it, they say \"set up tiers\"; if they don't need it, they say \"this project doesn't need tiers\"."
+else
+  printf '%s\n' "[產線監視器] 這個專案還沒設定分級（.claude/pipeline-stages.json 沒有 tiers）。回覆使用者的第一句話時,順帶問一句就好,不要打斷他原本的問題,而且只提這一次:要的話說「幫我設定分級」,不需要的話說「這個專案不用分級」。"
+fi
 exit 0

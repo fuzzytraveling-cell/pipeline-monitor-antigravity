@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 import { decide } from '../gate.mjs';
+import { withLang } from '../lib/lang.mjs';
 import { collectAll, cardFor } from '../lib/collect.mjs';
 import { safeName } from '../lib/events.mjs';
 import { sessionsOf } from '../lib/rounds.mjs';
@@ -97,6 +98,40 @@ section('T1 這一回合改了程式區、C 與 D 還沒跑 → 擋一次,理由
   check('理由說要不要再跑由使用者決定、不要自己再跑、他說不用就 --decide',
     /要不要再跑由你決定/.test(again?.reason ?? '') && /不要自己再跑/.test(again?.reason ?? '') && /--decide D skip/.test(again?.reason ?? ''), again?.reason);
   check('最後那句不叫它「先把缺的跑完」(跟「不要自己再跑」打架,AC-7)', !/先把缺的跑完再收工/.test(again?.reason ?? '') && /先停下來問使用者/.test(again?.reason ?? ''), again?.reason);
+  s.cleanup();
+}
+
+
+section('英文那一份(規格:技能與寫給AI的話中英切換 AC-6):收工 hook 叫 Claude 先停下來把缺的那一關跑完——講「還沒跑 → 跑哪個指令」,不寫成 failed／error;D 過期了叫它先問人', 'P10');
+{
+  const s = scene();
+  s.write([
+    { ts: T(-5 * MIN), hook: 'UserPromptSubmit', prompt: 'please change it' },
+    { ts: T(-4 * MIN), hook: 'PostToolUse', tool: 'Edit', file: join(s.root, 'src/a.js') },
+  ]);
+  const zh = decide({ payload: s.payload, monitorDir: s.monitorDir, skillHome: s.home });
+  const d = withLang('en', () => decide({ payload: s.payload, monitorDir: s.monitorDir, skillHome: s.home }));
+  eq('擋的種類跟中文的時候一樣(只換字,不換判斷)', (d?.missing ?? []).join(','), (zh?.missing ?? []).join(','));
+  const head = (d?.reason ?? '').split('\n')[0], line = (d?.reason ?? '').split('\n').find((l) => l.startsWith('- D ')) ?? '';
+  check('第一行:這次改動至少 T1、碰到程式區的哪個檔、還缺什麼', /^\[Pipeline Monitor\] This change is at least T1 \(touched the code area: src\/a\.js/.test(head) && /Still missing before wrapping up:$/.test(head), head);
+  check('D 那一句:這一輪還沒跑 → 跑 plugin 的 chaos-check,照分級講跑法(T1 自己看)', line.includes(`not run yet this round → run /${PLUGIN}:chaos-check`) && /look yourself, don't send agents/.test(line), line);
+  check('……預先交代修完不要自己再跑、要再跑先問使用者', /After fixing, don't run this stage again on your own; to run it again, ask the user first/.test(line), line);
+  // 「不准」的字只查那一句(老毛病 P4:整段掃會抓到本來就在否定它的句子)
+  check('……那一句不准寫成 failed／error／passed(還沒跑不是跑了沒過)', !/\bfail(ed|s)?\b|\berror\b|\bpass(ed)?\b/i.test(line), line);
+  check('最後一句:分級的要求、先把缺的跑完——不是建議', /Run what's missing before wrapping up/.test(d?.reason ?? '') && /This is what the tier requires, not a suggestion\./.test(d?.reason ?? ''), d?.reason);
+  // D 記了結論之後又改了 → 不叫它再跑,叫它先問人
+  s.write([
+    { ts: T(-5 * MIN), hook: 'UserPromptSubmit', prompt: 'please change it' },
+    { ts: T(-4 * MIN), hook: 'PostToolUse', tool: 'Edit', file: join(s.root, 'src/a.js') },
+    { ts: T(-3 * MIN), hook: 'PreToolUse', tool: 'Skill', skill: 'chaos-check' },
+    { ts: T(-3 * MIN + 10), event: 'stage_report', stage: 'D', verdict: 'found', note: 'Found 1', source: 'claude' },
+  ]);
+  writeFileSync(join(s.root, 'src/a.js'), 'changed again\n');
+  const again = withLang('en', () => decide({ payload: s.payload, monitorDir: s.monitorDir, skillHome: s.home }));
+  const ask = (again?.reason ?? '').split('\n').find((l) => l.startsWith('- D ')) ?? '';
+  eq('D 之後又改了 → 只缺「D 先問人」', (again?.missing ?? []).join(','), 'D:ask');
+  check('那一句:要不要再跑由使用者決定、不要自己再跑、先停下來問、他說不用就 --decide', /whether to run it again is your call/.test(ask) && /Don't run it again on your own; stop and ask the user first/.test(ask) && /--decide D skip "the user's own words"/.test(ask), ask);
+  check('……最後那句不叫它「先把缺的跑完」,講明那一項是先停下來問使用者', !/Run what's missing before wrapping up/.test(again?.reason ?? '') && /mean stop and ask the user first and wait for their decision/.test(again?.reason ?? ''), again?.reason);
   s.cleanup();
 }
 

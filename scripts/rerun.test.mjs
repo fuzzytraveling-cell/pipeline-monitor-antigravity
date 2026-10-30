@@ -17,10 +17,11 @@ import { join, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
+import { withLang } from '../lib/lang.mjs';
 import { decide } from '../gate.mjs';
 import { collectAll } from '../lib/collect.mjs';
 import { safeName } from '../lib/events.mjs';
-import { sessionsOf, firstPromptsOf, saidByHuman, promptKind, rerunOf, rerunLine, tookLine, pairRuns } from '../lib/rounds.mjs';
+import { sessionsOf, firstPromptsOf, saidByHuman, promptKind, rerunOf, rerunLine, tookLine, pairRuns, runMode } from '../lib/rounds.mjs';
 import { stageLine } from '../lib/stageLines.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -227,6 +228,30 @@ section('AC-1、AC-11:第一次要求 D 的那段話照分級講跑法,並預先
   const r2 = t2.gate()?.reason ?? '';
   check('T2 第一輪:可以派獨立 agent,回報第一行寫派了幾個', /可以派獨立 agent/.test(r2) && /派了 N 個 agent/.test(r2), r2);
   t2.cleanup();
+}
+
+
+section('英文那一份(規格:技能與寫給AI的話中英切換 AC-6):D 第二輪以上先問人——--round D 與收工 hook 都不叫 Claude 自己再跑;「不准」的字只查那一句', 'P4');
+{
+  const s = scene();
+  const h = s.head();
+  s.touch('src/danger.js', -30 * MIN);
+  s.write([said(-40 * MIN, 'check it'), callD(-20 * MIN, h), report(-15 * MIN, 'found', 'Found 1'), said(-12 * MIN, 'fix it')]);
+  s.touch('src/danger.js', -5 * MIN);
+  const r = withLang('en', () => s.gate());
+  const line = (r?.reason ?? '').split('\n').find((l) => l.startsWith('- D ')) ?? '';
+  check('收工 hook:要不要再跑先問人(D:ask),不叫它跑', (r?.missing ?? []).includes('D:ask') && /Don't run it again on your own; stop and ask the user first/.test(line), line);
+  check('……那一句不准叫它自己再跑(沒有 "run it again" 的命令句、沒有 → run 指令)', !/→ run \//.test(line) && !/^- D [^:]+: run /.test(line), line);
+  const round = s.cli(['--round', 'D']);
+  // 這一句是給 Claude 的英文(收工 hook、--round 跟著語言設定):只在英文的家裡跑才是英文——這裡直接看函式算的
+  const mode = withLang('en', () => runMode({ nth: 2, levelId: 'T2', agents: true }).line);
+  check('第 2 次的跑法:不論分級都自己看、只看第一次之後改的檔、不派 agent', /^time 2: whatever the tier, look yourself, only at the files changed after the first time, and don't send agents$/.test(mode), mode);
+  // 老毛病 P4:「不准派 agent」那條檢查先寫兩個例子——必須抓到「可以派」、必須放過「不派」
+  const allowsAgents = (t) => /you may send independent agents/.test(t);
+  check('必須抓到:第一次、T2 可以派 agent 的那一句', allowsAgents(withLang('en', () => runMode({ nth: 1, levelId: 'T2', agents: true }).line)));
+  check('必須放過:第 2 次那一句(講的是 don\'t send agents)', !allowsAgents(mode), mode);
+  check('--round D(中文的家):照舊是中文那一份(測試的家沒設語言)', /第 2 次：不論分級都你自己看/.test(round.out), round.out);
+  s.cleanup();
 }
 
 section('AC-4、AC-5:你說不用再跑——附你在 D 之後說的原話(感測器記的);D 之後沒有你說的話不算數;你那句話之後又改的不算在裡面', 'P7');

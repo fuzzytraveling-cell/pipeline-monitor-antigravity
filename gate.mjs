@@ -19,6 +19,8 @@
  *      感測器沒記到這個對話的任何一句話 → 不知道回合從哪開始 → 放行(R1:沒問到不當沒有)。
  *
  * 擋不擋、缺什麼,都從儀表板同一份事實算(lib/collect.mjs 的 cardFor → sessionTier,跟對話頁同一個函式),不另外算一份(老毛病 P2)。
+ * 擋下來的那段話照語言設定(規格:技能與寫給AI的話中英切換 AC-5):main 讀一次,整段用同一種(lib/lang.mjs 的 withLang);
+ *   decide 自己不讀——測試直接叫它,沒包就是中文,跟改之前一字不差。借來的句子(rerunLine、changeScope、ago)跟著同一種。
  * 「這次改了什麼」從這一輪的起點算(規格:這一輪的起點):Claude 收工前先存檔,該擋的照樣擋——以前沒章時比的是上一次存檔,一存就全部放行。
  */
 import { readFileSync, writeFileSync, appendFileSync, existsSync, realpathSync } from 'node:fs';
@@ -35,6 +37,7 @@ import { changeScope } from './lib/scope.mjs';
 import { commandFor as findCommand, pluginName } from './lib/skills.mjs';
 import { optOutState } from './lib/mount.mjs';
 import { codeHome, dataDir, makeDataDir } from './lib/paths.mjs';
+import { zhEn, plural, readLang, withLang } from './lib/lang.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // 程式的主資料夾:decide 預設從那裡讀關卡清單(stages.json)。資料不住那裡了(規格:紀錄搬到固定的家)
@@ -154,28 +157,36 @@ export function decide({ payload, monitorDir = MONITOR_DIR, skillHome = undefine
     const relOf = (f) => (String(f ?? '').startsWith(ctx.root) ? String(f).slice(ctx.root.length + 1) : f);
     const file = relOf(cl.file);
     const ids = (c) => c.items.filter((x) => x.state === 'none' && x.inBatch !== false).map((x) => x.id);
-    const few = (list) => `${list.slice(0, 6).join('、')}${list.length > 6 ? ` 等 ${list.length} 條` : ''}`;
+    const few = (list) => zhEn(`${list.slice(0, 6).join('、')}${list.length > 6 ? ` 等 ${list.length} 條` : ''}`, `${list.slice(0, 6).join(', ')}${list.length > 6 ? ` and others (${list.length} in all)` : ''}`);
+    // 勾的寫法:規格是哪一種語言寫的都認(lib/checklist.mjs),英文那一句教英文的寫法
+    const marks = () => zhEn('「✅ 對過 日期」或「⏳ 待討論：原因」', '"✅ ticked <date>" or "⏳ to discuss: <reason>"');
     if (cl.multi) {
       // 一輪寫了好幾份(規格:多份規格與新資料夾的起點 AC-3):每一份的清單都要對,分份列。以前只拿第一份讀得出的清單——
       // 對完報告時間那 5 條就放行,語音斷線那 10 條沒對完也不攔(2026-10-02 實測)。讀不到的那份要不了(檔案不在,打不了勾),A 那格會講
-      const per = cl.parts.filter((p) => p.checklist?.parsed && p.checklist.unmarked > 0).map((p) => `${relOf(p.checklist.file)} 的 ${few(ids(p.checklist))}`);
-      if (per.length) missing.push({ key: 'checklist', line: `- 對規格的清單（這一輪 ${cl.parts.length} 份規格）：${per.join('；')} 還沒標——在每份規格每條 AC 的標題行末尾加「✅ 對過 日期」或「⏳ 待討論：原因」` });
+      const per = cl.parts.filter((p) => p.checklist?.parsed && p.checklist.unmarked > 0).map((p) => zhEn(`${relOf(p.checklist.file)} 的 ${few(ids(p.checklist))}`, `${few(ids(p.checklist))} in ${relOf(p.checklist.file)}`));
+      if (per.length) {
+        missing.push({ key: 'checklist', line: zhEn(`- 對規格的清單（這一輪 ${cl.parts.length} 份規格）：${per.join('；')} 還沒標——在每份規格每條 AC 的標題行末尾加${marks()}`,
+          `- Check the specs' checklists (${cl.parts.length} specs this round): ${per.join('; ')} not marked yet. At the end of every AC heading line in each spec, add ${marks()}`) });
+      }
     } else if (cl.batchMissing?.length) {
       // 這一批記的代號在檔案裡找不到了(改過號、刪了條):不是「這一批做完了」,是對不上——叫它重記(老毛病 P5,魔鬼教官 2026-09-21)
-      missing.push({ key: 'checklist', line: `- 對規格的清單：這一批記的 ${cl.batchMissing.join('、')} 在 ${file} 裡找不到了（可能改過號）——重記一次 pipeline-status --spec ${file} <這一批的 AC 代號>` });
+      missing.push({ key: 'checklist', line: zhEn(`- 對規格的清單：這一批記的 ${cl.batchMissing.join('、')} 在 ${file} 裡找不到了（可能改過號）——重記一次 pipeline-status --spec ${file} <這一批的 AC 代號>`,
+        `- Check the spec's checklist: ${cl.batchMissing.join(', ')}, recorded for this batch, can't be found in ${file} any more (maybe renumbered). Record it again: pipeline-status --spec ${file} <this batch's AC IDs>`) });
     } else if (cl.unmarked > 0) {
-      missing.push({ key: 'checklist', line: `- 對規格的清單：${few(ids(cl))} 還沒標——在 ${file} 每條 AC 的標題行末尾加「✅ 對過 日期」或「⏳ 待討論：原因」` });
+      missing.push({ key: 'checklist', line: zhEn(`- 對規格的清單：${few(ids(cl))} 還沒標——在 ${file} 每條 AC 的標題行末尾加${marks()}`,
+        `- Check the spec's checklist: ${few(ids(cl))} not marked yet. At the end of every AC heading line in ${file}, add ${marks()}`) });
     } else if (cl.preMarked) {
       // 連上的規格勾都是連上之前打的:可能是別的對話對過那一版(R2,魔鬼教官 2026-09-21),也可能是這個對話先對了清單才記 --spec——
       // 分不出來,所以只講分不出來(R1,第二輪 2026-09-22);改了程式就回頭對一次,重標日期就算數
-      missing.push({ key: 'checklist', line: `- 對規格的清單：${file} 的勾在連上之前就打好了，分不出是不是這個對話打的——改了程式就回頭對一次（對過的條目把日期改成今天，要討論的標「⏳ 待討論：原因」）` });
+      missing.push({ key: 'checklist', line: zhEn(`- 對規格的清單：${file} 的勾在連上之前就打好了，分不出是不是這個對話打的——改了程式就回頭對一次（對過的條目把日期改成今天，要討論的標「⏳ 待討論：原因」）`,
+        `- Check the spec's checklist: the marks in ${file} were made before it was linked, so it can't tell whether this conversation made them. After changing code, check it again (change the date on items you've gone over to today; mark ones to discuss "⏳ to discuss: <reason>")`) });
     }
   }
   for (const key of requires) {
     if (key === 'tests') {
       const n = mineNow.health?.touchedTests ?? null;
       if (n === null || n > 0) continue;                           // 問不到就不要求(R1)
-      missing.push({ key, line: '- 補測試：這一輪還沒新增或修改任何測試檔' });
+      missing.push({ key, line: zhEn('- 補測試：這一輪還沒新增或修改任何測試檔', '- Add tests: this round hasn\'t added or changed any test file yet') });
       continue;
     }
     const st = view.find((s) => s.id === key);
@@ -190,19 +201,26 @@ export function decide({ payload, monitorDir = MONITOR_DIR, skillHome = undefine
       const es = st.estate ?? st.rerun.estate ?? st.rerun.state;
       if (es === 'none') {
         if (!cmd) continue;                                        // 指令不存在,要求了也做不到
-        missing.push({ key, line: `- ${name}：這一輪還沒走 → 跑 ${cmd}（照這一輪的規格逐條在畫面上看，每條記看到了（附畫面上的原文）／沒看到／驗不了；`
-          + '「驗收過了」只有使用者能說）。走完不要自己再走，要再走先問使用者' });
+        missing.push({ key, line: zhEn(`- ${name}：這一輪還沒走 → 跑 ${cmd}（照這一輪的規格逐條在畫面上看，每條記看到了（附畫面上的原文）／沒看到／驗不了；`
+          + '「驗收過了」只有使用者能說）。走完不要自己再走，要再走先問使用者',
+          `- ${name}: not walked through yet this round → run ${cmd} (look at this round's spec item by item on the screen, recording each as seen (with the original text from the screen) / not seen / can't verify; `
+          + 'only the user can say "accepted"). After walking through it, don\'t walk through it again on your own; to walk through it again, ask the user first') });
       } else if (es === 'no-report') {
         // 沒改檔的回合也要看(跟 D 同一條):交給背景跑、走完沒記結論,儀表板就永遠不知道
         missing.push({ key: `${key}:report`, anyTurn: true,
-          line: `- ${name}：叫了，還沒記結論。還在走就照實說還在走，不准先記結論交差；走完照那支指令的收尾記：pipeline-status --report ${st.id} ok|found "…"。`
-            + `沒走完（中斷了）就再叫一次，那還算第一趟；使用者說不用走了就 pipeline-status --decide ${st.id} skip "使用者的原話"` });
+          line: zhEn(`- ${name}：叫了，還沒記結論。還在走就照實說還在走，不准先記結論交差；走完照那支指令的收尾記：pipeline-status --report ${st.id} ok|found "…"。`
+            + `沒走完（中斷了）就再叫一次，那還算第一趟；使用者說不用走了就 pipeline-status --decide ${st.id} skip "使用者的原話"`,
+          `- ${name}: called, no conclusion recorded yet. If it's still walking through, say truthfully that it's still walking through; never record a conclusion early just to finish. When it's done, record it the way that command's ending says: pipeline-status --report ${st.id} ok|found "…". `
+            + `If it didn't finish (it was interrupted), call it again; that still counts as the first walk-through. If the user says there's no need to walk through it: pipeline-status --decide ${st.id} skip "the user's own words"`) });
       } else if (es === 'ask' || es === 'accepted-stale') {
-        const why = es === 'accepted-stale' ? '使用者說驗收過了之後，又改了程式檔' : rerunLine(st.rerun, { ago });
+        const why = es === 'accepted-stale' ? zhEn('使用者說驗收過了之後，又改了程式檔', 'code files changed after the user said it\'s accepted') : rerunLine(st.rerun, { ago });
         missing.push({ key: `${key}:ask`, ask: true,
-          line: `- ${name}：${why}。不要自己再走——先停下來問使用者（白話＋舉例）：之後改了什麼、可能影響哪幾條、上一趟從叫到記結論花了多久`
+          line: zhEn(`- ${name}：${why}。不要自己再走——先停下來問使用者（白話＋舉例）：之後改了什麼、可能影響哪幾條、上一趟從叫到記結論花了多久`
             + `（跑 pipeline-status --round ${st.id} 拿）、不再走的風險，最後一行給建議。使用者說走才走；說不用就 pipeline-status --decide ${st.id} skip "使用者的原話"；`
-            + `說看過了、可以（驗收現在這一版），才照他的原話 pipeline-status --clear ${st.id} "使用者的原話"——「不用再走」不是「驗收過了」，不准記成 --clear` });
+            + `說看過了、可以（驗收現在這一版），才照他的原話 pipeline-status --clear ${st.id} "使用者的原話"——「不用再走」不是「驗收過了」，不准記成 --clear`,
+          `- ${name}: ${why}. Don't walk through it again on your own; stop and ask the user first (plain words plus examples): what changed since, which items it might affect, how long the last walk-through took from the call to the recorded conclusion `
+            + `(run pipeline-status --round ${st.id} to get it), and the risk of not walking through again; the last line gives a recommendation. Walk through it only if the user says so. If they say no need: pipeline-status --decide ${st.id} skip "the user's own words". `
+            + `Only if they say they've looked and it's fine (accepting this version): pipeline-status --clear ${st.id} "the user's own words". "No need to walk through again" isn't "accepted": never record it as --clear`) });
       }
       continue;                                                    // 驗收過了／你說不用再走／Claude 走過(等使用者查核):這一關不用再要求
     }
@@ -213,33 +231,39 @@ export function decide({ payload, monitorDir = MONITOR_DIR, skillHome = undefine
         if (!cmd) continue;                                        // 指令不存在,要求了也做不到
         // 第一次:照分級講跑法(AC-11),並預先交代修完不要自己重跑(AC-1)——煞車不能只裝在收工 hook 上,skill 那句「處理完再跑一次」就是 9/17 自己連跑三輪的原因
         const how = runMode({ nth: 1, tierState: 'ok', levelId: tier.final.id, agents: tier.final.agents === true }).line;
-        missing.push({ key, line: `- ${name}：${rerunLine(r)} → 跑 ${cmd}（${how}）。修完不要自己再跑這一關，要再跑先問使用者` });
+        missing.push({ key, line: zhEn(`- ${name}：${rerunLine(r)} → 跑 ${cmd}（${how}）。修完不要自己再跑這一關，要再跑先問使用者`,
+          `- ${name}: ${rerunLine(r)} → run ${cmd} (${how}). After fixing, don't run this stage again on your own; to run it again, ask the user first`) });
       } else if (r.state === 'no-report') {
         // 沒改檔的回合也要看(AC-6:只限這一項)——交給背景 agent 跑、做完沒記結論,儀表板就永遠不知道
         // 沒跑完(卡在用量上限、被中斷)再叫一次還算第一輪(跑完才算一輪);使用者說不用跑了,記下他的話就不再提醒(魔鬼教官第一輪)
         missing.push({ key: `${key}:report`, anyTurn: true,
-          line: `- ${name}：叫了，還沒記結論。還在背景跑就照實說還在跑，不准先記 ok 交差；跑完照那支指令的收尾記：pipeline-status --report ${st.id} ok|found "…"。`
-            + `沒跑完（中斷了）就再叫一次，那還算第一輪；使用者說不用跑了就 pipeline-status --decide ${st.id} skip "使用者的原話"` });
+          line: zhEn(`- ${name}：叫了，還沒記結論。還在背景跑就照實說還在跑，不准先記 ok 交差；跑完照那支指令的收尾記：pipeline-status --report ${st.id} ok|found "…"。`
+            + `沒跑完（中斷了）就再叫一次，那還算第一輪；使用者說不用跑了就 pipeline-status --decide ${st.id} skip "使用者的原話"`,
+          `- ${name}: called, no conclusion recorded yet. If it's still running in the background, say truthfully that it's still running; never record ok early just to finish. When it's done, record it the way that command's ending says: pipeline-status --report ${st.id} ok|found "…". `
+            + `If it didn't finish (it was interrupted), call it again; that still counts as the first round. If the user says there's no need to run it: pipeline-status --decide ${st.id} skip "the user's own words"`) });
       } else if (r.state === 'ask') {
         missing.push({ key: `${key}:ask`, ask: true,
-          line: `- ${name}：${rerunLine(r, { ago })}。不要自己再跑——先停下來問使用者（白話＋舉例）：第一輪之後改了什麼、每條修法標「小修」或「建議再看」、`
-            + `上一輪從叫到記結論花了多久、不跑的風險（前三件跑 pipeline-status --round ${st.id} 拿），最後一行給建議。使用者說跑才跑；說不用就 pipeline-status --decide ${st.id} skip "使用者的原話"` });
+          line: zhEn(`- ${name}：${rerunLine(r, { ago })}。不要自己再跑——先停下來問使用者（白話＋舉例）：第一輪之後改了什麼、每條修法標「小修」或「建議再看」、`
+            + `上一輪從叫到記結論花了多久、不跑的風險（前三件跑 pipeline-status --round ${st.id} 拿），最後一行給建議。使用者說跑才跑；說不用就 pipeline-status --decide ${st.id} skip "使用者的原話"`,
+          `- ${name}: ${rerunLine(r, { ago })}. Don't run it again on your own; stop and ask the user first (plain words plus examples): what changed after the first round, each fix marked "small fix" or "worth another look", `
+            + `how long the last round took from the call to the recorded conclusion, and the risk of not running it (run pipeline-status --round ${st.id} to get the first three); the last line gives a recommendation. Run it only if the user says so. If they say no need: pipeline-status --decide ${st.id} skip "the user's own words"`) });
       }
       continue;                                                    // skipped／ok／found:這一關不用再要求
     }
     // 這一輪跑過就算(A、C)
     if (st.ranAt) continue;
     if (!cmd) continue;                                            // 指令不存在,要求了也做不到
-    const why = '這一輪還沒跑';
+    const why = zhEn('這一輪還沒跑', 'not run yet this round');
     if (st.id === specStage?.id) {
       // 沒連到規格:兩條路都講(AC-7)。規格在別的對話寫好了 → 記一筆照哪份施工;真的還沒有規格 → 才跑 A。
       // 第一句話提到一份規格的話(AC-3)附上,只是提示,不算數
       // 第一句話被感測器截過(cut)的話,「只提到一份」證明不了——不把路徑交給 Claude(魔鬼教官 2026-09-21);Claude 自己看得到完整的第一句話
-      const hint = st.hint && !st.hint.cut ? `（從第一句話看，可能是 ${st.hint.path}）` : '';
-      missing.push({ key, line: `- ${name}：${why}。照別的對話寫好的規格施工的話跑 pipeline-status --spec <規格檔>${hint}；還沒有規格才跑 ${cmd}` });
+      const hint = st.hint && !st.hint.cut ? zhEn(`（從第一句話看，可能是 ${st.hint.path}）`, ` (from the first message, it might be ${st.hint.path})`) : '';
+      missing.push({ key, line: zhEn(`- ${name}：${why}。照別的對話寫好的規格施工的話跑 pipeline-status --spec <規格檔>${hint}；還沒有規格才跑 ${cmd}`,
+        `- ${name}: ${why}. If you're building from a spec another conversation wrote, run pipeline-status --spec <spec file>${hint}; run ${cmd} only if there's no spec yet`) });
       continue;
     }
-    missing.push({ key, line: `- ${name}：${why} → 跑 ${cmd}` });
+    missing.push({ key, line: zhEn(`- ${name}：${why} → 跑 ${cmd}`, `- ${name}: ${why} → run ${cmd}`) });
   }
   // 只在這一回合改到程式時才擋(契約 3);例外只有「叫了還沒記結論」(AC-6)。這一回合擋過的種類不再擋(AC-7)。
   // 兩種讀法(上面)任何一種要擋就擋;沒有沒見過的訊息時兩種一樣
@@ -249,19 +273,22 @@ export function decide({ payload, monitorDir = MONITOR_DIR, skillHome = undefine
 
   const level = tier.final.id;
   // 危險清單的檔跟程式區的檔分開列:以前全部掛在「碰到危險清單：」底下,只在程式區的檔也被講成危險(2026-09-22 收工 hook 自己印出來的)
-  const list = (xs) => xs.slice(0, 3).join('、') + (xs.length > 3 ? ` 等 ${xs.length} 個檔` : '');
+  const list = (xs) => zhEn(xs.slice(0, 3).join('、') + (xs.length > 3 ? ` 等 ${xs.length} 個檔` : ''), xs.slice(0, 3).join(', ') + (xs.length > 3 ? ` and others (${plural(xs.length, 'file')} in all)` : ''));
   const dangerHits = tier.machine?.hits?.danger ?? [], codeHits = tier.machine?.hits?.code ?? [];
   const touched = dangerHits.length
-    ? `碰到危險清單：${list(dangerHits)}${codeHits.length ? `；另外碰到程式區 ${codeHits.length} 個檔` : ''}`
-    : `碰到程式區：${list(codeHits)}`;
+    ? zhEn(`碰到危險清單：${list(dangerHits)}${codeHits.length ? `；另外碰到程式區 ${codeHits.length} 個檔` : ''}`,
+      `touched the danger list: ${list(dangerHits)}${codeHits.length ? `; also touched ${plural(codeHits.length, 'file')} in the code area` : ''}`)
+    : zhEn(`碰到程式區：${list(codeHits)}`, `touched the code area: ${list(codeHits)}`);
   // 從哪裡算起跟儀表板同一句話(lib/scope.mjs):「這一輪，含已存檔的」——Claude 才不會以為存了檔就不算
   const scope = changeScope(mineNow.base, () => '').short;
   // 有「先問人」那一行時,最後那句不准叫它「先把缺的跑完」——那會跟「不要自己再跑」打架(AC-7);危險清單那一行也是先問人(收工hook問危險清單 AC-1)
   const closing = due.some((m) => m.ask)
-    ? '標「不要自己再跑」「不要自己再走」「不要自己決定」的那一項是要你先停下來問使用者、等使用者決定，不是叫你自己動手；其他缺的先補完再收工。這是分級的要求，不是建議。'
-    : '先把缺的跑完再收工；跑完照那支指令的收尾把結果記給儀表板。這是分級的要求，不是建議。';
+    ? zhEn('標「不要自己再跑」「不要自己再走」「不要自己決定」的那一項是要你先停下來問使用者、等使用者決定，不是叫你自己動手；其他缺的先補完再收工。這是分級的要求，不是建議。',
+      'The items that say "don\'t run it again on your own", "don\'t walk through it again on your own" or "don\'t decide yourself" mean stop and ask the user first and wait for their decision, not do it yourself; finish the other missing items before wrapping up. This is what the tier requires, not a suggestion.')
+    : zhEn('先把缺的跑完再收工；跑完照那支指令的收尾把結果記給儀表板。這是分級的要求，不是建議。',
+      'Run what\'s missing before wrapping up; when done, record the result for the dashboard the way that command\'s ending says. This is what the tier requires, not a suggestion.');
   const reason = [
-    `[產線監視器] 這次改動至少 ${level}（${touched}；${scope}）。收工前還缺：`,
+    zhEn(`[產線監視器] 這次改動至少 ${level}（${touched}；${scope}）。收工前還缺：`, `[Pipeline Monitor] This change is at least ${level} (${touched}; ${scope}). Still missing before wrapping up:`),
     ...due.map((m) => m.line),
     closing,
   ].join('\n');
@@ -274,7 +301,8 @@ function main() {
   // 心跳:每次跑都留時間(不是紀錄,是一個會被蓋掉的小檔)。沒有它,「hook 掛著但從沒被觸發」跟「一切正常」長得一模一樣(L13、老毛病 P3)
   try { const dir = logDir(); makeDataDir(dir); writeFileSync(join(dir, GATE_FILE), JSON.stringify({ ts: new Date().toISOString(), cwd: payload?.cwd ?? null }) + '\n'); } catch { /* 留不了就算了,不影響判斷 */ }
   let d = null;
-  try { d = decide({ payload }); } catch (e) { noteBroken(e?.message ?? e, undefined, payload?.cwd); return 0; }
+  // 語言只在這裡讀一次,整段話用同一種(規格:技能與寫給AI的話中英切換 AC-5)。讀不懂照舊中文(lib/lang.mjs:讀不懂先用中文)
+  try { d = withLang(readLang().lang, () => decide({ payload })); } catch (e) { noteBroken(e?.message ?? e, undefined, payload?.cwd); return 0; }
   if (!d) return 0;
   // 擋了就留一筆:儀表板才講得出「工頭擋過一次,缺 C、D」,驗證也靠這筆(source:gate,不是人也不是感測器)。
   // 這一筆也是防迴圈的依據(AC-7:這一回合擋過的種類不再擋)——擋過之後的收工(stop_hook_active)卻記不了,就不擋:
@@ -284,7 +312,7 @@ function main() {
       ts: new Date().toISOString(), event: 'gate_blocked', session: d.session, cwd: d.cwd, level: d.level, missing: d.missing, source: 'gate',
     }) + '\n');
   } catch (e) {
-    noteBroken(`記不了 gate_blocked：${e?.message ?? e}`, d.logDir, d.cwd);
+    noteBroken(`記不了 gate_blocked：${e?.message ?? e}`, d.logDir, d.cwd);   // 寫進紀錄的代號(不上畫面),照中文
     if (d.again) return 0;
   }
   process.stdout.write(JSON.stringify({ decision: 'block', reason: d.reason }) + '\n');

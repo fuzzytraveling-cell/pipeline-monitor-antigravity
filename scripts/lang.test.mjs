@@ -63,15 +63,13 @@ const strip = (html) => String(html ?? '').replace(/<[^>]*>/g, ' ').replace(/\s+
 /* ════════════ AC-4:中英寫在同一個地方;只寫中文,測試紅 ════════════ */
 
 /**
- * Claude 那一側:Claude 讀的、Claude 寫的字,另一份規格「技能與寫給AI的話中英切換」才翻(AC-8)。整段跳過——那一份做完,這張表要清空。
- * '*' = 整支。名字是那支檔最外層宣告的名字(function／const)。
+ * 整段跳過的:照舊中文、刻意不換的。'*' = 整支。名字是那支檔最外層宣告的名字(function／const)。
+ * Claude 讀的、Claude 寫的字(收工 hook、Claude 替你跑的指令)「技能與寫給AI的話中英切換」翻了,這張表只剩一個:
+ *   照標題湊給新對話的那一段(當場問的卡):它也拿來比「照這段開了新對話沒」——跟著語言換的話,用中文複製、切成英文之後就對不上,
+ *   卡片會被講成還沒開始(R1)。那份規格沒列它,要換得連比對一起改,另外做。
  */
 const CLAUDE_SIDE = {
-  'lib/cliRerun.mjs': ['*'],                       // --round、--decide
-  'lib/cliReport.mjs': ['doSpec', 'writtenHere', 'doReport', 'doSuggest'],
-  'lib/cliTier.mjs': ['doTierInit', 'doTierOff', 'tierNotReady', 'freshInProject', 'doTierReview', 'doTierChecked', 'doTierLater'],
-  'lib/rounds.mjs': ['runMode', 'offerPrompt'],    // D 怎麼跑(寫給 Claude 的);照標題湊的那段要貼給新對話(Claude 讀的,也拿來比對「已開始」)
-  'lib/tier.mjs': ['dangerAskLine', 'proposeCodeArea'],   // 收工 hook 叫 Claude 先停下來問的那一段;--tier-init 提議的程式區
+  'lib/rounds.mjs': ['offerPrompt'],
 };
 /**
  * 照原文認的中文:不是給人看的句子,是資料的格式。那個字面一字不差才放過(換了字就要重新判斷)。
@@ -88,12 +86,15 @@ const CODES = {
     '「[^」]+」|"[^"]+"|“[^”]+”', '？'],
   // 資料夾名(設計數值住的地方)
   'server.mjs': ['ui設計規格'],
+  // --spec 認的「沒有照哪份規格」那個字(Claude 打的,none 也認);收工 hook 記不了紀錄時寫進 _sensor.jsonl 的代號(不上畫面)
+  'lib/cliReport.mjs': ['無'],
+  'gate.mjs': ['記不了 gate_blocked：'],
   // 寫進 .git/info/exclude 的註解行(檔案裡的字,不上畫面);危險清單上的檔,這次一個字不改
   'lib/paths.mjs': ['# pipeline-monitor:紀錄搬到 ~/.pipeline-monitor 之後,舊的位置留下的捷徑\\n'],
 };
-const FILES = [...readdirSync(join(ROOT, 'lib')).filter((f) => f.endsWith('.mjs')).map((f) => `lib/${f}`), 'ui/app.js', 'status.mjs', 'server.mjs'];
+const FILES = [...readdirSync(join(ROOT, 'lib')).filter((f) => f.endsWith('.mjs')).map((f) => `lib/${f}`), 'ui/app.js', 'status.mjs', 'server.mjs', 'gate.mjs'];
 
-section('AC-4:中文只准住在 zhEn(中文, English) 裡——lib、ui/app.js、status.mjs、server.mjs 新加一句只寫中文、或英文是空的,這裡紅', 'P2');
+section('AC-4:中文只准住在 zhEn(中文, English) 裡——lib、ui/app.js、status.mjs、server.mjs、gate.mjs 新加一句只寫中文、或英文是空的,這裡紅', 'P2');
 {
   let total = 0;
   for (const f of FILES) {
@@ -963,70 +964,198 @@ section('終端機(真的跑 status.mjs,英文):現況、--checkpoint、--clear�
   r.cleanup();
 }
 
-/* ════════════ AC-8:Claude 那一側不換 ════════════ */
+/* ════════════ Claude 那一側也跟著語言換(規格:技能與寫給AI的話中英切換 AC-5) ════════════ */
 
-section('Claude 那一側這一份不換:設成英文之後,Claude 替你跑的指令照舊整句中文,跟中文的時候一字不差(AC-8)');
-{
-  const r = makeRepo({ at: T(-60 * MIN), files: { 'src/app.js': '1\n' } });
+/** 一份英文寫的規格(三條 AC、每條有白話):Claude 用英文寫規格的樣子 */
+const EN_SPEC = '# Feature: export\n\n## Acceptance criteria\n**AC-1 Export button**\n> **In plain words**: one button\n\n**AC-2 Saves the file**\n> **In plain words**: the file is there\n\n**AC-3 Says when it fails**\n> **In plain words**: no silent failure\n';
+
+/**
+ * Claude 那一側的場景:英文的專案(檔名、規格、你說的話、Claude 的結論都是英文)、有分級(src/save.js 在危險清單)、裝了 plugin 的假 home。
+ * lang:資料的家裡寫哪一種(null = 從來沒選過)。run 帶對話代號跑(Claude 在對話裡跑的樣子);stdin 給 --suggest 的說明。
+ */
+function claudeScene(lang = 'en', { tiers = { code: ['src/'], danger: ['src/save.js'] }, files = {} } = {}) {
+  const r = makeRepo({ at: T(-120 * MIN), pkg: { name: 'export-app', scripts: { dev: 'vite', test: 'node -e "process.exit(0)"' } }, files: {
+    'src/app.js': '1\n', 'src/save.js': 's\n', 'docs/in-progress/export.md': EN_SPEC, 'docs/done/old.md': EN_SPEC, 'docs/in-progress/notes.md': '# Notes\nno ACs here\n',
+    ...(tiers ? { '.claude/pipeline-stages.json': JSON.stringify({ tiers }) } : {}), ...files } });
   const root = git(r.dir, 'rev-parse', '--show-toplevel');
-  const monitorDir = mkdtempSync(join(tmpdir(), 'pm-lang-data-'));
+  const monitorDir = mkdtempSync(join(tmpdir(), 'pm-lang-claude-'));
   mkdirSync(join(monitorDir, 'logs')); mkdirSync(join(monitorDir, 'checkpoints'));
+  copyFileSync(join(ROOT, 'stages.json'), join(monitorDir, 'stages.json'));
+  if (lang) writeFileSync(join(monitorDir, 'lang.json'), JSON.stringify({ lang }));
   const home = mkdtempSync(join(tmpdir(), 'pm-home-'));
   mkdirSync(join(home, '.claude', 'skills'), { recursive: true });
   symlinkSync(ROOT, join(home, '.claude', 'skills', PLUGIN));
-  writeFileSync(join(monitorDir, 'logs', `${safeName(basename(root))}.jsonl`), [
-    { ts: T(-20 * MIN), hook: 'UserPromptSubmit', prompt: SAID },
-    { ts: T(-19 * MIN), hook: 'PreToolUse', tool: 'Skill', skill: `${PLUGIN}:chaos-check` },
-  ].map((o) => JSON.stringify({ session: 's1', cwd: root, ...o })).join('\n') + '\n');
-  const run = (args) => {
-    const env = { ...process.env, HOME: home, PIPELINE_MONITOR_HOME: monitorDir, PIPELINE_MONITOR_LOG_DIR: join(monitorDir, 'logs'), CLAUDE_CODE_SESSION_ID: 's1' };
-    try { return execFileSync('node', [join(ROOT, 'status.mjs'), ...args], { cwd: root, encoding: 'utf8', env }); } catch (e) { return `失敗(${e.status})：${e.stdout}`; }
+  const log = join(monitorDir, 'logs', `${safeName(basename(root))}.jsonl`);
+  const add = (lines) => writeFileSync(log, (existsSync(log) ? readFileSync(log, 'utf8') : '')
+    + lines.map((o) => JSON.stringify(o.event ? { cwd: root, ...o } : { session: 's1', cwd: root, ...o })).join('\n') + '\n');
+  const run = (args, { sid = 's1', stdin = '' } = {}) => {
+    const { CLAUDE_CODE_SESSION_ID: _drop, ...base } = process.env;
+    const env = { ...base, HOME: home, PIPELINE_MONITOR_HOME: monitorDir, PIPELINE_MONITOR_LOG_DIR: join(monitorDir, 'logs'), ...(sid ? { CLAUDE_CODE_SESSION_ID: sid } : {}) };
+    try { return execFileSync('node', [join(ROOT, 'status.mjs'), ...args], { cwd: root, encoding: 'utf8', env, input: stdin, stdio: ['pipe', 'pipe', 'pipe'] }); }
+    catch (x) { return `${x.stdout ?? ''}${x.stderr ?? ''}`; }
   };
-  const cmds = [['--round', 'D'], ['--round', 'E'], ['--round', 'A'], ['--report', 'X', 'ok'], ['--decide', 'D', 'nope'], ['--spec'], ['--tier-review'], ['--tier-later']];
-  const zh = cmds.map((c) => run(c));
-  writeFileSync(join(monitorDir, 'lang.json'), JSON.stringify({ lang: 'en' }));
-  const enOut = cmds.map((c) => run(c));
-  cmds.forEach((c, i) => {
-    // 「幾分鐘前」跨分鐘差一格就不準:兩次跑之間不到一秒,照字比
-    eq(`${c.join(' ')}:設成英文跟中文的時候一字不差`, enOut[i], zh[i]);
-  });
-  check('……而且真的是中文(不是兩邊都壞掉、都空的)', zh.every((o) => CJK.test(o)), zh.join('\n---\n').slice(0, 300));
-  for (const d of [monitorDir, home]) rmSync(d, { recursive: true, force: true });
+  const gate = () => {
+    const keep = process.env.PIPELINE_MONITOR_HOME;
+    process.env.PIPELINE_MONITOR_HOME = monitorDir;
+    try { return decide({ payload: { session_id: 's1', cwd: root, hook_event_name: 'Stop', stop_hook_active: false }, monitorDir, skillHome: home }); }
+    finally { process.env.PIPELINE_MONITOR_HOME = keep; }
+  };
+  const touch = (f, body) => { mkdirSync(dirname(join(root, f)), { recursive: true }); writeFileSync(join(root, f), body); };
+  const cleanup = () => { for (const d of [monitorDir, home]) rmSync(d, { recursive: true, force: true }); r.cleanup(); };
+  return { root, monitorDir, home, log, add, run, gate, touch, cleanup };
+}
+/** 一段英文:沒有中文字、沒有全形空白、沒有程式的內部值(資料照原文的那幾種除外,見 stripData) */
+function cleanEn(label, text) {
+  noZh(label, text);
+  check(`……${label}:沒有全形空白(U+3000)`, !String(text).includes('　'));
+  check(`……${label}:不印程式的內部值(TypeError、undefined、null、NaN)`, !/TypeError|ReferenceError|\bundefined\b|\bnull\b|\bNaN\b/.test(text), String(text).slice(0, 400));
+}
+
+section('Claude 替你跑的指令跟著語言換:設成英文,--round、--decide、--spec、--report、--suggest 每一種結果都沒有中文、沒有全形空白(資料照原文)(規格:技能與寫給AI的話中英切換 AC-5)');
+{
+  const s = claudeScene('en');
+  const outs = {};
+  s.add([{ ts: T(-60 * MIN), hook: 'UserPromptSubmit', prompt: SAID, prompt_id: 'p1' }]);
+  s.touch('src/app.js', '2\n');
+  s.add([{ ts: T(-50 * MIN), hook: 'PostToolUse', tool: 'Edit', file: join(s.root, 'src/app.js'), prompt_id: 'p1' }]);
+  outs['--round D(第一次)'] = s.run(['--round', 'D']);
+  outs['--round C(只有範圍)'] = s.run(['--round', 'C']);
+  outs['--round E(沒有規格、package.json 有 dev)'] = s.run(['--round', 'E']);
+  outs['--round B(不是會過期的關)'] = s.run(['--round', 'B']);
+  outs['--round X(認不出)'] = s.run(['--round', 'X']);
+  outs['--decide D(沒給 skip)'] = s.run(['--decide', 'D']);
+  outs['--decide D skip(沒附話)'] = s.run(['--decide', 'D', 'skip']);
+  outs['--decide D skip(還沒跑過)'] = s.run(['--decide', 'D', 'skip', 'no need']);
+  outs['--decide E skip(還沒走過、也沒驗收)'] = s.run(['--decide', 'E', 'skip', 'no need']);
+  outs['--spec(沒給檔)'] = s.run(['--spec']);
+  outs['--spec docs/done/old.md(做完的)'] = s.run(['--spec', 'docs/done/old.md']);
+  outs['--spec README.md(認不得)'] = s.run(['--spec', 'README.md']);
+  outs['--spec 找不到'] = s.run(['--spec', 'docs/in-progress/missing.md']);
+  outs['--spec 讀不出 AC'] = s.run(['--spec', 'docs/in-progress/notes.md']);
+  outs['--spec AC 代號打錯'] = s.run(['--spec', 'docs/in-progress/export.md', 'AC-9']);
+  outs['--spec none'] = s.run(['--spec', 'none']);
+  outs['--spec 收下(分批)'] = s.run(['--spec', 'docs/in-progress/export.md', 'AC-1', 'AC-2']);
+  outs['--spec 收下(整份,換掉分批的那一筆)'] = s.run(['--spec', 'docs/in-progress/export.md']);
+  outs['--spec 收下(拿不到對話代號)'] = s.run(['--spec', 'docs/in-progress/export.md'], { sid: null });
+  outs['--round E(照規格驗、有 launch 設定)'] = (() => { s.touch('.claude/launch.json', JSON.stringify({ configurations: [{ name: 'web', port: 5173 }] })); return s.run(['--round', 'E']); })();
+  outs['--suggest(沒給標題)'] = s.run(['--suggest']);
+  outs['--suggest(說明是空的)'] = s.run(['--suggest', 'Split the exporter']);
+  outs['--suggest(放上去)'] = s.run(['--suggest', 'Split the exporter'], { stdin: 'Move the CSV part into its own file.' });
+  outs['--report X(認不出關卡)'] = s.run(['--report', 'X', 'ok']);
+  outs['--report B(不是指令關)'] = s.run(['--report', 'B', 'ok']);
+  outs['--report D maybe(結論只有兩種)'] = s.run(['--report', 'D', 'maybe']);
+  // D:叫了 → 還在跑 → 記結論 → 之後改了危險清單的檔 → 第二次要先問人 → 使用者說不用 → 記下
+  s.add([{ ts: T(-40 * MIN), hook: 'PreToolUse', tool: 'Skill', skill: `${PLUGIN}:chaos-check`, prompt_id: 'p1' }]);
+  outs['--round D(叫了,還沒記結論)'] = s.run(['--round', 'D']);
+  outs['--report D found'] = s.run(['--report', 'D', 'found', 'Found 1\n- [R1] a missing answer is shown as "none"']);
+  s.touch('src/save.js', 'changed\n');
+  s.add([{ ts: T(-20 * MIN), hook: 'PostToolUse', tool: 'Edit', file: join(s.root, 'src/save.js'), prompt_id: 'p2' }]);
+  outs['--round D(第二次:先問人)'] = s.run(['--round', 'D']);
+  outs['--decide D skip(之後沒有你說的話:不算數)'] = s.run(['--decide', 'D', 'skip', 'no need to run it again']);
+  s.add([{ ts: T(-10 * MIN), hook: 'UserPromptSubmit', prompt: 'no need to run it again', prompt_id: 'p3' }]);
+  outs['--decide D skip(算數)'] = s.run(['--decide', 'D', 'skip', 'no need to run it again']);
+  // E:叫了 verify、開了瀏覽器 → 有沒看到卻記 ok 不收 → 照格式記 found → 沒照格式的 → 之後又改了程式,要不要再走先問
+  s.add([{ ts: T(-9 * MIN), hook: 'PreToolUse', tool: 'Skill', skill: `${PLUGIN}:verify`, prompt_id: 'p3' },
+    { ts: T(-8 * MIN), hook: 'PreToolUse', tool: 'mcp__Claude_Browser__navigate', url_host: 'localhost:5173', prompt_id: 'p3' }]);
+  outs['--report E ok(有 not seen:不收)'] = s.run(['--report', 'E', 'ok', 'Walk 1: http://localhost:5173\nAC-1 not seen: no button']);
+  outs['--report E found(照格式)'] = s.run(['--report', 'E', 'found', 'Walk 1: http://localhost:5173 (this workspace\'s code)\nAC-1 seen: "Export"\nAC-2 not seen: expected a file, nothing there\nAC-3 can\'t verify: needs a login\nAC-4 seen: yes']);
+  outs['--report E ok(沒照格式)'] = s.run(['--report', 'E', 'ok', 'walked through it, looked fine']);
+  s.touch('src/app.js', '3\n');
+  s.add([{ ts: T(-3 * MIN), hook: 'PostToolUse', tool: 'Edit', file: join(s.root, 'src/app.js'), prompt_id: 'p3' }]);
+  outs['--round E(走過之後又改了程式)'] = s.run(['--round', 'E']);
+  outs['--report C ok(有建議清單)'] = s.run(['--report', 'C', 'ok', 'Changed 0, suggested 1\n- src/app.js:1 — an unused helper']);
+  for (const [k, o] of Object.entries(outs)) cleanEn(`英文:${k}`, o);
+  check('……而且每一個都真的有印東西(不是兩邊都空的)', Object.values(outs).every((o) => o.trim().length > 20), Object.entries(outs).filter(([, o]) => o.trim().length <= 20).map(([k]) => k).join('、'));
+  const g = s.gate();
+  check('收工 hook 有擋(不然什麼都沒比到)', !!g?.reason, JSON.stringify(g));
+  // 收工 hook 不經過 status.mjs:語言由它自己的入口(main)讀。這裡照入口的做法包一次
+  const ge = withLang('en', () => s.gate());
+  cleanEn('英文:收工 hook 擋下來的那段話', ge?.reason ?? '');
+  s.cleanup();
+}
+
+section('Claude 替你跑的分級指令(--tier-init／off／review／checked／later)跟著語言換:設成英文,每一種結果都沒有中文(規格:技能與寫給AI的話中英切換 AC-5)');
+{
+  const outs = {};
+  const a = claudeScene('en', { tiers: null });
+  outs['--tier-review(還沒設定)'] = a.run(['--tier-review']);
+  outs['--tier-checked(沒附話)'] = a.run(['--tier-checked']);
+  outs['--tier-init(提議程式區)'] = a.run(['--tier-init']);
+  outs['--tier-init(已經設定過了,危險清單空的)'] = a.run(['--tier-init']);
+  outs['--tier-review(清單空的)'] = a.run(['--tier-review']);
+  a.cleanup();
+  const b = claudeScene('en', { tiers: null });
+  outs['--tier-init src/(你指定的)'] = b.run(['--tier-init', 'src/']);
+  outs['--tier-off(不分級)'] = b.run(['--tier-off', 'just a toy']);
+  outs['--tier-review(設定成不分級)'] = b.run(['--tier-review']);
+  b.cleanup();
+  const c = claudeScene('en', { tiers: null, files: { '.claude/pipeline-stages.json': '{broken' } });
+  outs['--tier-init(設定讀不懂)'] = c.run(['--tier-init']);
+  outs['--tier-review(設定讀不懂)'] = c.run(['--tier-review']);
+  c.cleanup();
+  const d = claudeScene('en');
+  d.touch('src/fresh.js', 'new\n');
+  git(d.root, 'add', '-A'); git(d.root, 'commit', '-qm', 'a new exporter');
+  d.add([{ ts: T(-30 * MIN), hook: 'UserPromptSubmit', prompt: SAID, prompt_id: 'p1' },
+    { ts: T(-29 * MIN), hook: 'PostToolUse', tool: 'Edit', file: join(d.root, 'src/fresh.js'), prompt_id: 'p1' }]);
+  d.touch('src/fresh.js', 'changed\n');
+  outs['--tier-review(有之後才新加的)'] = d.run(['--tier-review']);
+  outs['--tier-later(沒附話)'] = d.run(['--tier-later']);
+  outs['--tier-later(拿不到對話代號)'] = d.run(['--tier-later', 'not now'], { sid: null });
+  outs['--tier-later(之後沒有你說的話:不算數)'] = d.run(['--tier-later', 'not now']);
+  const ge = withLang('en', () => d.gate());
+  cleanEn('英文:收工 hook 問危險清單那一段', ge?.reason ?? '');
+  check('……收工 hook 真的在問危險清單(不然什麼都沒比到)', (ge?.missing ?? []).includes('danger:ask'), JSON.stringify(ge?.missing));
+  outs['--tier-checked(記下判斷)'] = d.run(['--tier-checked', 'fresh.js is fine, not dangerous']);
+  outs['--tier-later(沒有東西可以先不看)'] = d.run(['--tier-later', 'not now']);
+  d.cleanup();
+  const e = claudeScene('en', { tiers: { code: ['lib/'], danger: [] }, files: {} });
+  rmSync(join(e.root, 'src'), { recursive: true, force: true });
+  outs['--tier-review(危險清單空的)'] = e.run(['--tier-review']);
+  e.cleanup();
+  const f = claudeScene('en', { tiers: null, files: {} });
+  rmSync(join(f.root, 'src'), { recursive: true, force: true });
+  git(f.root, 'add', '-A'); git(f.root, 'commit', '-qm', 'no code');
+  outs['--tier-init(認不出程式區)'] = f.run(['--tier-init']);
+  f.cleanup();
+  for (const [k, o] of Object.entries(outs)) cleanEn(`英文:${k}`, o);
+  check('……而且每一個都真的有印東西', Object.values(outs).every((o) => o.trim().length > 20), Object.entries(outs).filter(([, o]) => o.trim().length <= 20).map(([k]) => k).join('、'));
+}
+
+section('對話開始那一行(remind.sh):設成英文是英文那一行、叫你說的是 set up tiers／this project doesn\'t need tiers;沒選過、讀不懂照舊中文;照舊最多一行(規格:技能與寫給AI的話中英切換 AC-5)', 'P3');
+{
+  const r = makeRepo({ files: { 'a.js': '1\n' } });
+  const home = mkdtempSync(join(tmpdir(), 'pm-remind-'));
+  const remind = () => execFileSync('sh', [join(ROOT, 'remind.sh')], { input: JSON.stringify({ source: 'startup', cwd: r.dir }), encoding: 'utf8', env: { ...process.env, PIPELINE_MONITOR_HOME: home } });
+  const zh = remind();
+  check('從來沒選過:中文那一行', zh.startsWith('[產線監視器]') && zh.includes('幫我設定分級'), zh);
+  writeFileSync(join(home, 'lang.json'), JSON.stringify({ lang: 'en' }));
+  const enLine = remind();
+  check('設成英文:英文那一行,叫你說的兩句是 set up tiers／this project doesn\'t need tiers', enLine.startsWith('[Pipeline Monitor]') && enLine.includes('"set up tiers"') && enLine.includes('"this project doesn\'t need tiers"'), enLine);
+  cleanEn('英文:對話開始那一行', enLine);
+  eq('……最多一行', enLine.trim().split('\n').length, 1);
+  writeFileSync(join(home, 'lang.json'), '{broken');
+  eq('讀不懂:照舊中文那一行(只准一行,讀不懂那一句是儀表板與終端機的事)', remind(), zh);
+  writeFileSync(join(home, 'lang.json'), JSON.stringify({ lang: 'fr' }));
+  eq('寫了不認得的語言:照舊中文', remind(), zh);
+  rmSync(home, { recursive: true, force: true });
   r.cleanup();
 }
 
-section('收工 hook 這一份不換:設成英文之後擋下來的那段話,跟中文的時候一字不差(AC-8)');
+section('中文的時候(從來沒選過、選了中文)Claude 那一側照舊:收工 hook 與 Claude 替你跑的指令印的是中文——跟改之前一字不差是另外拿舊程式並排比的(施作紀錄)(規格:技能與寫給AI的話中英切換 AC-5)');
 {
-  // 同一個劇本做兩份(收工 hook 擋過會記下來,同一份不能擋第二次):一份家裡寫了英文,一份從來沒選過
-  const once = (lang) => {
-    const r = makeRepo({ at: T(-60 * MIN), files: { 'src/a.js': '1\n', 'src/danger.js': 'd\n',
-      '.claude/pipeline-stages.json': JSON.stringify({ tiers: { code: ['src/'], danger: ['src/danger.js'] } }) } });
-    const root = git(r.dir, 'rev-parse', '--show-toplevel');
-    const monitorDir = mkdtempSync(join(tmpdir(), 'pm-lang-gate-'));
-    mkdirSync(join(monitorDir, 'logs')); mkdirSync(join(monitorDir, 'checkpoints'));
-    copyFileSync(join(ROOT, 'stages.json'), join(monitorDir, 'stages.json'));
-    if (lang) writeFileSync(join(monitorDir, 'lang.json'), JSON.stringify({ lang }));
-    const home = mkdtempSync(join(tmpdir(), 'pm-home-'));
-    mkdirSync(join(home, '.claude', 'skills'), { recursive: true });
-    symlinkSync(ROOT, join(home, '.claude', 'skills', PLUGIN));
-    writeFileSync(join(root, 'src/danger.js'), 'changed\n');
-    writeFileSync(join(monitorDir, 'logs', `${safeName(basename(root))}.jsonl`), [
-      { ts: T(-5 * MIN), hook: 'UserPromptSubmit', prompt: 'please change the saving code' },
-      { ts: T(-4 * MIN), hook: 'PostToolUse', tool: 'Edit', file: join(root, 'src/danger.js') },
-    ].map((o) => JSON.stringify({ session: 's1', cwd: root, ...o })).join('\n') + '\n');
-    const keep = process.env.PIPELINE_MONITOR_HOME;
-    process.env.PIPELINE_MONITOR_HOME = monitorDir;
-    let d;
-    try { d = decide({ payload: { session_id: 's1', cwd: root, hook_event_name: 'Stop', stop_hook_active: false }, monitorDir, skillHome: home }); }
-    finally { process.env.PIPELINE_MONITOR_HOME = keep; }
-    for (const x of [monitorDir, home]) rmSync(x, { recursive: true, force: true });
-    r.cleanup();
-    return { reason: String(d?.reason ?? '').split(root).join('<root>'), missing: d?.missing ?? null };
-  };
-  const zh = once(null), enOnce = once('en');
-  check('收工 hook 有擋(不然什麼都沒比到)', zh.reason.length > 0, JSON.stringify(zh));
-  eq('設成英文:擋下來的那段話跟中文的時候一字不差', enOnce.reason, zh.reason);
-  check('……而且是中文(另一份規格才翻)', CJK.test(enOnce.reason), enOnce.reason.slice(0, 200));
+  for (const lang of [null, 'zh']) {
+    const s = claudeScene(lang);
+    s.add([{ ts: T(-60 * MIN), hook: 'UserPromptSubmit', prompt: SAID, prompt_id: 'p1' }]);
+    s.touch('src/save.js', 'changed\n');
+    s.add([{ ts: T(-50 * MIN), hook: 'PostToolUse', tool: 'Edit', file: join(s.root, 'src/save.js'), prompt_id: 'p1' }]);
+    const outs = [s.run(['--round', 'D']), s.run(['--round', 'E']), s.run(['--decide', 'D', 'skip', 'x']), s.run(['--spec']), s.run(['--tier-review'])];
+    const label = lang ?? '從來沒選過';
+    check(`${label}:每一個都是中文(有中文字、沒有英文那一份的開頭)`, outs.every((o) => CJK.test(o)) && !outs.some((o) => /This round's scope|Give a spec file|━━ Danger list|There's no record/.test(o)), outs.join('\n---\n').slice(0, 400));
+    const g = s.gate();
+    check(`${label}:收工 hook 擋下來的那段話是中文`, /^\[產線監視器\]/.test(g?.reason ?? ''), g?.reason);
+    s.cleanup();
+  }
 }
 
 process.exit(summary());

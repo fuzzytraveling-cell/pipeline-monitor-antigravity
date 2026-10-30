@@ -22,6 +22,7 @@ import { collectAll } from '../lib/collect.mjs';
 import { safeName } from '../lib/events.mjs';
 import { sessionView, lastRunPerStage, acceptOf, rerunLine } from '../lib/rounds.mjs';
 import { parseWalk, walkSummary, summaryLine, walkItems, eLines } from '../lib/verify.mjs';
+import { withLang } from '../lib/lang.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const PLUGIN = JSON.parse(readFileSync(join(ROOT, '.claude-plugin', 'plugin.json'), 'utf8')).name;
@@ -408,6 +409,38 @@ section('AC-8:分級預設不要求 E;專案把 E 放進清單時,收工 hook �
   s.write([said(-40 * MIN, '驗收一下'), callV(-30 * MIN), rep(-25 * MIN, 'ok', ALL_SEEN), clear(-20 * MIN), said(-10 * MIN, '順便改一下')]);
   d = s.gate();
   check('你說驗收過了之後又改了 → 先問人,講明是你的驗收之後改的', d?.missing.includes('E:ask') && /使用者說驗收過了之後，又改了程式檔/.test(d.reason), d?.reason);
+  s.cleanup();
+}
+
+
+section('英文那一份(規格:技能與寫給AI的話中英切換 AC-6):收工 hook 要 E 的那幾句——驗收過了只有使用者能說;「不用再走」(no need to walk through again)不是「驗收過了」(accepted),不准記成 --clear;不叫 Claude 自己再走', 'P7');
+{
+  const only = { none: { id: 'T0', requires: [] }, code: { id: 'T1', requires: [] }, danger: { id: 'T2', requires: ['E'] } };
+  const s = scene({ levels: only });
+  const eLine = (d) => (d?.reason ?? '').split('\n').find((l) => l.startsWith('- E ')) ?? '';
+  s.write([said(-5 * MIN, 'change it')]);
+  s.touch('src/danger.js', -2 * MIN);
+  let d = withLang('en', () => s.gate()), l = eLine(d);
+  check('還沒走 → 要 Claude 跑 verify,每條記 seen／not seen／can\'t verify', d?.missing.includes('E') && l.includes(`/${PLUGIN}:verify`) && /seen \(with the original text from the screen\) \/ not seen \/ can't verify/.test(l), l);
+  check('……講明「accepted」只有使用者能說,不叫它去按儀表板', /only the user can say "accepted"/.test(l) && !/press the dashboard|dashboard's button/.test(l), l);
+  check('……那一句不准把走一遍講成 verified／passed', !/\bverified\b|\bpass(ed)?\b/i.test(l), l);
+  s.write([said(-40 * MIN, 'walk through it'), callV(-30 * MIN), rep(-25 * MIN, 'ok', ALL_SEEN), said(-10 * MIN, 'also change this')]);
+  s.touch('src/danger.js', -5 * MIN);
+  d = withLang('en', () => s.gate()); l = eLine(d);
+  check('走過之後又改了 → 先停下來問人(E:ask),不叫它自己再走', d?.missing.includes('E:ask') && /Don't walk through it again on your own; stop and ask the user first/.test(l), l);
+  check('……「不用再走」不是「驗收過了」:那一句照講,不准記成 --clear', /"No need to walk through again" isn't "accepted": never record it as --clear/.test(l), l);
+  const skip = l.indexOf('--decide E skip'), looked = l.indexOf('Only if they say they\'ve looked and it\'s fine'), clr = l.indexOf('--clear E');
+  check('……說不用 → --decide;說看過了、可以 → 才 --clear(--clear 只掛在「看過了、可以」那一句後面)', skip > 0 && looked > skip && clr > looked, l);
+  // --round E 英文那一份:同一條紅線
+  const enHome = s.monitorDir;
+  writeFileSync(join(enHome, 'lang.json'), JSON.stringify({ lang: 'en' }));
+  const r = s.cli(['--round', 'E']).out;
+  check('--round E:只有使用者能說 accepted、不准按儀表板的按鈕', /Only the user can say "accepted": never press the dashboard's button/.test(r), r);
+  check('……要不要再走:說不用 → --decide、看過了說可以 → 才 --clear;「不用再走」不是「驗收過了」', /If they say no need: pipeline-status --decide E skip/.test(r) && /"No need to walk through again" isn't "accepted": never record it as --clear/.test(r), r);
+  check('……走完不要自己再走', /After walking through it, don't walk through it again on your own/.test(r), r);
+  const rec = s.cli(['--report', 'E', 'ok', 'Walk 1: http://localhost:5173\nAC-1 seen: "Welcome back"\nAC-2 seen: "Send"\nAC-3 can\'t verify: not visible on the screen']).out;
+  check('--report E:講 Claude 說走了一遍,不是 accepted;只有使用者能說', /^✅ Recorded: /.test(rec) && /walked through/.test(rec) && /This is "what Claude says", not accepted: only the user can say it's accepted/.test(rec), rec);
+  check('……第一行不准講成 verified／passed／accepted', !/\bverified\b|\bpass(ed)?\b|\baccepted\b/i.test(rec.split('\n')[0]), rec.split('\n')[0]);
   s.cleanup();
 }
 
