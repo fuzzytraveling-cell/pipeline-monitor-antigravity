@@ -1,7 +1,7 @@
 ---
 name: chaos-check
-description: D 魔鬼教官這一關（產線監視器 pipeline-monitor 帶的通用版）：拿這個專案自己踩過的坑（docs/FAILURE-PATTERNS.md，沒有就用三條通用判準）逐條對照這次的改動，找出正在重蹈的已知死法。只找問題、不改任何檔案、不宣稱通過。使用者說「檢查一下有沒有踩到老毛病」「魔鬼教官」「chaos check」時用；專案自己也有 /chaos-check 時，使用者叫哪個就跑哪個，不要自作主張換。
-argument-hint: "[git ref，預設是這一輪的改動（pipeline-status --round 給的範圍）]"
+description: D 魔鬼教官這一關（產線監視器 pipeline-monitor 帶的通用版）：拿這個專案自己踩過的坑（docs/FAILURE-PATTERNS.md，沒有就用三條通用判準）逐條對照這次的改動，找出正在重蹈的已知死法。只找問題、不改任何檔案、不宣稱通過。使用者說「檢查一下有沒有踩到老毛病」「魔鬼教官」「chaos check」時用；專案自己也有 /chaos-check 時，使用者叫哪個就跑哪個，不要自作主張換。 English — the Chaos check stage (the general version that comes with Pipeline Monitor) compares this change, item by item, against the pitfalls this project has already hit (docs/FAILURE-PATTERNS.md, or the three general rules when there's none) to find known failure patterns being repeated. It only finds problems; it changes no files and never claims a pass. Use it when the user says "chaos check", "run the chaos check", "check whether this hits any known failure pattern", "look for old mistakes"; if the project has its own /chaos-check too, run whichever one the user asks for.
+argument-hint: "[git ref，預設是這一輪的改動（pipeline-status --round 給的範圍）] / [git ref, defaults to this round's changes (the scope pipeline-status --round gives)]"
 allowed-tools: Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git ls-files:*), Bash(git rev-parse:*), Bash(ls:*), Bash(pipeline-status --round:*)
 ---
 
@@ -13,6 +13,47 @@ allowed-tools: Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git l
 這一支裝在使用者層級，任何專案都叫得到，所以它**不知道你這個專案踩過什麼坑**。
 那份清單只住在那個專案自己的檔案裡——讀到就用它的，讀不到就說讀不到，
 **不准把「沒有清單」講成「沒有已知死法」**。
+
+## 使用者講英文的時候（When the user writes in English）
+
+- **用使用者講的語言回。** 講英文就用英文回、講中文就用中文回。這一支裡引號裡的中文（「看到了」「這是找過，不是通過」…）是**意思**，不是要照抄的字。
+  Reply in the language the user writes in. The quoted Chinese in this skill is the meaning, not words to copy.
+- `pipeline-status` 印的字跟著它自己的語言設定（`pipeline-status --lang`），不一定是使用者講的那一種：照它印的**意思**走——下面照它的字分路的表，中英兩種都列了。
+  What `pipeline-status` prints follows its own language setting, which may differ from the user's language: go by what it means. The tables below that route on its words list both languages.
+- 講英文的時候，紅線那幾個字照這張表講（when speaking English, say the red-line words this way）：
+
+<!-- 用語對照:跟 lib/lang.mjs 的 TERMS 逐字對(scripts/skills.test.mjs,老毛病 P2)。要改先改那裡,五支技能一起改 -->
+| 中文 | English | 不准說 (never say) |
+|---|---|---|
+| 叫了／跑過（記號 ⏸，一定帶過了多久） | called / ran (mark ⏸, always with how long ago) | passed, succeeded, done, ✓ |
+| 找過（魔鬼教官的結論） | looked (the Chaos check conclusion) | passed, all clear, no problems |
+| 沒對到已知死法 | didn't match any known failure pattern | passed, all clear, no problems, safe |
+| 走過一遍（驗收那一支走的） | walked through (what the Acceptance skill does) | verified, accepted, passed, tested |
+| 看到了／沒看到／驗不了 | seen / not seen / can't verify | passed, failed, verified |
+| 驗收過了（只有使用者能說） | accepted (only the user can say it) | verified, tested, passed |
+| 不用再跑／不用再走 | no need to run it again / no need to walk through it again | accepted, passed, done |
+| 處理完了 | handled | fixed, resolved, passed |
+| 沒有紀錄 | no record | not run, never ran, skipped |
+| 問不到 | couldn't check | none, 0, no … |
+| 看不全／看不到 | can't see all of it / can't see | no changes, none |
+| 檢查全綠 | all checks green | works, passed, verified, safe |
+| 先停下來問使用者 | stop and ask the user first | failed, error, blocked |
+| 使用者說／Claude 代記／分不出是誰 | the user said / Claude recorded it for them / can't tell who | a guessed subject |
+| 可能 | might | will, is |
+| 前 N 個字 | the first N characters | words |
+
+三條通用判準的英文那一份（the three general rules in English）：
+
+- **R1 Never say "none" when you didn't get an answer**: would this sentence become a lie when the answer couldn't be obtained?
+- **R2 Never say "passed" when it only ran**: what is the only thing this feedback proves? That a command was called, or that the thing actually worked?
+- **R3 Never make up numbers**: is this number's denominator a fact you can look up, or made up?
+
+英文的結論與結尾（下面每一處中文的說法，英文都照這一份）：
+- 一條都沒對到：**This change didn't match any known failure pattern.**——不說 passed、all clear、no problems、safe。
+- 固定結尾：**This is "looked", not "passed": I only checked what's on the list; I can't see what isn't on it.**
+- 第一行那幾句：`Sent N agents`／`Sent no agents`、`Couldn't get the list after the first round, so this time I looked at the whole batch`、
+  `Round N only looked at the N files changed after the first round: …`（照 `--round D` 印的那一句）、`This project hasn't set up tiers, so I ran it the cheapest way`。
+- 每條發現的欄位：**Where**、**Trigger**、**Symptom**、**Criterion**、**Existing fix**。
 
 ## 產出什麼、不產出什麼
 
@@ -48,15 +89,15 @@ allowed-tools: Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git l
 跑 `pipeline-status --round D`（沒有這個指令的話：`node "<pipeline-monitor 的資料夾>/status.mjs" --round D`，
 那個資料夾就是 `~/.claude/skills/pipeline-monitor` 指向的位置）。它的「跑法」那一行怎麼說就怎麼跑：
 
-| 它說 | 你怎麼跑 |
+| 它說（中文／English） | 你怎麼跑 |
 |---|---|
-| 第一次、可以派獨立 agent（只有分級設定允許的那一級才會這樣說） | 可以派 agent 多角度看，派幾個你判斷；回報第一行寫「派了 N 個 agent」（沒派就寫「沒派 agent」） |
-| 第一次、你自己看 | 你自己看整批改動，**不派 agent** |
-| 第一次、這個專案沒設定分級（或讀不懂、設定成不分級） | 你自己看，回報明講「這個專案沒設定分級，我照最省的方式跑」——不是當成最低那一級，是成本上取最省的那條 |
-| 第二次以上 | 不論分級都你自己看，**只看它列的那幾個檔**（第一次之後改的），不派 agent；回報第一行照它給的那句寫 |
-| 拿不到第一次之後的清單、或這個指令不存在 | 看整批，回報第一行寫「拿不到第一輪之後的清單，這次看的是整批」 |
+| 第一次、可以派獨立 agent（只有分級設定允許的那一級才會這樣說）／first time, tier …: you may send independent agents | 可以派 agent 多角度看，派幾個你判斷；回報第一行寫「派了 N 個 agent」（沒派就寫「沒派 agent」） |
+| 第一次、你自己看／first time, tier …: look yourself, don't send agents | 你自己看整批改動，**不派 agent** |
+| 第一次、這個專案沒設定分級（或讀不懂、設定成不分級）／first time, this project hasn't set up tiers（或 tier setting can't be read、is set to not use tiers）: run it the cheapest way | 你自己看，回報明講「這個專案沒設定分級，我照最省的方式跑」——不是當成最低那一級，是成本上取最省的那條 |
+| 第二次以上／time 2 (or later): whatever the tier, look yourself | 不論分級都你自己看，**只看它列的那幾個檔**（第一次之後改的），不派 agent；回報第一行照它給的那句寫 |
+| 拿不到第一次之後的清單／Can't get which files changed after the first time、或這個指令不存在 | 看整批，回報第一行寫「拿不到第一輪之後的清單，這次看的是整批」 |
 
-第一次它也會印「這一輪的範圍」：從哪一刻的版本算起、這一輪改過的檔——跟收工 hook、儀表板說的「這一輪」同一份。步驟 1 照它拿改動。
+第一次它也會印「這一輪的範圍」（This round's scope）：從哪一刻的版本算起、這一輪改過的檔——跟收工 hook、儀表板說的「這一輪」同一份。步驟 1 照它拿改動。
 
 第二次以上只看那幾個檔，代價是：修法跟沒重讀的那些檔之間的交互，這一次看不到——所以回報**不准**講成「全部看過」。
 
@@ -90,7 +131,7 @@ allowed-tools: Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git l
 4. **是否已被別處擋掉**——先確認。
 
 **上限 8 條。** 超過就只留最嚴重的 8 條，並說明砍掉了幾條。
-**一條都沒有也是合法的結論**——但寫法是「這次的改動我沒對到任何已知死法」，**不是「通過」**。
+**一條都沒有也是合法的結論**——但寫法是「這次的改動我沒對到任何已知死法」（英文：This change didn't match any known failure pattern），**不是「通過」**（不是 passed、all clear）。
 你能證明的只有「我找過、沒找到」。
 
 ## 輸出格式
@@ -115,10 +156,10 @@ allowed-tools: Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git l
 ## 收尾（一定要做：這是這一關結案的唯一證據）
 
 把結論記給儀表板，儀表板會照實標「Claude 說」。說明第一行是結論（第一步那一行：派了幾個 agent、或第幾輪只看了哪幾個檔），之後一行一條發現（一句話就好，儀表板會一條一條列出來）：
-- 沒對到任何已知死法 → `pipeline-status --report D ok "沒對到已知死法"`
+- 沒對到任何已知死法 → `pipeline-status --report D ok "沒對到已知死法"`（英文：`pipeline-status --report D ok "didn't match any known failure pattern"`）
 - 有發現 → `pipeline-status --report D found "找到 N 條
 - [判準] 一句話
-- [判準] 一句話"`
+- [判準] 一句話"`（英文：`"Found N` 之後一樣一行一條 `- [criterion] one sentence`）
 
 沒有 `pipeline-status` 這個指令的話：`node "<pipeline-monitor 的資料夾>/status.mjs" --report D …`——
 那個資料夾就是 `~/.claude/skills/pipeline-monitor` 指向的位置。
@@ -139,6 +180,7 @@ allowed-tools: Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git l
 4. **不跑的風險**：沒再看的那幾個修法，哪裡可能出事、使用者會看到什麼。
 
 最後一行給建議：全部小修 →「我建議不跑」；有任何一條建議再看 →「我建議跑」。
+英文：每條標 small fix 或 worth another look；最後一行是 "I recommend not running it" 或 "I recommend running it"。
 用一般的對話問，**不要用選項卡**（AskUserQuestion）——選項卡的回答感測器看不到，你記下的決定會變成「分不出是不是使用者說的」。
 **使用者的決定才算數**：
 - 使用者說跑 → 再叫這一關（照第一步：第二次以上自己看、只看那幾個檔）。

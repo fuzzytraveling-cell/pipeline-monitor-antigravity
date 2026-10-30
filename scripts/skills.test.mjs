@@ -13,6 +13,9 @@ import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 import { skillAvailable } from '../lib/skills.mjs';
+import { termsTable, RED_LINES_EN, withLang } from '../lib/lang.mjs';
+import { runMode } from '../lib/rounds.mjs';
+import { CJK } from './_zhscan.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SKILLS = join(ROOT, 'skills');
@@ -81,6 +84,83 @@ section('讀取端找得到 plugin 帶的 skill:五關才會從「找不到這�
   }
   rmSync(home, { recursive: true, force: true });
   r.cleanup();
+}
+
+
+/* ════════════ 英文使用者叫得到、Claude 轉述不翻錯(規格:技能與寫給AI的話中英切換 AC-1、AC-2、AC-5) ════════════ */
+
+const ALL = readdirSync(SKILLS).filter((d) => existsSync(join(SKILLS, d, 'SKILL.md')));
+const textOf = (d) => readFileSync(join(SKILLS, d, 'SKILL.md'), 'utf8');
+/** 說明裡有沒有英文的觸發句:英文寫在 "…" 裡、至少兩個字(write a spec)。中文那一段用「」,只有中文的說明裡的 ASCII(pipeline-monitor、/spec)不算 */
+const englishTriggers = (desc) => [...String(desc ?? '').matchAll(/"([A-Za-z][A-Za-z'’ …-]*\s[A-Za-z'’ …-]+)"/g)].map((m) => m[1]);
+const bilingual = (desc) => CJK.test(String(desc ?? '')) && englishTriggers(desc).length > 0;
+
+section('AC-1:每一支技能的說明中英兩段——英文使用者講的話(write a spec、clean up、chaos check、walk through it、set up tiers…)寫在說明裡,Claude 才叫得到', 'P4');
+{
+  // 老毛病 P4:先寫兩個例子——一個必須抓到、一個必須放過
+  const zhOnly = 'A 寫規格這一關（產線監視器 pipeline-monitor 帶的通用版）：…使用者說「幫我寫規格」「先列驗收條件」時用；專案自己也有 /spec 時，使用者叫哪個就跑哪個。';
+  check('必須抓到:只有中文的說明(裡面的 pipeline-monitor、/spec 不算英文的觸發句)', !bilingual(zhOnly), JSON.stringify(englishTriggers(zhOnly)));
+  check('必須放過:中英都有的說明', bilingual(`${zhOnly} English — use it when the user says "write a spec".`));
+  const want = { spec: ['write a spec'], cleanup: ['clean up'], 'chaos-check': ['chaos check'], verify: ['walk through it', 'verify'], 'tier-setup': ['set up tiers', 'this project doesn\'t need tiers', 'look at my danger list'] };
+  check('五支技能都在(不然下面什麼都沒比到)', ALL.length === 5 && Object.keys(want).every((d) => ALL.includes(d)), ALL.join(','));
+  for (const d of ALL) {
+    const fm = frontmatter(textOf(d));
+    check(`skills/${d}:說明中英兩段(中文那一段、英文的觸發句)`, bilingual(fm?.description), fm?.description);
+    const got = englishTriggers(fm?.description).map((x) => x.toLowerCase());
+    for (const w of want[d] ?? []) check(`skills/${d}:英文的觸發句有「${w}」`, got.includes(w.toLowerCase()) || (w === 'verify' && /"verify"/.test(fm?.description ?? '')), got.join(' | '));
+    if (fm?.['argument-hint']) {
+      const parts = fm['argument-hint'].replace(/^"|"$/g, '').split(' / ');
+      check(`skills/${d}:argument-hint 中英兩段(用 / 隔開,一段中文、一段英文)`, parts.some((x) => CJK.test(x)) && parts.some((x) => !CJK.test(x) && /[A-Za-z]{3,}/.test(x)), fm['argument-hint']);
+    }
+    check(`skills/${d}:說明不超過 1024 個字(技能說明的上限)`, [...String(fm?.description ?? '')].length <= 1024, String([...String(fm?.description ?? '')].length));
+  }
+  const plugin = JSON.parse(readFileSync(join(ROOT, '.claude-plugin', 'plugin.json'), 'utf8')).description;
+  check('plugin 的說明中英兩段', CJK.test(plugin) && /Pipeline Monitor:/.test(plugin), plugin);
+  // R3:單位翻錯,數字就錯。感測器記你說的話的前 200 個「字」(lib/events.mjs 的 PROMPT_CAP 數的是字,不是詞)
+  check('……「你說的話的前 200 字」英文寫 characters,不寫 words', /first 200 characters/.test(plugin) && !/200 words/.test(plugin), plugin);
+}
+
+section('AC-2:五支技能的用語對照、三條通用判準的英文那一份,跟 lib/lang.mjs 那一份逐字一樣(兩份就要有測試真的對兩邊)', 'P2');
+{
+  const table = termsTable().join('\n'), red = RED_LINES_EN.join('\n');
+  check('lib 那一份不是空的(不然下面一定綠)', termsTable().length > 10 && RED_LINES_EN.length === 3);
+  for (const d of ALL) {
+    const t = textOf(d);
+    check(`skills/${d}:有用語對照表,而且跟 lib 那一份逐字一樣`, t.includes(table), '改了 lib/lang.mjs 的 TERMS,這支技能裡那張表要一起改(或反過來)');
+    check(`skills/${d}:有三條通用判準的英文那一份,而且跟 lib 那一份逐字一樣`, t.includes(red));
+    check(`skills/${d}:講明用使用者講的語言回、引號裡的中文是意思不是照抄的字`, /用使用者講的語言回/.test(t) && /Reply in the language the user writes in/.test(t) && /is the meaning, not words to copy/.test(t));
+  }
+  // 「不准說」那一欄:每一列都要有東西(空的那一列等於沒有紅線)
+  check('對照表每一列都有「不准說」', termsTable().slice(2).every((l) => l.split('|')[3]?.trim()), table);
+  const chaos = textOf('chaos-check'), verify = textOf('verify');
+  check('魔鬼教官:英文的結論是 didn\'t match any known failure pattern,固定結尾講 looked 不是 passed', /This change didn't match any known failure pattern\./.test(chaos) && /This is "looked", not "passed"/.test(chaos), '');
+  check('驗收:英文的固定結尾是 This is a walk-through, not an acceptance.', verify.includes('**This is a walk-through, not an acceptance.**'));
+  check('驗收:英文的三種結果(seen／not seen／can\'t verify)寫在格式裡', /AC-3 seen: "the original text on the screen"/.test(verify) && /AC-4 not seen:/.test(verify) && /AC-5 can't verify: reason/.test(verify));
+}
+
+section('AC-5:技能裡照指令英文分路的那幾句,真的是指令印的字——指令的英文改了、技能沒跟上,這裡紅', 'P2');
+{
+  // 程式碼裡的字串把撇號寫成 \'(can\'t):還原成印出來的樣子再找
+  const src = (['lib/cliRerun.mjs', 'lib/rounds.mjs', 'lib/tier.mjs'].map((f) => readFileSync(join(ROOT, f), 'utf8')).join('\n') + readFileSync(join(ROOT, 'remind.sh'), 'utf8')).replace(/\\'/g, '\'');
+  const chaos = textOf('chaos-check'), verify = textOf('verify'), tier = textOf('tier-setup');
+  // 魔鬼教官的跑法那張表:照 runMode 英文那一份分路(收工 hook、--round D 印的)
+  const modes = withLang('en', () => [runMode({ nth: 1, levelId: 'T2', agents: true }), runMode({ nth: 1, levelId: 'T1' }), runMode({ nth: 1, noLevel: 'this project hasn\'t set up tiers' }), runMode({ nth: 2 })].map((m) => m.line));
+  const keys = ['you may send independent agents', 'look yourself, don\'t send agents', 'run it the cheapest way', 'whatever the tier, look yourself'];
+  keys.forEach((k, i) => {
+    check(`魔鬼教官的表有「${k}」`, chaos.includes(k));
+    check(`……那是 runMode 英文真的會印的字`, modes[i].includes(k), modes[i]);
+  });
+  for (const k of ['Can\'t get which files changed after the first time', 'Couldn\'t get the list after the first round, so this time I looked at the whole batch', 'This round\'s scope']) {
+    check(`魔鬼教官的表有「${k}」,而且是 --round D 英文真的會印的字`, chaos.includes(k) && src.includes(k), k);
+  }
+  // 驗收的「它說／你怎麼做」:照 --round E 英文那一份分路
+  for (const k of ['Verify against this spec: ', 'Verify against these ', 'Done in batches: this batch only verifies', 'the spec is in the main folder', 'This round has no spec', 'can\'t find this round\'s spec file', 'walking through it again would be number', 'There\'s nothing to verify against']) {
+    check(`驗收的表有「${k.trim()}」,而且是 --round E 英文真的會印的字`, verify.includes(k.trim()) && src.includes(k), k);
+  }
+  // 分級:使用者會照畫面、對話開始那一行講的英文說,skill 要認得
+  for (const k of ['set up tiers', 'this project doesn\'t need tiers', 'look at my danger list', 'that nobody has judged yet']) {
+    check(`分級那一支有「${k}」,而且是收工 hook、分級卡、對話開始那一行真的會印的字`, tier.includes(k) && src.includes(k), k);
+  }
 }
 
 process.exit(summary());

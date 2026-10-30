@@ -1,7 +1,7 @@
 ---
 name: cleanup
-description: C 打掃這一關（產線監視器 pipeline-monitor 帶的通用版）：清掉寫程式時留下的鷹架。只做證明得出來安全的刪除（沒用到的 import／變數、註解掉的死碼、同一檔案內零呼叫點的函式），其餘只出建議清單；測試檔唯讀；不改控制流。使用者說「打掃一下」「清一下沒用到的東西」時用；專案自己也有 /cleanup 時，使用者叫哪個就跑哪個，不要自作主張換。
-argument-hint: "[git ref，預設是這一輪的改動（pipeline-status --round 給的範圍）]"
+description: C 打掃這一關（產線監視器 pipeline-monitor 帶的通用版）：清掉寫程式時留下的鷹架。只做證明得出來安全的刪除（沒用到的 import／變數、註解掉的死碼、同一檔案內零呼叫點的函式），其餘只出建議清單；測試檔唯讀；不改控制流。使用者說「打掃一下」「清一下沒用到的東西」時用；專案自己也有 /cleanup 時，使用者叫哪個就跑哪個，不要自作主張換。 English — the Cleanup stage (the general version that comes with Pipeline Monitor) clears away the scaffolding left over from writing code. It only makes deletions it can prove are safe (unused imports and variables, commented-out dead code, functions with zero callers in the same file); everything else goes on a suggestion list. Test files are read-only and control flow is never changed. Use it when the user says "clean up", "clean this up", "clear out what isn't used", "remove dead code"; if the project has its own /cleanup too, run whichever one the user asks for.
+argument-hint: "[git ref，預設是這一輪的改動（pipeline-status --round 給的範圍）] / [git ref, defaults to this round's changes (the scope pipeline-status --round gives)]"
 allowed-tools: Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git ls-files:*), Bash(ls:*), Bash(pipeline-status --round:*)
 ---
 
@@ -16,6 +16,46 @@ allowed-tools: Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git l
 
 這一支裝在使用者層級，任何專案都叫得到，所以它**不知道你這個專案的任何事**——
 哪些程式碼看起來多餘、其實是刻意的，只有那個專案自己的手冊知道。
+
+## 使用者講英文的時候（When the user writes in English）
+
+- **用使用者講的語言回。** 講英文就用英文回、講中文就用中文回。這一支裡引號裡的中文（「看到了」「這是找過，不是通過」…）是**意思**，不是要照抄的字。
+  Reply in the language the user writes in. The quoted Chinese in this skill is the meaning, not words to copy.
+- `pipeline-status` 印的字跟著它自己的語言設定（`pipeline-status --lang`），不一定是使用者講的那一種：照它印的**意思**走——下面照它的字分路的表，中英兩種都列了。
+  What `pipeline-status` prints follows its own language setting, which may differ from the user's language: go by what it means. The tables below that route on its words list both languages.
+- 講英文的時候，紅線那幾個字照這張表講（when speaking English, say the red-line words this way）：
+
+<!-- 用語對照:跟 lib/lang.mjs 的 TERMS 逐字對(scripts/skills.test.mjs,老毛病 P2)。要改先改那裡,五支技能一起改 -->
+| 中文 | English | 不准說 (never say) |
+|---|---|---|
+| 叫了／跑過（記號 ⏸，一定帶過了多久） | called / ran (mark ⏸, always with how long ago) | passed, succeeded, done, ✓ |
+| 找過（魔鬼教官的結論） | looked (the Chaos check conclusion) | passed, all clear, no problems |
+| 沒對到已知死法 | didn't match any known failure pattern | passed, all clear, no problems, safe |
+| 走過一遍（驗收那一支走的） | walked through (what the Acceptance skill does) | verified, accepted, passed, tested |
+| 看到了／沒看到／驗不了 | seen / not seen / can't verify | passed, failed, verified |
+| 驗收過了（只有使用者能說） | accepted (only the user can say it) | verified, tested, passed |
+| 不用再跑／不用再走 | no need to run it again / no need to walk through it again | accepted, passed, done |
+| 處理完了 | handled | fixed, resolved, passed |
+| 沒有紀錄 | no record | not run, never ran, skipped |
+| 問不到 | couldn't check | none, 0, no … |
+| 看不全／看不到 | can't see all of it / can't see | no changes, none |
+| 檢查全綠 | all checks green | works, passed, verified, safe |
+| 先停下來問使用者 | stop and ask the user first | failed, error, blocked |
+| 使用者說／Claude 代記／分不出是誰 | the user said / Claude recorded it for them / can't tell who | a guessed subject |
+| 可能 | might | will, is |
+| 前 N 個字 | the first N characters | words |
+
+三條通用判準的英文那一份（the three general rules in English）：
+
+- **R1 Never say "none" when you didn't get an answer**: would this sentence become a lie when the answer couldn't be obtained?
+- **R2 Never say "passed" when it only ran**: what is the only thing this feedback proves? That a command was called, or that the thing actually worked?
+- **R3 Never make up numbers**: is this number's denominator a fact you can look up, or made up?
+
+英文的報告（下面每一處中文的格式，英文都照這一份）：
+- 第一行：`Changed N, suggested N, left alone N`；三段標題 `## Changed (each one must answer "how do you prove it's dead")`、`## Suggested only, not done (can't be proven)`、`## Left alone because of the rules`。
+  建議那一段每一項的欄位：In plain words、What happens、If it's not fixed、To check it。
+- 拿不到範圍時的第一行：`Couldn't get this round's scope, so I only looked at uncommitted changes`；`--round C` 說起點找不到時照它給的那一句寫。
+- 紅有兩種，英文也分開講：ran and failed（跑了沒過）／didn't start（根本沒跑起來）。
 
 ## 產出什麼、不產出什麼
 
@@ -131,6 +171,8 @@ pipeline-status --report C ok "已改 1 項、建議 3 條
 - 檔案:行 —— 白話一句
 - 檔案:行 —— 白話一句"
 ```
+
+英文：`pipeline-status --report C ok "Changed 1, suggested 3` 之後一樣一行一條 `- file:line — one plain sentence`。
 
 沒有這個指令的話：`node "<pipeline-monitor 的資料夾>/status.mjs" --report C ok "…"`，那個資料夾就是 `~/.claude/skills/pipeline-monitor` 指向的位置。
 清單再長都會整份留著（太長會另存一個檔），有幾條就寫幾條，不要為了短而漏。列出來這一關就算結案——做不做由使用者決定，不是這一關的事。

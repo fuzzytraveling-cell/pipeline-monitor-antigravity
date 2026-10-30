@@ -1,7 +1,7 @@
 ---
 name: verify
-description: E 驗收這一關（產線監視器 pipeline-monitor 帶的通用版）：照這一輪的規格，把每條驗收條件在畫面上走一遍，每條記「看到了（附畫面上的原文）／沒看到／驗不了（附原因）」，給人做第二次查核。只看、不改程式、不說驗收過了——那句只有使用者能說。使用者說「驗收一下」「幫我在畫面上走一遍」「verify」時用；專案自己也有 /verify 時，使用者叫哪個就跑哪個，不要自作主張換。
-argument-hint: "[沒有規格時：要看什麼]"
+description: E 驗收這一關（產線監視器 pipeline-monitor 帶的通用版）：照這一輪的規格，把每條驗收條件在畫面上走一遍，每條記「看到了（附畫面上的原文）／沒看到／驗不了（附原因）」，給人做第二次查核。只看、不改程式、不說驗收過了——那句只有使用者能說。使用者說「驗收一下」「幫我在畫面上走一遍」「verify」時用；專案自己也有 /verify 時，使用者叫哪個就跑哪個，不要自作主張換。 English — the Acceptance stage (the general version that comes with Pipeline Monitor) follows this round's spec and walks through each acceptance criterion on the screen, recording each one as seen (with the original text from the screen), not seen, or can't verify (with the reason), for the user to check a second time. It only looks; it changes no code and never says it's accepted, because only the user can say that. Use it when the user says "walk through it", "walk through it on the screen", "verify", "check it on the screen"; if the project has its own /verify too, run whichever one the user asks for.
+argument-hint: "[沒有規格時：要看什麼] / [with no spec: what to look at]"
 allowed-tools: Bash(pipeline-status --round:*), Bash(git status:*), Bash(git diff:*), Bash(git ls-files:*), Bash(ls:*)
 ---
 
@@ -11,6 +11,45 @@ allowed-tools: Bash(pipeline-status --round:*), Bash(git status:*), Bash(git dif
 
 這一支裝在使用者層級，任何專案都叫得到，所以它**不知道你這個專案的畫面長什麼樣**。
 要看什麼只從這一輪的規格來（沒有規格就從使用者的話來），**不自己編步驟**。
+
+## 使用者講英文的時候（When the user writes in English）
+
+- **用使用者講的語言回。** 講英文就用英文回、講中文就用中文回。這一支裡引號裡的中文（「看到了」「這是找過，不是通過」…）是**意思**，不是要照抄的字。
+  Reply in the language the user writes in. The quoted Chinese in this skill is the meaning, not words to copy.
+- `pipeline-status` 印的字跟著它自己的語言設定（`pipeline-status --lang`），不一定是使用者講的那一種：照它印的**意思**走——下面照它的字分路的表，中英兩種都列了。
+  What `pipeline-status` prints follows its own language setting, which may differ from the user's language: go by what it means. The tables below that route on its words list both languages.
+- 講英文的時候，紅線那幾個字照這張表講（when speaking English, say the red-line words this way）：
+
+<!-- 用語對照:跟 lib/lang.mjs 的 TERMS 逐字對(scripts/skills.test.mjs,老毛病 P2)。要改先改那裡,五支技能一起改 -->
+| 中文 | English | 不准說 (never say) |
+|---|---|---|
+| 叫了／跑過（記號 ⏸，一定帶過了多久） | called / ran (mark ⏸, always with how long ago) | passed, succeeded, done, ✓ |
+| 找過（魔鬼教官的結論） | looked (the Chaos check conclusion) | passed, all clear, no problems |
+| 沒對到已知死法 | didn't match any known failure pattern | passed, all clear, no problems, safe |
+| 走過一遍（驗收那一支走的） | walked through (what the Acceptance skill does) | verified, accepted, passed, tested |
+| 看到了／沒看到／驗不了 | seen / not seen / can't verify | passed, failed, verified |
+| 驗收過了（只有使用者能說） | accepted (only the user can say it) | verified, tested, passed |
+| 不用再跑／不用再走 | no need to run it again / no need to walk through it again | accepted, passed, done |
+| 處理完了 | handled | fixed, resolved, passed |
+| 沒有紀錄 | no record | not run, never ran, skipped |
+| 問不到 | couldn't check | none, 0, no … |
+| 看不全／看不到 | can't see all of it / can't see | no changes, none |
+| 檢查全綠 | all checks green | works, passed, verified, safe |
+| 先停下來問使用者 | stop and ask the user first | failed, error, blocked |
+| 使用者說／Claude 代記／分不出是誰 | the user said / Claude recorded it for them / can't tell who | a guessed subject |
+| 可能 | might | will, is |
+| 前 N 個字 | the first N characters | words |
+
+三條通用判準的英文那一份（the three general rules in English）：
+
+- **R1 Never say "none" when you didn't get an answer**: would this sentence become a lie when the answer couldn't be obtained?
+- **R2 Never say "passed" when it only ran**: what is the only thing this feedback proves? That a command was called, or that the thing actually worked?
+- **R3 Never make up numbers**: is this number's denominator a fact you can look up, or made up?
+
+英文的回報格式與結尾（下面每一處中文的格式，英文都照這一份）：
+- 每條：`AC-3 seen: "the original text on the screen"`／`AC-4 not seen: expected "…", the screen shows "…"`／`AC-5 can't verify: reason`；沒有規格的輪次 `1 seen: "…"`；好幾份規格 `report-row-time AC-1 seen: "…"`。
+  原文用 `"…"` 或 `“…”` 引起來（中文是「」）。`saw it`、`checked` 這種不在格式裡的字，儀表板認不得，那一條會變成「沒有結果」。
+- 固定結尾：**This is a walk-through, not an acceptance.**——不說 verified、accepted、passed。
 
 ## 產出什麼、不產出什麼
 
@@ -38,13 +77,13 @@ allowed-tools: Bash(pipeline-status --round:*), Bash(git status:*), Bash(git dif
 跑 `pipeline-status --round E`（沒有這個指令的話：`node "<pipeline-monitor 的資料夾>/status.mjs" --round E`，
 那個資料夾就是 `~/.claude/skills/pipeline-monitor` 指向的位置）。它講這一輪第幾趟、照哪份規格、要驗哪幾條、專案怎麼跑起來。照它說的走：
 
-| 它說 | 你怎麼做 |
+| 它說（中文／English） | 你怎麼做 |
 |---|---|
-| 照這份規格驗：<路徑> | 打開那份，每條讀標題、白話、「會發生的情況」——照「會發生的情況」在畫面上找 |
-| 分批做：這一批只驗 … | 只驗那幾條 |
-| 規格在主資料夾 | 照那份讀，只讀、不在那裡改任何東西 |
-| 這一輪沒有規格、或找不到規格檔 | 照使用者叫你時講的話驗（它印出來的那句，或對話裡他交代的那件事），條目用數字編號；他沒講要看什麼就先問，問不到就回報「沒有東西可以照著驗」——**不自己編步驟** |
-| 第 2 趟以上 | 預設整份再走；使用者說只看哪幾條就只看那幾條，回報第一行寫清楚 |
+| 照這份規格驗：<路徑>（照這 N 份規格驗）／Verify against this spec: <path>（Verify against these N specs） | 打開那份，每條讀標題、白話、「會發生的情況」——照「會發生的情況」在畫面上找（英文的規格：In plain words、What happens） |
+| 分批做：這一批只驗 …／Done in batches: this batch only verifies … | 只驗那幾條 |
+| 規格在主資料夾／the spec is in the main folder | 照那份讀，只讀、不在那裡改任何東西 |
+| 這一輪沒有規格、或找不到規格檔／This round has no spec、can't find this round's spec file | 照使用者叫你時講的話驗（它印出來的那句，或對話裡他交代的那件事），條目用數字編號；他沒講要看什麼就先問，問不到就回報「沒有東西可以照著驗」（There's nothing to verify against）——**不自己編步驟** |
+| 第 2 趟以上／walk-through 2 or later（walking through it again would be number N） | 預設整份再走；使用者說只看哪幾條就只看那幾條，回報第一行寫清楚 |
 
 ## 第二步：把專案跑起來——驗的是這個工作區的程式
 
@@ -78,6 +117,15 @@ AC 寫得抽象（「要穩定」「要快」）→ `驗不了：畫面上看不
 AC-1 看到了：「…」
 AC-2 驗不了：要登入"`
 - 有任何一條沒看到 → 用 `found`（有沒看到的卻記 ok，指令會拒收）
+- 英文的回報：原文的 `"` 會跟指令的引號打架，整段用 heredoc 傳：
+  ```
+  pipeline-status --report E ok "$(cat <<'EOF'
+  Walk 1: http://localhost:5173 (this workspace's code)
+  AC-1 seen: "Welcome back"
+  AC-2 can't verify: needs a login
+  EOF
+  )"
+  ```
 
 沒有 `pipeline-status` 這個指令的話：`node "<pipeline-monitor 的資料夾>/status.mjs" --report E …`。
 
@@ -89,7 +137,7 @@ AC-2 驗不了：要登入"`
 - 「驗收過了」由他說：按儀表板 E 那一格的按鈕；或跟你說，你照他的原話記：`pipeline-status --clear E "使用者的原話"`。
   儀表板附的是感測器記的、他在 E 之後說的最後一句——他沒開口，記了也不算數。
 
-固定結尾一行：**這是「走過一遍」，不是「驗收過了」。**
+固定結尾一行：**這是「走過一遍」，不是「驗收過了」。**（英文：**This is a walk-through, not an acceptance.**）
 
 ## 之後又改了程式：要不要再走，先問人
 
@@ -98,7 +146,7 @@ AC-2 驗不了：要登入"`
 上一趟從叫到記結論花了多久（它給的數字；給不出就說「紀錄裡看不到」，**不准估**）、不再走的風險；最後一行給建議。
 用一般的對話問，**不要用選項卡**——選項卡的回答感測器看不到，你記下的會變成「分不出是不是使用者說的」。
 - 使用者說走 → 再叫這一關。
-- 說不用再走 → `pipeline-status --decide E skip "使用者的原話"`。**「不用再走」不是「驗收過了」**——不准記成 `--clear`。
+- 說不用再走 → `pipeline-status --decide E skip "使用者的原話"`。**「不用再走」不是「驗收過了」**（no need to walk through it again ≠ accepted）——不准記成 `--clear`。
 - 說看過了、可以（驗收現在這一版）→ `pipeline-status --clear E "使用者的原話"`。
 
 這一輪沒走過 verify、使用者自己驗過說可以，之後又改了程式——一樣先問；上面三條照用（`--decide` 這時錨在他的驗收）。
