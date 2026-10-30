@@ -65,6 +65,8 @@
   D、A、C 那幾支補了，E 那一支漏了：英文、E 必跑時那一列是 ⏸ 卻沒有時間（儀表板與終端機中英切換，魔鬼教官第一輪抓到）
 - 「還沒 commit 幾個」：三階梯數 git status 的全部，改動卡數的是「改過的」清單裡標了還沒存的——改了、commit、又改回蓋章那時候的樣子的檔，
   三階梯說 1 個、改動卡說「沒有改動」；照「先講 commit」的新排法會變成「都 commit 了」（先講commit再講蓋章，寫規格時推出來的）
+- 「英文的紅線」：用語對照（`lib/lang.mjs` 的 TERMS）說魔鬼教官的結論不准講 no problems，同一個資料夾裡 `--report` 英文那一句卻印 has no problems；
+  「規格資料夾叫什麼」：認的正則從 `lib/lang.mjs` 拿、中英兩套都認，`--spec` 的中文那一句卻寫死 docs/升級摘要/——英文那一套的規格被講成在升級摘要（技能與寫給AI的話中英切換，魔鬼教官第一輪）
 
 **哪裡會再犯**：hook.sh（sh）與 status.mjs（node）要對同一件事有共識的任何地方；
 同一個畫面上兩個看起來應該相等的數字。
@@ -72,6 +74,7 @@
 在 docs/ 以外寫 `docs/…` 路徑的任何地方——路徑只住 CLAUDE.md 的表，別處只寫名字（L21）。
 兩種語言各寫一次的規則，一定要有一條**真的跑兩邊**的測試釘住——翻譯得再像也是兩份。
 中英兩份分兩處放（中文一張表、英文另一張表）：改了中文那一句、忘了英文那一句，沒有東西會紅——每一句寫成 zhEn(中文, English) 並排，只寫中文的掃得到（規格：儀表板與終端機中英切換）。
+技能（SKILL.md）照指令印的字分路、照對照表講話的地方：指令的英文一改、對照表一改，技能那張表沒跟上，Claude 就走錯路或講錯字——測試要真的對兩邊（規格：技能與寫給AI的話中英切換）。
 **釘住它的測試**：`scripts/status.test.mjs` 標 P2 的段落；`scripts/sensor.test.mjs` 真的跑 hook.sh 對 `safeName()` 的那段；
 `scripts/skills.test.mjs` 對 `stages.json` 的 skill 名與 `skills/` 資料夾的那段；
 `scripts/specLink.test.mjs` 標 P2 的段落（規格連結:五關、分級卡、收工 hook 說同一件事）；
@@ -87,7 +90,9 @@
 `scripts/ui.test.mjs` 標 P2 的段落（誰說處理完了只算一次：那一句與工班的臉讀同一個 `doneBy`；Claude 回報的不寫你說、你說的照寫、分不出來照講分不出；舊的服務沒給 `doneBy`，網頁不自己從 `closedBy` 猜）；
 `scripts/collect.test.mjs` 標 P2 的「還沒 commit 幾個」段落（三階梯、還原點那一句、存檔與蓋章卡的大字與清單同一份）；
 `scripts/lang.test.mjs` 標 P2 的段落（中文只准住在 zhEn(中文, English) 裡：lib、ui/app.js、status.mjs、server.mjs 新加一句只寫中文、英文那一份空著、載入那一刻就定死的一句，都會紅；
-分級卡 E 必跑的四種狀態英文都要印出過了多久）。
+分級卡 E 必跑的四種狀態英文都要印出過了多久）；
+`scripts/skills.test.mjs` 標 P2 的兩段（五支技能的用語對照、三條通用判準的英文那一份跟 `lib/lang.mjs` 逐字一樣；技能裡照指令英文分路的那幾句真的是指令印的字）；
+`scripts/specLink.test.mjs` 標 P2 的英文規格段落（同一份規格中文寫、英文寫，A 那格、清單、白話、B、收工 hook 都一樣）。
 
 ---
 
