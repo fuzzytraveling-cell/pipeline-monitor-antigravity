@@ -30,6 +30,7 @@ const $app = document.getElementById('app');
 const $fresh = document.getElementById('freshness');
 const $crumb = document.getElementById('crumb');
 const $langNote = document.getElementById('lang-note');
+const $langBtn = document.getElementById('lang-switch');
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -115,7 +116,8 @@ async function poll() {
       else if (latest.appVersion !== bootVersion) { location.reload(); return; }
     }
     // 資料是另一種語言(終端機 --lang 切了、別的分頁按了):整頁重新載入,首頁跟資料才是同一種(AC-7)。舊的服務沒給這一欄＝中文
-    if ((latest?.lang === 'en' ? 'en' : 'zh') !== LANG && reloadForLang()) return;
+    const dataLang = latest?.lang === 'en' ? 'en' : 'zh';
+    if (dataLang !== LANG && reloadForLang(dataLang)) return;
     // 使用者正在分級表單裡打理由時,這一輪不重畫——重畫會把打到一半的字洗掉(2026-09-13 實測)。資料照抓,下一輪再畫。
     if (!document.activeElement?.closest?.('[data-tier-form]')) safeRender();
   } catch { connected = false; }   // AC-2:不准靜靜停止更新
@@ -132,14 +134,16 @@ async function pollLoop() {
   setTimeout(pollLoop, POLL_MS);
 }
 /**
- * 換語言就重新載入一次。⚠️ 十秒內已經為了語言重新載入過、還是對不上,就不再載——不該發生(首頁跟資料每次都重讀同一個設定),
+ * 換語言就重新載入一次。⚠️ 十秒內已經為了換成「同一種」重新載入過、還是對不上,就不再載——不該發生(首頁跟資料每次都重讀同一個設定),
  * 但真的發生時寧可這一頁照舊、等下一次,也不准一直重新載入、整頁什麼都看不到。
+ * 記的是時間加上「為了換成哪一種」:別的分頁(或終端機)十秒內又換回去,那是新的一次切換,不是對不上。以前只記時間,這一頁會被擋著不載,
+ * 照另一種語言的資料畫出半中半英,十秒後才換(規格:dashboard-language-shortcut,魔鬼教官第一輪;按 L 來回比就碰得到)。
  */
-function reloadForLang() {
-  let last = 0;
-  try { last = Number(sessionStorage.getItem('pm-lang-reload')) || 0; } catch { /* 記不了就當沒載過 */ }
-  if (Date.now() - last < 10_000) return false;
-  try { sessionStorage.setItem('pm-lang-reload', String(Date.now())); } catch { /* 記不了也照樣載這一次 */ }
+function reloadForLang(want) {
+  let last = null;
+  try { last = JSON.parse(sessionStorage.getItem('pm-lang-reload')); } catch { /* 記不了、讀不懂就當沒載過 */ }
+  if (last?.lang === want && Date.now() - last.at < 10_000) return false;
+  try { sessionStorage.setItem('pm-lang-reload', JSON.stringify({ at: Date.now(), lang: want })); } catch { /* 記不了也照樣載這一次 */ }
   location.reload();
   return true;
 }
@@ -1202,6 +1206,34 @@ async function switchLang(btn) {
   // 這一次是自己按的:不算「為了語言重新載入過」,下一次資料對不上照樣會載
   try { sessionStorage.removeItem('pm-lang-reload'); } catch { /* 沒記過就算了 */ }
   location.reload();
+}
+/**
+ * 鍵盤切中英(規格:dashboard-language-shortcut):按 L 跟按那顆按鈕走同一條路——叫同一個 switchLang,
+ * 送什麼、等不等伺服器、換不成講哪一句都只有一份(老毛病 P2:兩份遲早講得不一樣)。
+ * 這一下按鍵不算「按了 L」的:
+ *   正在打字(分級表單的理由、選等級,連送出那顆也算——打到一半的理由不准被整頁重新載入洗掉,AC-2)、輸入法還在組字;
+ *   按著 Cmd／Ctrl／Option(那是瀏覽器的:Cmd+L 是跳到網址列,AC-3);
+ *   一直按著不放(換完重新載入的新頁面照樣收到同一顆鍵,不擋就會中英來回換,AC-4)。
+ * 認打出來的字 l／L;打出來的不是英文字母(注音之類的輸入法、非英文的鍵盤排列)才改認實體的 L 鍵——Dvorak 在那個位置打出來的是 n,不算。
+ */
+function isLangKey(e) {
+  if (e.repeat || e.isComposing || e.keyCode === 229) return false;
+  if (e.metaKey || e.ctrlKey || e.altKey) return false;
+  if (e.target?.isContentEditable || e.target?.closest?.('input, textarea, select, [data-tier-form]')) return false;
+  if (e.key === 'l' || e.key === 'L') return true;
+  return e.code === 'KeyL' && !/^[a-z]$/i.test(e.key ?? '');
+}
+document.addEventListener('keydown', (e) => {
+  // 上一次還在等伺服器(按鈕變灰)、或已經換成了正在重新載入:跟滑鼠點一樣不再送——一下按鍵只換一次(AC-4)
+  if (!$langBtn || $langBtn.disabled || !isLangKey(e)) return;
+  e.preventDefault();
+  switchLang($langBtn);
+});
+// 按鈕的提示(AC-5):跟按鈕上的字同一條規矩,寫成要切過去的那一種——中文的畫面寫英文、英文的畫面寫中文,看不懂現在這一種的人才看得懂
+// (所以英文的畫面這一句刻意是中文,測試照原文放過它)。跟按鍵在同一支、同一刻裝上:這支程式沒跑起來、按 L 沒用的時候,提示也不會出現
+if ($langBtn) {
+  $langBtn.title = LANG === 'en' ? '切換成中文（快速鍵：L）' : 'Switch to English (shortcut: L)';
+  $langBtn.setAttribute('aria-keyshortcuts', 'L');
 }
 
 // ⚠️ 畫面自己壞掉(某一頁的程式錯)跟資料斷線是兩件事。以前 render 一丟例外就被 poll 的 catch 接走,

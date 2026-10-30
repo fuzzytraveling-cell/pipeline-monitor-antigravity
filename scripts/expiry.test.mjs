@@ -92,7 +92,7 @@ function uiOf(latest) {
   const src = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8');
   const body = src.replace(/^import .*$/m, '').replace(/^pollLoop\(\);$/m, '').replace(/^setInterval\(paintFreshness, 1000\);$/m, '');
   const noop = () => {};
-  const el = () => ({ dataset: {}, classList: { toggle: noop }, innerHTML: '', textContent: '' });
+  const el = () => ({ dataset: {}, classList: { toggle: noop }, innerHTML: '', textContent: '', setAttribute: noop });
   const document = { getElementById: el, addEventListener: noop, body: el(), activeElement: null };
   const make = new Function('describeFreshness', 'STALE_AFTER_SECONDS', 'document', 'window', 'localStorage', 'location', 'setTimeout', 'setInterval', 'fetch', '__LATEST',
     `${body}\nlatest = __LATEST;\nreturn { projectPage, sensorLine, workflow };`);

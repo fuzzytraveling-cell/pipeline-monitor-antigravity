@@ -92,6 +92,13 @@ const CODES = {
   // 寫進 .git/info/exclude 的註解行(檔案裡的字,不上畫面);危險清單上的檔,這次一個字不改
   'lib/paths.mjs': ['# pipeline-monitor:紀錄搬到 ~/.pipeline-monitor 之後,舊的位置留下的捷徑\\n'],
 };
+/**
+ * 刻意寫成另一種語言的字:中英切換那顆按鈕的提示,寫成「要切過去的那一種」——英文的畫面寫中文,看不懂英文、想換回中文的人才看得懂
+ * (規格:dashboard-language-shortcut AC-5;按鈕上的「中文」是同一條規矩,住 ui/index.html,不在這裡掃)。照原文一字不差才放過。
+ */
+const OTHER_LANG = {
+  'ui/app.js': ['切換成中文（快速鍵：L）'],
+};
 const FILES = [...readdirSync(join(ROOT, 'lib')).filter((f) => f.endsWith('.mjs')).map((f) => `lib/${f}`), 'ui/app.js', 'status.mjs', 'server.mjs', 'gate.mjs'];
 
 section('AC-4:中文只准住在 zhEn(中文, English) 裡——lib、ui/app.js、status.mjs、server.mjs、gate.mjs 新加一句只寫中文、或英文是空的,這裡紅', 'P2');
@@ -99,13 +106,13 @@ section('AC-4:中文只准住在 zhEn(中文, English) 裡——lib、ui/app.js�
   let total = 0;
   for (const f of FILES) {
     const skip = CLAUDE_SIDE[f] ?? [];
-    const bad = scanSource(readFileSync(join(ROOT, f), 'utf8'), { skip, codes: new Set(CODES[f] ?? []), noTopLevel: f !== 'ui/app.js' });
+    const bad = scanSource(readFileSync(join(ROOT, f), 'utf8'), { skip, codes: new Set([...(CODES[f] ?? []), ...(OTHER_LANG[f] ?? [])]), noTopLevel: f !== 'ui/app.js' });
     total += bad.length;
     check(`${f}:沒有只寫中文的字串`, bad.length === 0, bad.slice(0, 8).map((b) => `${f}:${b.line} ${b.why}:${b.text}`).join('\n      '));
   }
   check('掃到的檔不是零支(拿不到檔案就什麼都沒測到)', FILES.length > 20, String(FILES.length));
-  check('Claude 那一側、資料格式這兩張表寫的檔都還在(檔改名了,表要跟著改)',
-    [...Object.keys(CLAUDE_SIDE), ...Object.keys(CODES)].every((f) => existsSync(join(ROOT, f))));
+  check('Claude 那一側、資料格式、刻意寫成另一種語言這三張表寫的檔都還在(檔改名了,表要跟著改)',
+    [...Object.keys(CLAUDE_SIDE), ...Object.keys(CODES), ...Object.keys(OTHER_LANG)].every((f) => existsSync(join(ROOT, f))));
 }
 
 section('AC-4 的反向測試(老毛病 P4):先寫兩個例子——一個必須抓到、一個必須放過', 'P4');
@@ -285,15 +292,18 @@ section('伺服器:首頁照語言送(第一眼就是對的語言);按鈕跟其�
 
 /**
  * 真的跑整支 ui/app.js(L20:畫面的程式沒真的跑過就等於沒測)。lang:<html data-lang> 寫的那一種;fetch 換成給的那一支。
- * 回傳畫面上會叫的那幾個函式,與按鈕旁那一格(langNote)、重新載入了幾次(reloads)。
+ * 回傳畫面上會叫的那幾個函式,與按鈕旁那一格(langNote)、重新載入了幾次(reloads)、掛上去的事件(on:按鍵那幾題用)。
  */
 function uiOf(latest, { lang = 'zh', fetch = () => Promise.reject(new Error('測試不連網路')) } = {}) {
   const src = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8');
   const body = src.replace(/^import .*$/m, '').replace(/^pollLoop\(\);$/m, '').replace(/^setInterval\(paintFreshness, 1000\);$/m, '');
   const noop = () => {};
   const els = {};
-  const el = (id) => (els[id] ??= { dataset: {}, classList: { toggle: noop }, innerHTML: '', textContent: '', style: { setProperty: noop }, querySelectorAll: () => [] });
-  const document = { getElementById: el, addEventListener: noop, body: el('body'), activeElement: null, documentElement: { dataset: { lang } } };
+  const el = (id) => (els[id] ??= { dataset: {}, classList: { toggle: noop }, innerHTML: '', textContent: '', style: { setProperty: noop }, querySelectorAll: () => [],
+    attrs: {}, setAttribute(k, v) { this.attrs[k] = String(v); } });
+  // 掛上去的事件留著(以前直接丟掉):測試才按得了鍵(規格:dashboard-language-shortcut AC-6)
+  const on = {};
+  const document = { getElementById: el, addEventListener: (type, fn) => (on[type] ??= []).push(fn), body: el('body'), activeElement: null, documentElement: { dataset: { lang } } };
   const loc = { hash: '', reloads: 0, reload() { this.reloads++; } };
   const store = new Map();
   const sessionStorage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, String(v)), removeItem: (k) => store.delete(k) };
@@ -303,7 +313,7 @@ function uiOf(latest, { lang = 'zh', fetch = () => Promise.reject(new Error('測
       setLatest: (x) => { latest = x; }, connected: () => connected, LANG };`);
   const api = make(describeFreshness, 60, document, { addEventListener: noop }, { getItem: () => null, setItem: noop }, sessionStorage, loc, noop, noop, fetch,
     { now: () => 0 }, { ...console, error: noop }, latest);   // 壞掉的那一頁會往主控台印錯誤:這裡不看那一行
-  return { ...api, els, loc, store };
+  return { ...api, els, loc, store, on };
 }
 
 section('畫面:按了中英切換,等伺服器回「現在是另一種」才整頁換;連不上、舊的服務、寫不進去都照實講、照舊原本那一種(AC-7,R2)');
@@ -340,6 +350,135 @@ section('畫面:按了中英切換,等伺服器回「現在是另一種」才整
   noZh('……沒有中文', enUi.els['lang-note'].textContent);
 }
 
+/* ── 鍵盤切中英(規格:dashboard-language-shortcut):按 L ── */
+
+/** 焦點在哪:頁面本身(不在任何格子裡)、或某一種格子。closest 照選擇器認——標籤名,或在分級表單([data-tier-form])裡面 */
+const PAGE = { isContentEditable: false, closest: () => null };
+const inBox = (tag, { form = false, editable = false } = {}) => ({
+  isContentEditable: editable,
+  closest: (sel) => (sel.split(',').map((s) => s.trim()).some((s) => s === tag || (form && s === '[data-tier-form]')) ? {} : null),
+});
+/** 在這一頁按一下鍵:照瀏覽器的樣子造一個 keydown,交給 app.js 掛上去的那幾支。回那個事件(看 preventDefault 了沒) */
+function press(ui, more = {}) {
+  const e = { key: 'l', code: 'KeyL', target: PAGE, repeat: false, isComposing: false, keyCode: 76, metaKey: false, ctrlKey: false, altKey: false, shiftKey: false,
+    prevented: false, preventDefault() { this.prevented = true; }, ...more };
+  for (const fn of ui.on.keydown ?? []) fn(e);
+  return e;
+}
+/** 按鍵叫的 switchLang 沒有人等它(跟瀏覽器一樣):讓它跑完再看結果 */
+const settle = () => new Promise((r) => setImmediate(r));
+
+section('畫面:按 L 跟按那顆按鈕走同一條路(叫同一個 switchLang)——送的、等伺服器、換不成講的那一句都一樣(dashboard-language-shortcut AC-1,R2)', 'P2');
+{
+  const sent = [];
+  const answer = (lang) => async (url, opt) => { sent.push({ url, lang: JSON.parse(opt.body).lang }); return { ok: true, status: 200, json: async () => ({ ok: true, lang }) }; };
+  const page = (fetch, lang = 'zh') => uiOf({ generatedAt: NOW, projects: [] }, { lang, fetch });
+
+  const zh = page(answer('en'));
+  const e = press(zh);
+  await settle();
+  eq('中文的畫面按 L → 送「換成英文」(跟按按鈕送到同一個地方、同一句)', JSON.stringify(sent), JSON.stringify([{ url: '/api/lang', lang: 'en' }]));
+  eq('……伺服器回「現在是英文」之後才整頁重新載入', zh.loc.reloads, 1);
+  check('……這一下按鍵被這一頁接走了(preventDefault)', e.prevented);
+
+  const en = page(answer('zh'), 'en');
+  press(en, { key: 'L', shiftKey: true });
+  await settle();
+  eq('英文的畫面按 L(大寫:按著 Shift、開著大寫鎖定也算)→ 送「換成中文」', sent[1]?.lang, 'zh');
+  eq('……換成了才重新載入', en.loc.reloads, 1);
+
+  let tries = 0;
+  const down = page(() => { tries++; return Promise.reject(new Error('連不上')); });
+  press(down);
+  await settle();
+  eq('連不上 → 按鈕旁講「連不上，沒有切換」(跟按按鈕同一句、同一個地方)', down.els['lang-note'].textContent, '連不上，沒有切換');
+  eq('……沒有重新載入(照舊原本那一種)', down.loc.reloads, 0);
+  press(down);
+  await settle();
+  eq('……再按一次 L,真的又試了一次(按鈕回到可以按)', tries, 2);
+
+  const old = page(async () => ({ ok: false, status: 404, json: async () => { throw new Error('不是 JSON'); } }));
+  press(old);
+  await settle();
+  check('舊的服務 → 講服務還在跑舊的程式、重啟之後才能切換(跟按按鈕同一句)', /服務還在跑舊的程式，重啟之後才能切換/.test(old.els['lang-note'].textContent), old.els['lang-note'].textContent);
+  eq('……沒有重新載入', old.loc.reloads, 0);
+
+  const cant = page(async () => ({ ok: false, status: 500, json: async () => ({ error: 'write', lang: 'zh' }) }));
+  press(cant);
+  await settle();
+  check('寫不進去 → 講寫不進去、沒有切換', /寫不進去，沒有切換/.test(cant.els['lang-note'].textContent), cant.els['lang-note'].textContent);
+
+  const src = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8');
+  eq('ui/app.js 送換語言的只有一處(按鍵沒有自己的一份,P2)', (src.match(/fetch\('\/api\/lang'/g) ?? []).length, 1);
+}
+
+section('畫面:打字、組字、Cmd／Ctrl／Option、按著不放、還在等伺服器——都不算按了 L;反過來那一題也要有:該換的照樣換(dashboard-language-shortcut AC-2～AC-4)', 'P4');
+{
+  let calls = 0;
+  const fetch = async () => { calls++; return { ok: true, status: 200, json: async () => ({ ok: true, lang: 'en' }) }; };
+  const page = () => uiOf({ generatedAt: NOW, projects: [] }, { fetch });
+  const outcome = async (more) => {
+    const before = calls, ui = page(), e = press(ui, more);
+    await settle();
+    return { sent: calls - before, reloads: ui.loc.reloads, prevented: e.prevented };
+  };
+  const not = async (label, more) => { const o = await outcome(more); check(label, o.sent === 0 && o.reloads === 0 && !o.prevented, JSON.stringify(o)); };
+  const yes = async (label, more) => { const o = await outcome(more); check(label, o.sent === 1 && o.reloads === 1, JSON.stringify(o)); };
+
+  await not('分級表單的理由那一格打 L → 只是打字,不換(打到一半的理由不會被重新載入洗掉)', { target: inBox('input', { form: true }) });
+  await not('分級表單選等級那一格按 L → 不換', { target: inBox('select', { form: true }) });
+  await not('游標停在分級表單的送出那顆上按 L → 不換(理由還在表單裡)', { target: inBox('button', { form: true }) });
+  await not('別的打字的地方(textarea)→ 不換', { target: inBox('textarea') });
+  await not('可以直接編輯的區塊 → 不換', { target: inBox('div', { editable: true }) });
+  await not('輸入法還在組字(isComposing)→ 不換', { isComposing: true });
+  await not('輸入法接走的那一下(keyCode 229)→ 不換', { keyCode: 229 });
+  await not('Cmd+L(跳到網址列)→ 不換,那是瀏覽器的', { metaKey: true });
+  await not('Ctrl+L → 不換', { ctrlKey: true });
+  await not('Option+L → 不換', { altKey: true, key: '¬' });
+  await not('一直按著不放(repeat;換完重新載入的新頁面收到的也是)→ 不換', { repeat: true });
+  await not('別的字母(k)→ 不換', { key: 'k', code: 'KeyK', keyCode: 75 });
+  await not('Dvorak 那種排列:實體 L 的位置打出來是 n → 不換(認打出來的字)', { key: 'n', code: 'KeyL', keyCode: 78 });
+
+  // 反過來那一題(P4):上面全綠,也可能只是按鍵根本沒接上
+  await yes('游標不在任何格子裡按 L → 換', {});
+  await yes('游標停在一般的按鈕上(不在分級表單裡)按 L → 換', { target: inBox('button') });
+  await yes('注音之類的輸入法:打出來的不是英文字母、實體鍵是 L → 換', { key: 'ㄠ', code: 'KeyL', keyCode: 0 });
+  await yes('Dvorak 那種排列:打出來是 l(實體鍵是別顆)→ 換', { key: 'l', code: 'KeyP' });
+
+  // 伺服器還沒回又按:只送一次;換成了、正在重新載入的那一下再按也不送
+  let sends = 0, release = null;
+  const slow = uiOf({ generatedAt: NOW, projects: [] }, { fetch: () => { sends++; return new Promise((r) => { release = () => r({ ok: true, status: 200, json: async () => ({ ok: true, lang: 'en' }) }); }); } });
+  press(slow);
+  press(slow);
+  await settle();
+  eq('伺服器還沒回又按一次 → 只送了一次(按鈕變灰的那段時間不再送)', sends, 1);
+  release();
+  await settle();
+  eq('……回了之後重新載入一次', slow.loc.reloads, 1);
+  press(slow);
+  await settle();
+  eq('……換成了、正在重新載入的那一下再按 → 也不再送', sends, 1);
+
+  // 剛為了語言重新載入過(資料那條路十秒內不重複載的那一道):按 L 照樣換——換過去馬上換回來可以
+  const just = page();
+  just.store.set('pm-lang-reload', String(Date.now()));
+  const before = calls;
+  press(just);
+  await settle();
+  check('剛為了語言重新載入過、馬上又按 L → 照樣送、照樣重新載入', calls === before + 1 && just.loc.reloads === 1, `送了 ${calls - before} 次、重新載入 ${just.loc.reloads} 次`);
+  check('……那一道的記號清掉了(下一次資料對不上照樣會載)', !just.store.has('pm-lang-reload'));
+}
+
+section('畫面:按鈕的提示寫成要切過去的那一種(跟按鈕上的字同一條規矩),螢幕閱讀器也聽得到是哪一鍵(dashboard-language-shortcut AC-5)');
+{
+  const zh = uiOf({ generatedAt: NOW, projects: [] });
+  eq('中文的畫面:滑鼠移到按鈕上,提示寫英文', zh.els['lang-switch'].title, 'Switch to English (shortcut: L)');
+  eq('……螢幕閱讀器聽得到是哪一鍵(aria-keyshortcuts)', zh.els['lang-switch'].attrs['aria-keyshortcuts'], 'L');
+  const en = uiOf({ generatedAt: NOW, projects: [] }, { lang: 'en' });
+  eq('英文的畫面:提示寫中文(看不懂英文、想換回中文的人才看得懂)', en.els['lang-switch'].title, '切換成中文（快速鍵：L）');
+  eq('……一樣有 aria-keyshortcuts', en.els['lang-switch'].attrs['aria-keyshortcuts'], 'L');
+}
+
 section('畫面:一頁的語言只有一個來源——資料說是另一種就整頁重新載入;舊的服務沒給 lang ＝ 中文;同一種不載(AC-7)');
 {
   const data = (extra) => async () => ({ ok: true, status: 200, json: async () => ({ generatedAt: NOW, projects: [], ...extra }) });
@@ -354,6 +493,27 @@ section('畫面:一頁的語言只有一個來源——資料說是另一種就�
   eq('別的分頁按了／終端機切了(資料變成英文)→ 整頁重新載入', other.loc.reloads, 1);
   await other.poll();
   eq('……十秒內還是對不上就不再載(不准一直重新載入、整頁看不到東西)', other.loc.reloads, 1);
+}
+
+section('畫面:別的分頁十秒內又換回去,這一頁照樣跟著換——不准被「十秒內不重複載」擋著、照另一種語言的資料畫出半中半英(dashboard-language-shortcut,魔鬼教官第一輪)', 'P2');
+{
+  const data = (extra) => async () => ({ ok: true, status: 200, json: async () => ({ generatedAt: NOW, projects: [], ...extra }) });
+  const mark = (ui, v) => ui.store.set('pm-lang-reload', v);
+
+  const back = uiOf(null, { lang: 'en', fetch: data({ lang: 'zh' }) });
+  mark(back, JSON.stringify({ at: Date.now() - 3000, lang: 'en' }));
+  await back.poll();
+  eq('三秒前才為了換成英文重新載入、別的分頁又換回中文 → 照樣重新載入(新的一次切換,不是對不上)', back.loc.reloads, 1);
+
+  const stuck = uiOf(null, { lang: 'en', fetch: data({ lang: 'zh' }) });
+  mark(stuck, JSON.stringify({ at: Date.now() - 3000, lang: 'zh' }));
+  await stuck.poll();
+  eq('反過來那一題(P4):三秒前才為了換成中文重新載入、載回來還是英文(真的對不上)→ 不再載(不准一直重新載入)', stuck.loc.reloads, 0);
+
+  const oldMark = uiOf(null, { lang: 'en', fetch: data({ lang: 'zh' }) });
+  mark(oldMark, String(Date.now() - 3000));
+  await oldMark.poll();
+  eq('舊的程式記的只有時間(看不出是為了換成哪一種)→ 當成沒載過,照樣載', oldMark.loc.reloads, 1);
 }
 
 /* ════════════ AC-3、AC-5:五關與最上面那一條,英文 ════════════ */
