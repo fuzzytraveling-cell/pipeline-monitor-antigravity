@@ -132,4 +132,11 @@ Switching languages from the keyboard, without hunting for the small button in t
 - 沒有重啟：常駐的儀表板服務送出的 app.js 已經是新的（有按鍵那一段），資料裡的畫面程式版本跟著換成新的 app.js 的時間——開著的分頁下一次更新會自己重新載入；語言照舊中文。
 - 實況還沒看過：Oscar 開著的分頁換成新程式之後按 L 的樣子（預覽裡按過）；注音輸入法開著時按 L。
 
+### 2026-10-30　推上 GitHub
+
+- Oscar 說「好，推上去」（回「要推上 GitHub 嗎？」）。
+- 推之前看過：這次抓得到 GitHub，上面的 main 還在 3edd9d6；主資料夾沒有還沒存檔的改動，別的分支也沒有比 main 新的存檔。
+- 推上 GitHub（3edd9d6..7b4d721）。推完再問一次 GitHub：上面的 main 就是 7b4d721（版本號 0.36.0）。GitHub 上 CI 的結果這台看不到。
+- 沒有重啟、沒有蓋章（Oscar 沒說）。
+
 上線版本：v0.36.0
