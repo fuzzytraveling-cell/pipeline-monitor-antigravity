@@ -1375,4 +1375,16 @@ section('--spec 收英文資料夾的規格(planned／in-progress),做完的(don
   eq('……提到 docs/done/ 的(做完的)不算', specHint('read docs/done/old.md first'), null);
 }
 
+section('白話那一行:冒號在粗體外面、裡面都認——英文最常見的 > **In plain words:** … 以前認不得,那一條的白話在畫面上安靜不見,看起來像本來就沒有(魔鬼教官 2026-10-30)', 'P5');
+{
+  const plainOf = (line) => parseChecklist(`# x\n**AC-1 First one**\n${line}\n`).items[0]?.plain ?? null;
+  // 必須認得
+  eq('範本的寫法(冒號在粗體外面)', plainOf('> **In plain words**: like a doorbell'), 'like a doorbell');
+  eq('冒號在粗體裡面(英文最常見的寫法)', plainOf('> **In plain words:** like a doorbell'), 'like a doorbell');
+  eq('中文的冒號在粗體裡面也認', plainOf('> **白話：** 像門鈴'), '像門鈴');
+  // 必須放過:不是白話那一行
+  eq('別的標籤(What happens:)不是白話', plainOf('> **What happens:** someone clicks'), null);
+  eq('標籤後面多了字(In plain words about it)不是白話', plainOf('> **In plain words about it**: x'), null);
+}
+
 process.exit(summary());

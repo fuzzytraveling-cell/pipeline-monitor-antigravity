@@ -15,6 +15,7 @@ import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 import { skillAvailable } from '../lib/skills.mjs';
 import { termsTable, RED_LINES_EN, withLang } from '../lib/lang.mjs';
 import { runMode } from '../lib/rounds.mjs';
+import { noLevelOf } from '../lib/cliRerun.mjs';
 import { CJK } from './_zhscan.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -165,6 +166,22 @@ section('AC-5:技能裡照指令英文分路的那幾句,真的是指令印的�
   for (const k of ['set up tiers', 'this project doesn\'t need tiers', 'look at my danger list', 'that nobody has judged yet']) {
     check(`分級那一支有「${k}」,而且是收工 hook、分級卡、對話開始那一行真的會印的字`, tier.includes(k) && src.includes(k), k);
   }
+}
+
+section('魔鬼教官照最省的方式跑:--round D 給得出幾種原因,技能的表就列幾種,回報照它給的那句——以前寫死「沒設定分級」,讀不懂、設定成不分級也照那句回報(魔鬼教官 2026-10-30)', 'P2');
+{
+  const chaos = textOf('chaos-check');
+  // lib/tier.mjs 給得出的狀態:沒設定、讀不懂、設定成不分級;其他(沒有存檔、git 問不到、沒有改動…)都是「這次分不了級」
+  for (const lang of ['zh', 'en']) {
+    for (const state of ['unset', 'broken', 'off', 'unknown']) {
+      const why = withLang(lang, () => noLevelOf({ state }));
+      check(`魔鬼教官的表列了「${why}」(${state}、${lang})`, chaos.includes(why), why);
+    }
+  }
+  // 必須抓到:舊的那一句(一律回報沒設定);必須放過:照它給的原因寫的那一句
+  check('表上不再叫 Claude 一律回報「這個專案沒設定分級，我照最省的方式跑」', !chaos.includes('回報明講「這個專案沒設定分級，我照最省的方式跑」'));
+  check('英文第一行那幾句照它給的原因寫(<the reason it gives>, so I ran it the cheapest way)', chaos.includes('<the reason it gives>, so I ran it the cheapest way')
+    && !chaos.includes('`This project hasn\'t set up tiers, so I ran it the cheapest way`'));
 }
 
 process.exit(summary());
