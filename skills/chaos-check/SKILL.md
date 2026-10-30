@@ -52,7 +52,8 @@ allowed-tools: Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git l
 - 一條都沒對到：**This change didn't match any known failure pattern.**——不說 passed、all clear、no problems、safe。
 - 固定結尾：**This is "looked", not "passed": I only checked what's on the list; I can't see what isn't on it.**
 - 第一行那幾句：`Sent N agents`／`Sent no agents`、`Couldn't get the list after the first round, so this time I looked at the whole batch`、
-  `Round N only looked at the N files changed after the first round: …`（照 `--round D` 印的那一句）、`This project hasn't set up tiers, so I ran it the cheapest way`。
+  `Round N only looked at the N files changed after the first round: …`（照 `--round D` 印的那一句）、
+  `<the reason it gives>, so I ran it the cheapest way`（原因照 `--round D` 印的那一句，例如 `This project's tier setting can't be read, so I ran it the cheapest way`）。
 - 每條發現的欄位：**Where**、**Trigger**、**Symptom**、**Criterion**、**Existing fix**。
 
 ## 產出什麼、不產出什麼
@@ -93,7 +94,7 @@ allowed-tools: Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git l
 |---|---|
 | 第一次、可以派獨立 agent（只有分級設定允許的那一級才會這樣說）／first time, tier …: you may send independent agents | 可以派 agent 多角度看，派幾個你判斷；回報第一行寫「派了 N 個 agent」（沒派就寫「沒派 agent」） |
 | 第一次、你自己看／first time, tier …: look yourself, don't send agents | 你自己看整批改動，**不派 agent** |
-| 第一次、這個專案沒設定分級（或讀不懂、設定成不分級）／first time, this project hasn't set up tiers（或 tier setting can't be read、is set to not use tiers）: run it the cheapest way | 你自己看，回報明講「這個專案沒設定分級，我照最省的方式跑」——不是當成最低那一級，是成本上取最省的那條 |
+| 第一次、<原因>：照最省的方式跑／first time, <reason>: run it the cheapest way——原因是這四種之一：這個專案沒設定分級、這個專案的分級設定讀不懂、這個專案設定成不分級、這次分不了級（this project hasn't set up tiers、this project's tier setting can't be read、this project is set to not use tiers、the tier couldn't be worked out this time） | 你自己看，回報第一行照它給的那句寫：「<它講的原因>，我照最省的方式跑」——原因照它講，不准一律寫成「沒設定分級」：讀不懂、設定成不分級、這次分不了級講成沒設定，就是把「沒問到」講成「沒有」（R1）。不是當成最低那一級，是成本上取最省的那條 |
 | 第二次以上／time 2 (or later): whatever the tier, look yourself | 不論分級都你自己看，**只看它列的那幾個檔**（第一次之後改的），不派 agent；回報第一行照它給的那句寫 |
 | 拿不到第一次之後的清單／Can't get which files changed after the first time、或這個指令不存在 | 看整批，回報第一行寫「拿不到第一輪之後的清單，這次看的是整批」 |
 
