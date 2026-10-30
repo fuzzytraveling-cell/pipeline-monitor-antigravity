@@ -118,5 +118,11 @@ Switching languages from the keyboard, without hunting for the small button in t
 - 併之前看過：main 在開工之後多了別的對話的 v0.35.1 小修（4 個存檔），先把它併進這條分支——跟這一份同時改到的只有 FAILURE-PATTERNS 的 P2（兩邊各加了一條例子，兩條都留）；
   版本照 main 的 0.35.1 往上升。用 app 的工具去 GitHub 抓 main 那一步失敗了；本機的 main 跟上一次抓到的 GitHub main 是同一個存檔（3edd9d6），就直接併本機的。
 - 推上 GitHub、重啟儀表板、蓋章：Oscar 這次沒說，沒做。
+- 把 main 併進這條分支之後，收工 hook 把 main 帶進來的 5 個檔（別的對話的 v0.35.1 小修）也算成「D 之後又改的程式檔」。
+  照規矩，改到的檔比第一輪指出的位置多就標「建議再看」、建議跑；Oscar 說「再跑一輪」。
+- D 第二輪（我自己看、沒派 agent；只看第一輪之後改的 7 個檔：lib/cliRerun.mjs、lib/lang.mjs、scripts/lang.test.mjs、scripts/skills.test.mjs、
+  scripts/specLink.test.mjs、skills/chaos-check/SKILL.md、ui/app.js）：沒對到已知死法。併進來的「白話那一行」新認法照樣讀得懂這份規格（6/6 對過、白話 4 條讀得到）。
+- 看到但沒做（都不在這份規格裡）：收工 hook 算「這一輪」時，併進來的別人的改動也算進去（分級、要求 D 都照它算）；
+  `--report D ok` 中文那一句印「沒問題」，紅線用語是「找過」。
 
 上線版本：v0.36.0
