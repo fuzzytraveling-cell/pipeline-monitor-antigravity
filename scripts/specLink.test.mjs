@@ -1293,4 +1293,84 @@ section('「N 份規格共幾條」那一句只寫一份(lib/stageLines.mjs):終
   check('舊的服務沒給那一句:講服務還在跑舊的程式,不自己拼「2 份規格共 5 條」,不印 undefined', /服務還在跑舊的程式/.test(old) && !old.includes('2 份規格共 5 條') && !/undefined|null/.test(old), old.slice(0, 800));
 }
 
+
+/* ════════════ Claude 用英文寫的規格(規格:技能與寫給AI的話中英切換 AC-3、AC-4) ════════════ */
+
+/** 同一份內容,中文寫一份、英文寫一份:一條對過、一條待討論、一條還沒對,每條都有白話 */
+const ZH_SPEC = '# 功能：匯出\n\n## 驗收條件\n**AC-1　第一條** ✅ 對過 2026-10-30\n> **白話**：一句\n\n**AC-2　第二條** ⏳ 待討論：要問人\n> **白話**：兩句\n\n**AC-3　第三條**\n> **白話**：三句\n';
+const EN_SPEC = '# Feature: export\n\n## Acceptance criteria\n**AC-1 First one** ✅ ticked 2026-10-30\n> **In plain words**: one line\n\n**AC-2 Second one** ⏳ to discuss: ask the user\n> **In plain words**: two lines\n\n**AC-3 Third one**\n> **In plain words**: three lines\n';
+
+section('Claude 用英文寫的規格(docs/planned/、> **In plain words**:、✅ ticked、⏳ to discuss:)跟中文寫的同一份:A 那格、清單、白話、B、收工 hook 要不要求對清單都一樣(規格:技能與寫給AI的話中英切換 AC-3)', 'P2');
+{
+  const twin = (lang) => {
+    const s = scene();
+    const spec = lang === 'en' ? 'docs/planned/export.md' : 'docs/規劃中/匯出.md';
+    mkdirSync(join(s.root, dirname(spec)), { recursive: true });
+    writeFileSync(join(s.root, spec), lang === 'en' ? EN_SPEC : ZH_SPEC);
+    s.write(aWrote(s.root, { spec }));
+    const v = s.by(s.sessionOf('s1')?.stages), g = s.gate();
+    const cl = v.A?.checklist;
+    const out = { found: v.A?.specPlace?.found, total: cl?.total, states: cl?.items?.map((x) => x.state).join(','), plain: cl?.items?.map((x) => !!x.plain).join(','),
+      pendingNote: !!cl?.items?.[1]?.note && !/待討論|to discuss/i.test(cl.items[1].note), B: `${v.B?.checklist?.checked}/${v.B?.checklist?.total}|${v.B?.state}`,
+      gate: (g?.missing ?? []).includes('checklist') };
+    s.cleanup();
+    return out;
+  };
+  const zh = twin('zh'), en = twin('en');
+  check('中文那一份本身讀得出來(不然兩邊一樣壞也會一樣)', zh.found === 'here' && zh.total === 3, JSON.stringify(zh));
+  eq('A 那格找到規格:英文的資料夾跟中文的一樣', en.found, zh.found);
+  eq('清單幾條、每條的狀態(對過／待討論／還沒對):一樣', `${en.total}|${en.states}`, `${zh.total}|${zh.states}`);
+  eq('每條的白話那一句都讀得出來:一樣', en.plain, zh.plain);
+  eq('待討論的原因前面不多掛標籤(to discuss:／待討論：拿掉):一樣', en.pendingNote, zh.pendingNote);
+  eq('B 的進度:一樣', en.B, zh.B);
+  eq('收工 hook 要不要求對清單:一樣(還有一條沒對就要)', en.gate, zh.gate);
+}
+{
+  // 混著寫(中文的資料夾、英文的白話)、同一個專案兩套資料夾都有:都認(混沌推導・輸入畸形、併發)
+  const s = scene();
+  mkdirSync(join(s.root, 'docs/planned'), { recursive: true });
+  writeFileSync(join(s.root, 'docs/規劃中/混著寫.md'), '# 功能：混著寫\n**AC-1　第一條**\n> **In plain words**: mixed\n**AC-2　第二條**\n> **白話**：中文\n');
+  writeFileSync(join(s.root, 'docs/planned/second.md'), EN_SPEC);
+  s.write([...aWrote(s.root, { spec: 'docs/規劃中/混著寫.md' }).slice(0, 3),
+    { ts: T(-18 * MIN), event: 'stage_report', stage: 'A', verdict: 'ok', note: 'docs/規劃中/混著寫.md\ndocs/planned/second.md', source: 'claude' },
+    ...aWrote(s.root).slice(4)]);
+  const v = s.by(s.sessionOf('s1')?.stages), g = s.gate();
+  const cl = v.A?.checklist;
+  eq('兩套資料夾各一份:A 那格兩份都認、條數加起來(2＋3)', `${cl?.multi}|${cl?.parts?.length}|${cl?.total}`, 'true|2|5');
+  eq('中文資料夾裡寫英文的白話:照樣讀得出來', cl?.items?.filter((x) => x.spec === '混著寫').map((x) => x.plain).join('|'), 'mixed|中文');
+  check('收工 hook 兩份都要求對清單', (g?.reason ?? '').includes('docs/規劃中/混著寫.md') && (g?.reason ?? '').includes('docs/planned/second.md'), g?.reason);
+  s.cleanup();
+}
+{
+  // 認不得的寫法照舊講讀不懂、附開頭的原文,不講成沒有清單(R1)
+  const s = scene();
+  mkdirSync(join(s.root, 'docs/planned'), { recursive: true });
+  writeFileSync(join(s.root, 'docs/planned/notes.md'), '# Export\n- AC1: there is a button\n- AC2: it saves\n');
+  s.write(aWrote(s.root, { spec: 'docs/planned/notes.md' }));
+  const cl = s.by(s.sessionOf('s1')?.stages).A?.checklist;
+  eq('英文的資料夾裡沒照格式寫的規格:讀不懂,附開頭的原文(不講成沒有規格)', `${cl?.missing}|${cl?.parsed}|${cl?.head}`, 'false|false|# Export / - AC1: there is a button / - AC2: it saves');
+  s.cleanup();
+}
+
+section('--spec 收英文資料夾的規格(planned／in-progress),做完的(done)照舊不收;第一句話提到英文資料夾的規格照樣當提示(規格:技能與寫給AI的話中英切換 AC-3、AC-4)', 'P6');
+{
+  const s = scene();
+  mkdirSync(join(s.root, 'docs/in-progress'), { recursive: true });
+  mkdirSync(join(s.root, 'docs/done'), { recursive: true });
+  writeFileSync(join(s.root, 'docs/in-progress/export.md'), EN_SPEC);
+  writeFileSync(join(s.root, 'docs/done/old.md'), EN_SPEC);
+  out(s.root, 'add', '-A'); out(s.root, 'commit', '-qm', 'specs from another conversation');
+  s.write(opening(s.root));
+  const ok = s.cli(['--spec', 'docs/in-progress/export.md']);
+  check('docs/in-progress/ 的規格:收下、記一筆連結', ok.code === 0 && s.events().some((e) => e.event === 'spec_link' && e.spec === 'docs/in-progress/export.md'), ok.out);
+  const v = s.by(s.sessionOf('s1')?.stages);
+  eq('A 那格畫出那份的 3 條', `${v.A?.link?.name}|${v.A?.checklist?.total}`, 'export|3');
+  const done = s.cli(['--spec', 'docs/done/old.md']);
+  check('docs/done/ 的規格:不收(做完了),不記', done.code === 1 && !s.events().some((e) => e.event === 'spec_link' && e.spec === 'docs/done/old.md'), done.out);
+  s.cleanup();
+  eq('第一句話提到 docs/planned/ 的一份規格 → 提示那一份', specHint('Start from docs/planned/export-button.md please')?.path, 'docs/planned/export-button.md');
+  eq('……提到兩份(中英各一)→ 不提示(分不出是哪一份)', specHint('docs/planned/a.md and docs/規劃中/b.md'), null);
+  eq('……提到 docs/done/ 的(做完的)不算', specHint('read docs/done/old.md first'), null);
+}
+
 process.exit(summary());

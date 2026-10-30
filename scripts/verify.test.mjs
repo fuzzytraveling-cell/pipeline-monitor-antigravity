@@ -140,6 +140,31 @@ section('AC-2:「看到了」要附畫面上的原文;沒附的照實標出來')
   eq('清單上那一條標出來', walkItems(w)[1].unquoted, true);
 }
 
+section('Claude 用英文回報 E(seen／not seen／can\'t verify):跟中文寫的同一份,三種結果、沒有結果、看不懂的行、有沒有附原文都一樣(規格:技能與寫給AI的話中英切換 AC-3)', 'P5');
+{
+  const zh = '第 1 趟：http://localhost:5173\nAC-1 看到了：首頁寫著「歡迎回來」\nAC-2 沒看到：應該是藍色，畫面上是灰色\nAC-3 驗不了：要登入\nAC-5 看到了：有\n這一行看不懂';
+  const enRep = 'Walk 1: http://localhost:5173\nAC-1 seen: the home page says "Welcome back"\nAC-2 not seen: should be blue, the screen shows grey\nAC-3 can\'t verify: needs a login\nAC-5 seen: yes\nI could not read this line';
+  const shape = (note) => {
+    const w = parseWalk(note), s = walkSummary(w, ['AC-1', 'AC-2', 'AC-3', 'AC-4', 'AC-5']);
+    return { items: w.items.map((x) => `${x.id}:${x.verdict}:${x.quoted}`).join(','), odd: w.odd.length, head: !!w.head,
+      sum: `${s.total}|${s.saw}|${s.missing}|${s.blocked}|${s.noResult.join('+')}|${s.unquoted.join('+')}|${s.odd}`,
+      list: walkItems(w, ['AC-1', 'AC-2', 'AC-3', 'AC-4', 'AC-5']).map((x) => x.verdict).join(',') };
+  };
+  const a = shape(zh), b = shape(enRep);
+  eq('每一條的結果、有沒有附原文:英文跟中文一樣', b.items, a.items);
+  eq('……摘要(幾條看到了、沒看到、驗不了、沒有結果、沒附原文、看不懂的行):一樣', b.sum, a.sum);
+  eq('……逐條的清單:一樣', b.list, a.list);
+  eq('……看不懂的行、第一行是摘要:一樣', `${b.odd}|${b.head}`, `${a.odd}|${a.head}`);
+  // 老毛病 P4:先寫一句必須抓到、一句必須放過
+  eq('必須抓到:not seen 是「沒看到」,不是被當成 seen', parseWalk('AC-1 not seen: no button').items[0]?.verdict, 'missing');
+  eq('必須放過:原文裡剛好有 not seen 的 seen 照樣是「看到了」', parseWalk('AC-2 seen: "…was not seen before…"').items[0]?.verdict, 'saw');
+  eq('大小寫、彎撇號(can’t)也認', parseWalk('AC-1 Not Seen: x\nAC-2 Can’t verify: login').items.map((x) => x.verdict).join(','), 'missing,blocked');
+  const saw = parseWalk('Walk 1\nAC-1 saw it');
+  eq('沒照格式寫的(AC-1 saw it)照舊是看不懂的一行,不猜成看到了', `${saw.items.length}|${saw.odd.join('')}`, '0|AC-1 saw it');
+  eq('英文的引號("…" 或 “…”)算附了原文', parseWalk('AC-1 seen: “Save”\nAC-2 seen: "Export"\nAC-3 seen: there is a button').items.map((x) => x.quoted).join(','), 'true,true,false');
+  eq('中英混著寫(同一份裡兩種都有)都認', parseWalk('AC-1 看到了：「x」\nAC-2 not seen: y').items.map((x) => x.verdict).join(','), 'saw,missing');
+}
+
 section('AC-7:兩種證據分開算——瀏覽器動作只是「開過」,verify 的呼叫才是「走一趟」;你打的斜線指令也算', 'P6');
 {
   const base = [said(-40 * MIN, '看一下首頁'), act(-30 * MIN), act(-29 * MIN, 'mcp__Claude_Browser__computer'), act(-28 * MIN, 'mcp__Claude_Browser__computer')];

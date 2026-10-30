@@ -9,6 +9,9 @@
 /** 中文字與全形符號(含拿來對齊的全形空白 U+3000)。英文那一份連一個都不准有 */
 export const CJK = /[⺀-⿟　-〿぀-ヿ㐀-䶿一-鿿豈-﫿︰-﹏＀-￯]/;
 
+/** 中英並排的寫法:zhEn 照這一次輸出挑一種,both 兩種都要(lib/lang.mjs)。掃的規矩一樣 */
+const PAIRS = new Set(['zhEn', 'both']);
+
 const KEYWORD_BEFORE_REGEX = /^(return|typeof|case|do|else|in|of|new|delete|void|throw|instanceof|yield|await)$/;
 
 /**
@@ -163,12 +166,13 @@ export function scanSource(src, { skip = [], codes = new Set(), noTopLevel = fal
     return false;
   };
 
-  // 每一個 zhEn(…) 的參數:前一個是中文那一份(裡面的中文都放過),最後一個是英文那一份
+  // 每一個 zhEn(…) 的參數:前一個是中文那一份(裡面的中文都放過),最後一個是英文那一份。
+  // both(…) 同一條規矩(lib/lang.mjs:兩種都要的那一對——Claude 寫的格式、技能裡的對照表),只是它不挑語言,放在最外層也不算定死
   const allowed = new Set();
   const enArgs = [];
   for (let j = 0; j < toks.length - 1; j++) {
     const k = toks[j];
-    if (k.t !== 'id' || k.v !== 'zhEn' || toks[j + 1].t !== 'punct' || toks[j + 1].v !== '(') continue;
+    if (k.t !== 'id' || !PAIRS.has(k.v) || toks[j + 1].t !== 'punct' || toks[j + 1].v !== '(') continue;
     if (toks[j - 1]?.t === 'id' && toks[j - 1].v === 'function') continue;   // 定義它的那一行
     const args = [];
     let depth = 0, from = j + 2, end = -1;
@@ -180,10 +184,10 @@ export function scanSource(src, { skip = [], codes = new Set(), noTopLevel = fal
     }
     const real = args.filter(([a, b]) => b >= a);
     if (end === -1 || real.length < 2) {
-      out.push({ line: lineOf(src, k.at), why: 'zhEn 只給了一種(要中文、英文各一份)', text: src.slice(k.at, k.at + 80) });
+      out.push({ line: lineOf(src, k.at), why: `${k.v} 只給了一種(要中文、英文各一份)`, text: src.slice(k.at, k.at + 80) });
       continue;
     }
-    if (noTopLevel && !skipped.has(j) && !inFunction(j)) {
+    if (noTopLevel && k.v === 'zhEn' && !skipped.has(j) && !inFunction(j)) {
       out.push({ line: lineOf(src, k.at), why: '這一句在載入的那一刻就定死了(放進函式裡,用到的那一刻才拿)', text: src.slice(k.at, k.at + 80) });
     }
     const zh = real[real.length - 2], en = real[real.length - 1];
