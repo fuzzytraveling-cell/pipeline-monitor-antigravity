@@ -139,4 +139,10 @@ Switching languages from the keyboard, without hunting for the small button in t
 - 推上 GitHub（3edd9d6..7b4d721）。推完再問一次 GitHub：上面的 main 就是 7b4d721（版本號 0.36.0）。GitHub 上 CI 的結果這台看不到。
 - 沒有重啟、沒有蓋章（Oscar 沒說）。
 
+### 2026-10-30　蓋章
+
+- Oscar 說「蓋章」。蓋在這個資料夾這條分支的 cabc601（推上 GitHub 的那一版；蓋之前沒有還沒存檔的改動），test 全綠。章照資料夾＋分支記，主資料夾 main 那一份章沒動。
+- 蓋完看過：終端機說「最後一次檢查全綠：cabc601」「現在的檔案跟蓋章時一模一樣」；儀表板的資料裡，這個對話與這個資料夾那一張都帶這個章。
+- 這一段是蓋完才寫的：記下它的那個存檔在章之後，只多了這一段。
+
 上線版本：v0.36.0
