@@ -112,7 +112,11 @@ section('AC-1:每一支技能的說明中英兩段——英文使用者講的話
       const parts = fm['argument-hint'].replace(/^"|"$/g, '').split(' / ');
       check(`skills/${d}:argument-hint 中英兩段(用 / 隔開,一段中文、一段英文)`, parts.some((x) => CJK.test(x)) && parts.some((x) => !CJK.test(x) && /[A-Za-z]{3,}/.test(x)), fm['argument-hint']);
     }
-    check(`skills/${d}:說明不超過 1024 個字(技能說明的上限)`, [...String(fm?.description ?? '')].length <= 1024, String([...String(fm?.description ?? '')].length));
+    // 技能清單裡每一條說明最多 1,536 個字,超過截掉(Claude Code 文件 code.claude.com/docs/en/skills.md,2026-10-30 讀的;skillListingMaxDescChars 可調)。
+    // 英文那一段寫在中文後面,截掉的話先不見的是它——英文使用者就叫不到(安靜壞掉,R1)
+    const cutAt = [...String(fm?.description ?? '')].slice(0, 1536).join('');
+    check(`skills/${d}:英文的觸發句落在技能清單截掉之前(每條說明前 1,536 個字)`, englishTriggers(cutAt).length === englishTriggers(fm?.description).length && englishTriggers(cutAt).length > 0,
+      String([...String(fm?.description ?? '')].length));
   }
   const plugin = JSON.parse(readFileSync(join(ROOT, '.claude-plugin', 'plugin.json'), 'utf8')).description;
   check('plugin 的說明中英兩段', CJK.test(plugin) && /Pipeline Monitor:/.test(plugin), plugin);

@@ -124,7 +124,7 @@ export function lineOf(src, at) {
 
 /**
  * 最外層的宣告(function／const／let／export…,寫在一行最前面的那種)各佔哪一段:{ name, from, to }(第幾個記號)。
- * 給「這一整段是 Claude 那一側、另一份規格才翻」的那幾個名字用。
+ * 給「這一整段刻意照舊中文、不換」的那幾個名字用(scripts/lang.test.mjs 的 CLAUDE_SIDE)。
  */
 export function topDecls(src, toks) {
   const starts = [];
@@ -142,7 +142,7 @@ export function topDecls(src, toks) {
 
 /**
  * 掃一支檔。回傳每一個不合規矩的地方:{ line, why, text }。
- * @param skip   這幾個最外層宣告的名字整段不看('*' = 整支不看):Claude 那一側,另一份規格才翻
+ * @param skip   這幾個最外層宣告的名字整段不看('*' = 整支不看):刻意照舊中文的那幾段
  * @param codes  照原文認的中文(紀錄裡寫死的代號、規格檔的格式、資料夾名):那個字面一字不差才放過
  * @param noTopLevel  最外層宣告裡、不在任何函式裡的 zhEn 也報:那一句在載入的那一刻就定死了(lib 的語言是每一次輸出才定的,
  *                    載入的那一刻永遠是中文)。畫面(ui/app.js)不用:一頁的語言在載入之前就定了

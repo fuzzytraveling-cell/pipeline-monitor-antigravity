@@ -1367,6 +1367,8 @@ section('--spec 收英文資料夾的規格(planned／in-progress),做完的(don
   eq('A 那格畫出那份的 3 條', `${v.A?.link?.name}|${v.A?.checklist?.total}`, 'export|3');
   const done = s.cli(['--spec', 'docs/done/old.md']);
   check('docs/done/ 的規格:不收(做完了),不記', done.code === 1 && !s.events().some((e) => e.event === 'spec_link' && e.spec === 'docs/done/old.md'), done.out);
+  // 魔鬼教官第一輪(P2):中文那一句以前寫死 docs/升級摘要/——英文那一套的規格也被講成在升級摘要。照它真的在的資料夾講
+  check('……中文那一句講它真的在的資料夾(docs/done/),不講成 docs/升級摘要/', done.out.includes('這份在 docs/done/，是已經做完的規格') && !done.out.includes('docs/升級摘要/，是已經做完的規格'), done.out);
   s.cleanup();
   eq('第一句話提到 docs/planned/ 的一份規格 → 提示那一份', specHint('Start from docs/planned/export-button.md please')?.path, 'docs/planned/export-button.md');
   eq('……提到兩份(中英各一)→ 不提示(分不出是哪一份)', specHint('docs/planned/a.md and docs/規劃中/b.md'), null);

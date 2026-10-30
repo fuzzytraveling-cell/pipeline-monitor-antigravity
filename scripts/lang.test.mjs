@@ -40,7 +40,7 @@ const git = (dir, ...a) => execFileSync('git', a, { cwd: dir, encoding: 'utf8' }
 
 /* ════════════ 共用:英文那一頁不准有中文(資料照原文的那幾種除外) ════════════ */
 
-// 資料照原文印(規格「哪些字算這一份的」):規格住的資料夾名(另一份規格才翻)、按鈕要切過去的那一種(英文的時候寫「中文」,AC-1)
+// 資料照原文印(規格「哪些字算這一份的」):規格住的資料夾名(中文那一套是資料;英文那一套見 lib/lang.mjs 的 SPEC_FOLDERS)、按鈕要切過去的那一種(英文的時候寫「中文」,AC-1)
 const DATA_ZH = ['規劃中', '進行中', '升級摘要'];
 const stripData = (t, extra = []) => [...DATA_ZH, ...extra].reduce((x, d) => x.split(d).join(''), String(t ?? ''));
 /** 一段英文裡的中文字與全形符號(含 U+3000)。資料照原文的拿掉再找;回傳找到的那幾個字與前後文,方便看是哪一句 */
@@ -425,6 +425,9 @@ section('五關那一句(lib/stageLines.mjs):每一種狀態英文都沒有中�
     check('分不出是誰說的 → can\'t tell who,不補一個猜的主詞', /can't tell who said it/.test(who) && !/you said|Claude said/i.test(who), who);
     const claude = line({ state: 'done', ranAt: t, doneAt: t, doneBy: 'claude', report: { note: 'no issues found' } });
     check('Claude 說 → Claude said(主詞照中文)', /Claude said/.test(claude) && !/you said/i.test(claude), claude);
+    // 魔鬼教官第一輪(規格:技能與寫給AI的話中英切換):結論沒附說明時,英文照結論的字講 ok,不翻成 there were no problems(對照表不准說 no problems)
+    const bare = line({ state: 'done', ranAt: t, doneAt: t, doneBy: 'claude', report: { note: '' } });
+    check('Claude 說處理完了、沒附說明 → Claude said …: ok,不准 no problems', /Claude said .*: ok/.test(bare) && !/no problems/i.test(bare), bare);
   }));
 }
 
@@ -1064,8 +1067,12 @@ section('Claude 替你跑的指令跟著語言換:設成英文,--round、--decid
   s.add([{ ts: T(-3 * MIN), hook: 'PostToolUse', tool: 'Edit', file: join(s.root, 'src/app.js'), prompt_id: 'p3' }]);
   outs['--round E(走過之後又改了程式)'] = s.run(['--round', 'E']);
   outs['--report C ok(有建議清單)'] = s.run(['--report', 'C', 'ok', 'Changed 0, suggested 1\n- src/app.js:1 — an unused helper']);
+  outs['--report D ok(沒對到已知死法)'] = s.run(['--report', 'D', 'ok', 'didn\'t match any known failure pattern']);
   for (const [k, o] of Object.entries(outs)) cleanEn(`英文:${k}`, o);
   check('……而且每一個都真的有印東西(不是兩邊都空的)', Object.values(outs).every((o) => o.trim().length > 20), Object.entries(outs).filter(([, o]) => o.trim().length <= 20).map(([k]) => k).join('、'));
+  // 魔鬼教官第一輪:記下 ok 的那一句照結論的字講,不翻成 has no problems——對照表(lib/lang.mjs 的 TERMS)說這個結論不准講 no problems。「不准」的字只查那一句(P4)
+  const okLine = outs['--report D ok(沒對到已知死法)'].split('\n')[0];
+  check('--report D ok:照結論的字講(conclusion … is ok),不准 no problems／passed', /Claude's conclusion for D Chaos check is ok/.test(okLine) && !/no problems|passed/i.test(okLine), okLine);
   const g = s.gate();
   check('收工 hook 有擋(不然什麼都沒比到)', !!g?.reason, JSON.stringify(g));
   // 收工 hook 不經過 status.mjs:語言由它自己的入口(main)讀。這裡照入口的做法包一次
