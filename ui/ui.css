@@ -245,8 +245,11 @@ h2.section { font-size: var(--text-subheading); letter-spacing: var(--tracking-s
 .agent[data-id="C"] { --agent: var(--color-agent-c); --ph: -2s; }
 .agent[data-id="D"] { --agent: var(--color-agent-d); --ph: -3s; }
 .agent[data-id="E"] { --agent: var(--color-agent-e); --ph: -4s; }
-/* 工地主任(還差什麼總表 AC-11):第六個角色,不是一關;紫色跟三階梯同一家 */
+/* 工地主任(還差什麼總表 AC-11):第六個角色,不是一關。正黃色(Oscar 2026-11-02 指定),跟驗收 E 的芥末黃分得開;
+   黃底白眼看不見,眼睛改深色——像工地的黃底黑字警告牌 */
 .agent[data-id="director"] { --agent: var(--color-agent-f); --ph: -5s; }
+.agent[data-id="director"] .ag-face { fill: var(--color-off-black); }
+.agent[data-id="director"] .ag-face .ln { stroke: var(--color-off-black); }
 .agent svg { position: relative; z-index: 1; width: 58px; height: 60px; overflow: visible; }
 .ag-body > * { fill: var(--agent); stroke: var(--agent); stroke-width: 5; stroke-linejoin: round; }
 .ag-face { fill: var(--color-paper); }
@@ -554,15 +557,43 @@ a.ext { color: var(--color-lake-blue); }
 .wb-count { font-size: var(--text-caption); font-weight: 600; color: var(--ink); }
 .wb-task .titems { margin: 8px 0 0 14px; }
 .wb-acts { display: flex; gap: 14px; align-items: center; margin: 8px 0 0 14px; font-size: var(--text-caption); }
-.wb-legend { margin: 14px 0 0; font-size: var(--text-caption); color: var(--color-smoke); text-align: right; }
-/* 筆槽:白板下緣一條托盤,放四支馬克筆——只是樣子,不代表任何狀態 */
-.wb-tray { display: flex; gap: 8px; margin-top: 6px; padding: 5px 10px; border-radius: 4px; background: var(--color-whiteboard-frame); width: max-content; }
-.wb-tray i { position: relative; display: block; width: 30px; height: 7px; border-radius: 4px; background: var(--color-paper); }
-.wb-tray i::after { content: ''; position: absolute; right: 0; top: 0; width: 9px; height: 7px; border-radius: 0 4px 4px 0; }
-.wb-tray i[data-ink="red"]::after { background: var(--color-marker-red); }
-.wb-tray i[data-ink="blue"]::after { background: var(--color-marker-blue); }
-.wb-tray i[data-ink="gray"]::after { background: var(--color-marker-gray); }
-.wb-tray i[data-ink="black"]::after { background: var(--color-marker-black); }
+/* 一件一色(Oscar 2026-11-02):圈旁的件數、展開後每一件前面那一點、main 推了沒那一行,照那一件的種類上色——
+   紅圈裡的還差也是藍的,所以筆槽亮的每一支筆,白板上都找得到那一色。只是說明的那幾件不上色;
+   「沒有還差的事」也不另外上色(老毛病 P10)——圈旁那幾個字跟著黑圈,展開後那一行跟說明一樣 */
+.titems li { --ink: var(--color-smoke); }
+:is(.wb, .titems) [data-k="ask"] { --ink: var(--color-marker-red); }
+:is(.wb, .titems) [data-k="todo"] { --ink: var(--color-marker-blue); }
+:is(.wb, .titems) [data-k="unknown"] { --ink: var(--color-marker-gray); }
+.wb-count [data-k] { color: var(--ink); }
+.titems li::marker { color: var(--ink); }
+.wb-line[data-k]::before {
+  content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 7px; vertical-align: 1px; background: var(--ink);
+}
+/* 筆槽:白板下緣的托盤,四支馬克筆跟它的意思排在一起(Oscar 2026-11-02)。白板上畫到哪一色,那一支的筆頭就亮(data-lit,ui/app.js 照畫出來的每一處顏色算);
+   沒亮的筆頭淡掉、字也淡。亮不亮之外,字一直都在——不只靠光 */
+.wb-tray {
+  display: flex; flex-wrap: wrap; gap: 8px 22px; margin-top: 16px; padding: 8px 14px; border-radius: 4px;
+  background: var(--color-whiteboard-frame); font-size: var(--text-caption);
+}
+.wb-pen { --ink: var(--color-marker-black); display: inline-flex; align-items: center; gap: 8px; color: var(--color-smoke); }
+.wb-pen[data-ink="red"] { --ink: var(--color-marker-red); }
+.wb-pen[data-ink="blue"] { --ink: var(--color-marker-blue); }
+.wb-pen[data-ink="gray"] { --ink: var(--color-marker-gray); }
+/* 筆身是白的、筆頭是那一色;筆頭亮了就發光 */
+.wb-pen i { position: relative; display: block; flex: none; width: 34px; height: 9px; border-radius: 5px 2px 2px 5px; background: var(--color-paper); }
+.wb-pen i::after {
+  content: ''; position: absolute; right: -7px; top: 1px; width: 9px; height: 7px; border-radius: 1px 50% 50% 1px;
+  background: var(--ink); opacity: .28;
+}
+.wb-pen[data-lit="1"] { color: var(--color-off-black); font-weight: 600; }
+.wb-pen[data-lit="1"] i::after { opacity: 1; animation: pen-light 2.4s ease-in-out infinite; }
+@keyframes pen-light {
+  0%, 100% { box-shadow: 0 0 3px 1px var(--ink); }
+  50%      { box-shadow: 0 0 9px 3px var(--ink); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wb-pen[data-lit="1"] i::after { animation: none; box-shadow: 0 0 6px 2px var(--ink); }
+}
 /* 每一件(白板展開之後、F 工地主任那一列共用):問不到的、只是說明的淡一點,等你決定的粗一點;「沒有還差的事」跟其他行同一個顏色 */
 .titems { margin: 4px 0 0; padding-left: 1.1em; font-size: var(--text-caption); color: var(--color-off-black); }
 .titems li[data-k="unknown"], .titems li[data-k="note"] { color: var(--color-smoke); }

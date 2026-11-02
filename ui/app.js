@@ -55,9 +55,10 @@ const ROLE = {
        // 小房子:你要住進去的那一間
        shape: '<path d="M32 9l22 18v27H10V27z"/>', eye: [32, 40] },
   // 工地主任(規格:還差什麼總表 AC-11、AC-12):第六個角色,不是 stages.json 的關——收工 hook、分級、感測器都不認它,只畫在畫面上。
-  // 鍵不用字母:專案自己的關卡哪天多一個 F,也不會撞在一起。三角錐:工地上擺來提醒「這裡還沒弄好」的那個
+  // 鍵不用字母:專案自己的關卡哪天多一個 F,也不會撞在一起。直角三角形:主任手上那把三角板(Oscar 2026-11-02 指定;以前是三角錐)。
+  // 眼睛擺在直角那一角:「看著右邊」的時候右眼往斜邊靠,這個位置還塞得下
   director: { house: zhEn('工地主任巡一圈', 'The site director walks the site'), does: zhEn('看這個對話還有哪些沒收尾：等你決定的、還差的、看不到的', 'Checks what this conversation hasn\'t wrapped up: what\'s waiting for you, what\'s still to do, what can\'t be seen'),
-       shape: '<path d="M32 9 48.5 51h-33z"/><rect x="10" y="50" width="44" height="7" rx="2.5"/>', eye: [32, 39] },
+       shape: '<path d="M10 6v51h46z"/>', eye: [24, 44] },
 };
 /**
  * 表情只講感測器知道的事,不替結果背書(工地工班風畫面 AC-8):感測器只知道這一關被叫過,不知道做得好不好——
@@ -266,13 +267,18 @@ function restartBanner() {
 function cardFolded(s) {
   return !!(s.dismissedAt || s.startedBy || s.supersededAt);
 }
-/** 幾件:等你決定、還差、看不到各幾件(白板的圈旁、F 那一行)。只數伺服器給的那幾件,不另判斷 */
-function countsOf(r) {
+/** 幾件:等你決定、還差、看不到各幾件(白板的圈旁、F 那一行)。只數伺服器給的那幾件,不另判斷。k 是那幾件的種類,白板照它上色 */
+function countParts(r) {
   const n = (k) => (r?.items ?? []).filter((i) => i.kind === k).length;
-  return [[n('ask'), zhEn('等你決定', 'Your call')], [n('todo'), zhEn('還差', 'Still to do')], [n('unknown'), zhEn('看不到', 'Can\'t see')]]
-    .filter(([c]) => c > 0).map(([c, w]) => zhEn(`${w} ${c} 件`, `${w}: ${c}`)).join(' · ');
+  return [['ask', zhEn('等你決定', 'Your call')], ['todo', zhEn('還差', 'Still to do')], ['unknown', zhEn('看不到', 'Can\'t see')]]
+    .map(([k, w]) => ({ k, c: n(k), w })).filter((x) => x.c > 0).map(({ k, c, w }) => ({ k, text: zhEn(`${w} ${c} 件`, `${w}: ${c}`) }));
 }
-/** 馬克筆的顏色照最急的那一件(AC-10):紅＝等你決定、藍＝還差、灰＝看不到、黑＝沒有還差的事。沒有還差的事不准是綠色(P10),看不到不准跟沒事同色(P5) */
+function countsOf(r) {
+  return countParts(r).map((x) => x.text).join(' · ');
+}
+/** 那一件用哪一色筆:圈旁的件數、展開後每一件、main 推了沒那一行、筆槽亮哪幾支,都照這一張(老毛病 P2) */
+const INK = { ask: 'red', todo: 'blue', unknown: 'gray', clear: 'black' };
+/** 馬克筆的顏色照最急的那一件(AC-10):紅＝等你決定、藍＝還差、灰＝看不到、黑＝沒有還差的事(只差按結案)。沒有還差的事不准是綠色(P10),看不到不准跟沒事同色(P5) */
 function inkOf(r) {
   const k = new Set((r?.items ?? []).map((i) => i.kind));
   return k.has('ask') ? 'red' : k.has('todo') ? 'blue' : k.has('unknown') ? 'gray' : 'black';
@@ -291,7 +297,7 @@ function bossMood(rows) {
 /**
  * 案件頁 Overview 下面的「還差什麼」白板(AC-1、AC-10、AC-11):一個對話一個彩色筆圈,預設收起,點開才看每一件、結案鈕、到那個對話頁。
  * 每一句都是伺服器照 lib/todo.mjs 算好的,終端機 --todo 印的是同一份(規格:終端機與網頁說同一句);這裡只畫。
- * ⚠️ 顏色之外圈旁一定有字(幾件),白板角落寫四色的意思——不只靠顏色(DESIGN:警示膠帶那一條的道理)。
+ * ⚠️ 顏色之外圈旁一定有字(幾件),筆槽每一支筆旁寫那一色的意思——不只靠顏色(DESIGN:警示膠帶那一條的道理)。
  * ⚠️ 舊的服務沒有 todo 這一欄:講服務還在跑舊的程式,不准畫成一塊空白板——空的看起來就是「都沒事」(老毛病 P5)。
  * 結案鈕跟對話列那一顆是同一個(data-close:同一個點擊處理、同一個 /api/close);已結案、還有檔案沒存沒併的不給鈕。
  */
@@ -307,15 +313,29 @@ function whiteboard(p) {
   if (!sec) return `<div class="block"><p class="muted">${zhEn('「還差什麼」裡找不到這個案件，這塊白板畫不出來。', 'This project can\'t be found in "What\'s left", so this board can\'t be drawn.')}</p></div>`;
   const task = (r) => {
     const key = `wb|${p.name}|${r.id}`;
-    const count = countsOf(r) || (r.clear ? zhEn('沒有還差的事了', 'Nothing left') : '');
+    // 件數一種一色(紅圈裡也可能有還差的事):收起來的時候,筆槽亮的每一支筆在圈旁都找得到那一色
+    const parts = countParts(r);
+    const count = parts.length ? parts.map((x) => `<span data-k="${x.k}">${esc(x.text)}</span>`).join(' · ')
+      : r.clear ? `<span data-k="clear">${esc(zhEn('沒有還差的事了', 'Nothing left'))}</span>` : '';
     return `<li class="wb-item"><details class="wb-task" data-ink="${inkOf(r)}" data-fold="${esc(key)}"${foldOpen(key, false) ? ' open' : ''}>
-        <summary><span class="wb-ring">${esc(r.title)}</span>${count ? ` <span class="wb-count">${esc(count)}</span>` : ''}
+        <summary><span class="wb-ring">${esc(r.title)}</span>${count ? ` <span class="wb-count">${count}</span>` : ''}
           <span class="smeta">${r.closedNote ? `${esc(r.closedNote)} · ` : ''}${esc(r.last)}</span></summary>
         <ul class="titems">${r.items.map((i) => `<li data-k="${esc(i.kind)}">${esc(i.text)}</li>`).join('')}${r.clear ? `<li data-k="clear">${esc(r.clear)}</li>` : ''}</ul>
         <div class="wb-acts"><a href="#/p/${encodeURIComponent(p.name)}/s/${encodeURIComponent(r.id)}">${zhEn('到這個對話頁 →', 'Open this conversation →')}</a>
           ${r.closed ? '' : `<button class="mini-btn" data-close="${esc(r.id)}" data-proj="${esc(p.name)}" data-cwd="${esc(r.cwd ?? '')}" data-undo="0">${zhEn('結案', 'Close')}</button>`}</div>
       </details></li>`;
   };
+  // main 推了沒那一行:還沒推是還差、問不到是看不到。舊的服務沒給 pushKind → 分不出是哪一種,畫看不到(R1)
+  const pushKind = sec.push ? (INK[sec.pushKind] ? sec.pushKind : 'unknown') : null;
+  // 筆槽(Oscar 2026-11-02):四支筆跟它的意思排在一起,白板上畫到哪一色,那一支的筆頭就亮。
+  // 算的是白板上畫出來的每一處顏色——圈、圈旁的件數、展開後每一件、推了沒那一行——不只看圈:紅圈裡也有還差的事,藍筆不亮就是把「有」講成「沒有」(R1)。
+  // 白板畫不出來(上面那兩種)就走不到這裡:不畫四支都不亮的筆槽——那看起來就是「都沒事」(老毛病 P5)
+  const used = new Set(sec.rows.flatMap((r) => [inkOf(r), ...r.items.map((i) => INK[i.kind]), r.clear ? INK.clear : null]));
+  if (pushKind) used.add(INK[pushKind]);
+  const pens = [['red', zhEn('紅筆＝等你決定', 'Red = your call')], ['blue', zhEn('藍筆＝還差什麼', 'Blue = what\'s still to do')],
+    ['gray', zhEn('灰筆＝看不到', 'Gray = can\'t see')], ['black', zhEn('黑筆＝只差按結案', 'Black = only closing left')]];
+  const tray = pens.map(([ink, label]) => `<span class="wb-pen" data-ink="${ink}" data-lit="${used.has(ink) ? 1 : 0}" title="${used.has(ink)
+    ? zhEn('筆頭亮著：白板上有這一色', 'Lit: this color is on the board') : zhEn('筆頭沒亮：白板上沒有這一色', 'Off: this color isn\'t on the board')}"><i></i>${esc(label)}</span>`).join('');
   return `<div class="block">
     <div class="wb">
       <div class="wb-head">
@@ -323,11 +343,10 @@ function whiteboard(p) {
         <span class="wb-boss">${agent({ id: 'director' }, bossMood(sec.rows), false)}<span class="wb-boss-name">${zhEn('工地主任', 'Site director')}</span></span>
       </div>
       ${sec.note ? `<p class="wb-line">${esc(sec.note)}</p>` : ''}
-      ${sec.push ? `<p class="wb-line">${esc(sec.push)}</p>` : ''}
+      ${sec.push ? `<p class="wb-line" data-k="${pushKind}">${esc(sec.push)}</p>` : ''}
       ${sec.rows.length ? `<ul class="wb-tasks">${sec.rows.map(task).join('')}</ul>` : ''}
       ${sec.quiet ? `<p class="wb-line">${esc(sec.quiet)}</p>` : ''}
-      <p class="wb-legend">${zhEn('紅筆＝等你決定　藍筆＝還差　灰筆＝看不到　黑筆＝沒有還差的事', 'Red: your call · Blue: still to do · Gray: can\'t see · Black: nothing left')}</p>
-      <div class="wb-tray" aria-hidden="true"><i data-ink="red"></i><i data-ink="blue"></i><i data-ink="gray"></i><i data-ink="black"></i></div>
+      <div class="wb-tray">${tray}</div>
     </div>
   </div>`;
 }

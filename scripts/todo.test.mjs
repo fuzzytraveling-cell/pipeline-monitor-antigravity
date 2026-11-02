@@ -360,7 +360,7 @@ section('AC-10、AC-11:案件頁的白板——每個對話一個彩色筆圈、
   check('必抓:整塊白板沒有一處是綠色', !/green|mint|agent-c/i.test(html));
   check('預設收起:沒有一個圈是打開的', (html.match(/class="wb-task"/g) ?? []).length === 4 && !/class="wb-task"[^>]* open/.test(html), html.slice(0, 300));
   check('圈旁一定有字:等你決定幾件、還差幾件、看不到幾件、沒有還差的事', ['等你決定 1 件', '還差 1 件', '看不到 1 件', '沒有還差的事了'].every((t) => html.includes(t)), html);
-  check('角落寫四色的意思(不只靠顏色)', html.includes('紅筆＝等你決定') && html.includes('黑筆＝沒有還差的事'));
+  check('筆槽每一支筆旁寫那一色的意思(不只靠顏色)', ['紅筆＝等你決定', '藍筆＝還差什麼', '灰筆＝看不到', '黑筆＝只差按結案'].every((t) => html.includes(t)), html.slice(-900));
   check('白板上有工地主任:有事等你決定 → 擔心的眼睛(不笑)', /class="agent" data-id="director" data-face="worry"/.test(html), html.match(/data-id="director"[^>]*/)?.[0]);
   const calm = uiOf({ projects: [{ name: 'p', suggestions: [] }], todo: board([proj([okRow])]) }).whiteboard({ name: 'p' });
   check('沒有還差的事 → 主任睜著眼,不笑(沒有人驗過,P10)', /data-id="director" data-face="open"/.test(calm), calm.match(/data-id="director"[^>]*/)?.[0]);
@@ -369,6 +369,47 @@ section('AC-10、AC-11:案件頁的白板——每個對話一個彩色筆圈、
   check('這個案件沒有要列的 → 白板照寫一句為什麼,不准空著(AC-1)', quietHtml.includes('沒有進行中的對話') && !/wb-task/.test(quietHtml), quietHtml);
   const page = uiOf({ projects: [{ name: 'p', displayName: 'P', cards: [], sessions: [], suggestions: [] }], todo: b }).projectPage('p');
   check('案件頁:白板在 Overview 下面、建議卡那一區上面', page.indexOf('Overview') < page.indexOf('class="wb"') && page.indexOf('class="wb"') < page.indexOf('建議新增的對話'), page.slice(0, 120));
+}
+
+section('筆槽(Oscar 2026-11-02):白板上畫到哪一色,那一支的筆頭就亮——紅圈裡的還差、推了沒那一行都算;白板畫不出來就不畫筆槽', 'P5');
+{
+  const litOf = (html) => Object.fromEntries([...html.matchAll(/class="wb-pen" data-ink="([a-z]+)" data-lit="([01])"/g)].map((m) => [m[1], m[2] === '1']));
+  const wb = (b, name = 'p') => uiOf({ projects: [{ name: 'p', suggestions: [] }], todo: b }).whiteboard({ name });
+  const askD = stagesOf({ D: { state: 'stale', rerun: { state: 'ask', line: '要不要再跑由你決定' } } });
+  const four = litOf(wb(board([proj([
+    sess({ id: 'r1', title: '要你決定的', stages: askD }),
+    sess({ id: 'r2', title: '還差的', cwd: '/w/b', card: card({ path: '/w/b', ladder: ladder({ commit: ['pending', '還有 2 個檔案沒存'] }) }) }),
+    sess({ id: 'r3', title: '看不到的', cwd: '/w/c', card: card({ path: '/w/c', gone: true }) }),
+    sess({ id: 'r4', title: '沒事的', cwd: '/w/d', card: card({ path: '/w/d' }), tier: tierOk([]) }),
+  ])])));
+  eq('四支筆都在、照紅藍灰黑排', Object.keys(four).join(','), 'red,blue,gray,black');
+  check('四色的圈都有 → 四支都亮', Object.values(four).every(Boolean), JSON.stringify(four));
+
+  // 紅圈裡另有一件還差:圈是紅的,藍筆也要亮;收起來的時候圈旁那一件就是藍的
+  const mixed = sess({ id: 'm1', title: '又要決定又還差', stages: askD, card: card({ ladder: ladder({ commit: ['pending', '還有 2 個檔案沒存'] }) }) });
+  const html = wb(board([proj([mixed])]));
+  const lit = litOf(html);
+  check('紅圈 → 紅筆亮', lit.red === true, JSON.stringify(lit));
+  check('必抓:紅圈裡還有還差的事 → 藍筆也亮(只看圈的顏色,藍筆不亮就是把「有」講成「沒有」)', lit.blue === true, JSON.stringify(lit));
+  check('……收起來就看得到那一色:圈旁的「還差 1 件」標成還差那一色', html.includes('<span data-k="todo">還差 1 件</span>'), html.match(/class="wb-count">.*/)?.[0]);
+  check('白板上沒畫到的顏色不亮(灰、黑)', lit.gray === false && lit.black === false, JSON.stringify(lit));
+
+  // main 推了沒那一行也算:還沒推是還差(藍)、問不到是看不到(灰)
+  const clean = sess({ id: 'c1', title: '沒事的', tier: tierOk([]) });
+  const withPush = (state, text) => board([proj([clean], { cards: [card({ path: '/w/main', ladder: ladder({ push: [state, text] }) })] })]);
+  const pending = litOf(wb(withPush('pending', 'main 有 5 個新存檔可以 push')));
+  check('main 還沒推 → 藍筆亮(圈之外那一行也算)', pending.blue === true && pending.black === true && pending.red === false, JSON.stringify(pending));
+  const unk = litOf(wb(withPush('unknown', '問不到 GitHub 上的 main')));
+  check('問不到推了沒 → 灰筆亮,藍筆不亮', unk.gray === true && unk.blue === false, JSON.stringify(unk));
+  const oldB = withPush('pending', 'main 有 5 個新存檔可以 push');
+  for (const p of oldB.projects) delete p.pushKind;
+  const old = litOf(wb(oldB));
+  check('舊的服務沒給推了沒是哪一種 → 灰筆亮(分不出來就是看不到,不准不算)', old.gray === true, JSON.stringify(old));
+
+  // 白板畫不出來 → 不畫筆槽:四支都不亮看起來就是「都沒事」
+  const noTodo = uiOf({ projects: [{ name: 'p' }] }).whiteboard({ name: 'p' });
+  const lost = wb(board([proj([mixed])]), 'q');
+  check('必抓:舊的服務沒有總表、總表裡找不到這個案件 → 都不畫筆槽', !/wb-pen/.test(noTodo) && !/wb-pen/.test(lost), noTodo + lost);
 }
 
 section('AC-12:對話頁多一關 F 工地主任——收尾了沒、這個對話提的建議卡;沒記到不准講成沒有', 'P5');
