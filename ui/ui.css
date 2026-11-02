@@ -446,6 +446,15 @@ a.ext { color: var(--color-lake-blue); }
 .srow .sname:hover { color: var(--color-lake-blue); }
 .srow .smeta { grid-column: 1; font-size: var(--text-caption); color: var(--color-smoke); }
 .srow .mini-btn { grid-column: 2; grid-row: 1 / span 2; }
+/* 還差什麼(首頁最上面,規格:還差什麼總表):沿用對話列的樣子,多一串「還差的事」。
+   「沒有還差的事了」那一行跟其他行同一個顏色——不變綠、不打勾(老毛病 P10);問不到的、只是說明的淡一點,等你決定的粗一點 */
+.todo .tproj { margin-top: var(--spacing-16); }
+.todo .tname { font-size: var(--text-body); margin: 0 0 6px; }
+.todo .tpush { font-size: var(--text-caption); color: var(--color-graphite); margin: 0 0 6px; }
+.trow .titems { grid-column: 1; margin: 4px 0 0; padding-left: 1.1em; font-size: var(--text-caption); color: var(--color-off-black); }
+.trow .titems li[data-k="unknown"], .trow .titems li[data-k="note"] { color: var(--color-smoke); }
+.trow .titems li[data-k="ask"] { font-weight: 600; }
+.trow .mini-btn { grid-row: 1 / span 3; align-self: start; }
 /* 結案:用一條手繪感的線劃掉,不是刪掉——紀錄還在 */
 .srow.closed { opacity: .62; }
 .srow.closed .sname {

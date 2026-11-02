@@ -39,6 +39,7 @@ import { doCheckpoint } from './lib/cliStamp.mjs';
 import { doClear, doSpec, doReport, doSuggest } from './lib/cliReport.mjs';
 import { doRound, doDecide } from './lib/cliRerun.mjs';
 import { doMount } from './lib/cliOnOff.mjs';
+import { doTodo } from './lib/cliTodo.mjs';
 import { readLang, withLang, zhEn, langBrokenLine, doLang } from './lib/lang.mjs';
 
 /* ══════════════════════════ main ══════════════════════════ */
@@ -53,6 +54,9 @@ async function main(L = { lang: 'zh', state: 'ok' }) {
   if (at('--lang') !== -1) return doLang(after('--lang')[0]);
   // 語言設定讀不懂:先用中文,但最上面講一句,不默默用(AC-7)
   if (L.state === 'broken') console.log(langBrokenLine());
+
+  // 還差什麼:所有專案一起看,不需要站在 git 專案裡(規格:還差什麼總表 AC-8)
+  if (at('--todo') !== -1) return doTodo();
 
   // 儀表板的背景服務(launchd):裝／拆／重啟／狀態,以及用瀏覽器打開。都不需要站在 git 專案裡
   const serveFlag = ['--serve-install', '--serve-uninstall', '--serve-restart', '--serve-status'].find((f) => at(f) !== -1);

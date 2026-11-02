@@ -250,6 +250,42 @@ function focusOf(p) {
   return { session, card, liveCount: live.length };
 }
 
+/* ═══ 首頁最上面:還差什麼(規格:還差什麼總表) ═══ */
+/**
+ * 每一句都是伺服器照 lib/todo.mjs 算好的,終端機 --todo 印的是同一份(規格:終端機與網頁說同一句);這裡只畫。
+ * ⚠️ 舊的服務沒有 todo 這一欄:講服務還在跑舊的程式,不准畫成一張空的總表——空的看起來就是「都沒事」(老毛病 P5;AC-7)。
+ *    一個案件都沒有時不畫:下面「案件」那一區自己會講為什麼看不到(還沒有、或舊的紀錄還沒搬過來)。
+ * ⚠️ 「沒有還差的事了」那一行不打勾、不變綠(P10):它只是總表上沒有要做的,不是有人驗過了。
+ * 結案鈕跟對話列那一顆是同一個(data-close:同一個點擊處理、同一個 /api/close)。已結案、還有檔案沒存沒併的那幾行不給鈕。
+ */
+function todoBlock() {
+  if (!latest?.projects?.length) return '';
+  if (!('todo' in latest)) {
+    return zhEn('<div class="block"><p class="fault" data-tone="amber">🟡 儀表板的服務還在跑舊的程式，「還差什麼」總表畫不出來——跑 <code>pipeline-status --serve-restart</code></p></div>',
+      '<div class="block"><p class="fault" data-tone="amber">🟡 The dashboard service is still running the old program, so the "What\'s left" table can\'t be drawn: run <code>pipeline-status --serve-restart</code></p></div>');
+  }
+  const t = latest.todo;
+  const row = (p, r) => `<div class="srow trow">
+        <a class="sname" href="#/p/${encodeURIComponent(p.name)}/s/${encodeURIComponent(r.id)}">${esc(r.title)}</a>
+        <span class="smeta">${r.closedNote ? `${esc(r.closedNote)} · ` : ''}${esc(r.last)}</span>
+        <ul class="titems">${r.items.map((i) => `<li data-k="${esc(i.kind)}">${esc(i.text)}</li>`).join('')}${r.clear ? `<li data-k="clear">${esc(r.clear)}</li>` : ''}</ul>
+        ${r.closed ? '' : `<button class="mini-btn" data-close="${esc(r.id)}" data-proj="${esc(p.name)}" data-cwd="${esc(r.cwd ?? '')}" data-undo="0">${zhEn('結案', 'Close')}</button>`}
+      </div>`;
+  const sec = (p) => `<div class="tproj">
+        <h3 class="tname">${esc(p.displayName)}</h3>
+        ${p.note ? `<p class="smeta">${esc(p.note)}</p>` : ''}
+        ${p.push ? `<p class="tpush">${esc(p.push)}</p>` : ''}
+        ${p.rows.length ? `<div class="slist">${p.rows.map((r) => row(p, r)).join('')}</div>` : ''}
+      </div>`;
+  return `<div class="block todo">
+      <h2 class="section serif">${esc(t.head)}</h2>
+      <p class="section-note">${esc(t.note)}</p>
+      ${t.restart ? `<p class="fault" data-tone="amber">${esc(t.restart)}</p>` : ''}
+      ${(t.projects ?? []).map(sec).join('')}
+      ${t.quiet ? `<p class="smeta">${esc(t.quiet)}</p>` : ''}
+    </div>`;
+}
+
 /* ═══ 第一層:案件列表 ═══ */
 function projectList() {
   if (!latest?.projects?.length) {
@@ -1041,7 +1077,7 @@ function render() {
   const cases = zhEn('案件', 'Projects');
   if (r.view === 'projects') {
     $crumb.innerHTML = `<span>${cases}</span>`;
-    paint(faultBanner() + langBanner() + oldServerBanner() + projectList());
+    paint(faultBanner() + langBanner() + oldServerBanner() + todoBlock() + projectList());
   } else if (r.view === 'project') {
     // 路由用的是檔名(safeName 過的);麵包屑給人看,要用真的資料夾名
     const p = latest?.projects?.find((x) => x.name === r.project);

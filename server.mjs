@@ -20,6 +20,7 @@ import { logFileOf } from './lib/events.mjs';
 import { optIn, optOut } from './lib/mount.mjs';
 import { dataDir, makeDataDir } from './lib/paths.mjs';
 import { readLang, writeLang, withLang, zhEn, LANGS, langBrokenLine } from './lib/lang.mjs';
+import { todoBoard, programChanges, restartLine } from './lib/todo.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const HOST = '127.0.0.1';          // ⚠️ 不要參數化。見上面。
@@ -90,8 +91,12 @@ function appVersion() {
  */
 const STATUS_SHARE_MS = 4000;
 
-/** monitorDir 可以注入,測試才能在自己的暫存資料夾裡跑;預設就是這個資料夾。 */
-export function createApp({ monitorDir = HERE, statusShareMs = STATUS_SHARE_MS } = {}) {
+/** monitorDir 可以注入,測試才能在自己的暫存資料夾裡跑;預設就是這個資料夾。programDir:這個服務的程式在哪(測試才換得掉) */
+export function createApp({ monitorDir = HERE, statusShareMs = STATUS_SHARE_MS, programDir = HERE } = {}) {
+  // 這個服務是哪一刻開始跑的。常駐的服務跑的是那一刻讀進來的程式:之後合併、改檔,它不會知道——
+  // 不講出來,總表就照舊程式的算法講話。所以每次都比一次:它用到的程式改過了,總表最上面就講要重啟(規格:還差什麼總表 AC-7)
+  const bootMs = Date.now();
+  const serveState = () => ({ bootAt: new Date(bootMs).toISOString(), changed: programChanges(programDir, bootMs) });
   // 跟 hook.sh／status.mjs／collect.mjs 同一條規則(lib/paths.mjs 的 dataDir),寫的跟讀的才是同一份(老毛病 P2)。
   // 跟著 monitorDir 走,測試才能在自己的暫存資料夾裡寫,不會碰到真的紀錄。
   // ⚠️ 每次寫才問、不在啟動時算死:服務一跑好幾天,中間別的程式搬了家(規格:紀錄搬到固定的家),算死的那一個就指著舊的地方。
@@ -138,7 +143,10 @@ export function createApp({ monitorDir = HERE, statusShareMs = STATUS_SHARE_MS }
         // appVersion:畫面程式(ui/app.js、ui.css)的版本。開著的分頁發現它變了就自己重新載入——
         // 不然合併之後重啟服務,分頁跑的還是舊畫面,每幾秒拿新資料用舊的畫法畫,會把新欄位畫錯(魔鬼教官 2026-09-21,L20 的形狀)
         // lang:這份資料是哪一種(AC-7)——畫面照它,不照按鈕記的;舊的服務沒有這一欄,畫面當成中文。langNote:設定檔讀不懂的那一句
-        body = JSON.stringify({ ...collectAll({ monitorDir }), appVersion: appVersion(), lang: L.lang, langNote: L.state === 'broken' ? langBrokenLine() : null });
+        // todo:首頁最上面那一張總表(規格:還差什麼總表)。只從這一次算好的資料組,不另問 git;要不要重啟是服務自己講的
+        const all = collectAll({ monitorDir });
+        body = JSON.stringify({ ...all, todo: todoBoard(all, { restart: restartLine(serveState()) }),
+                                appVersion: appVersion(), lang: L.lang, langNote: L.state === 'broken' ? langBrokenLine() : null });
       } catch (e) {
         // ⚠️ 一個專案讀不到,不該害整頁掛掉。照實回報,讓畫面說「讀不到」。
         return json(500, { error: String(e?.message ?? e), generatedAt: Date.now() });   // 讀不到的不共用:下一次重算
@@ -147,6 +155,10 @@ export function createApp({ monitorDir = HERE, statusShareMs = STATUS_SHARE_MS }
       res.writeHead(200, { 'content-type': TYPES['.json'], 'cache-control': 'no-store' });
       return res.end(body);
     }
+
+    // 終端機的總表(pipeline-status --todo)問的:這個服務哪一刻開始跑、之後它用到的程式改過哪幾支。
+    // 只回這一小段,不回整頁資料——整頁要算將近 3 秒,只為了問一句要不要重啟不值得(lib/cliTodo.mjs)
+    if (url.pathname === '/api/serve-state') return json(200, serveState());
 
     // 結案:把「這個對話做完了」記成一筆事件。
     // ⚠️ 這是網頁能寫入的兩個動作之一,而且它是 append-only——
