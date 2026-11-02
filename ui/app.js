@@ -277,11 +277,14 @@ function countsOf(r) {
   return countParts(r).map((x) => x.text).join(' · ');
 }
 /** 那一件用哪一色筆:圈旁的件數、展開後每一件、main 推了沒那一行、筆槽亮哪幾支,都照這一張(老毛病 P2) */
-const INK = { ask: 'red', todo: 'blue', unknown: 'gray', clear: 'black' };
-/** 馬克筆的顏色照最急的那一件(AC-10):紅＝等你決定、藍＝還差、灰＝看不到、黑＝沒有還差的事(只差按結案)。沒有還差的事不准是綠色(P10),看不到不准跟沒事同色(P5) */
+const INK = { ask: 'red', todo: 'blue', unknown: 'gray', clear: 'yellow' };
+/**
+ * 馬克筆的顏色照最急的那一件(AC-10):紅＝等你決定、藍＝還差、灰＝看不到、黃＝只差按結案(沒有還差的事,工地主任的黃;Oscar 2026-11-02 從黑改黃)。
+ * 沒有還差的事不准是綠色(P10),看不到不准跟沒事同色(P5)。顏色照 INK 那一張拿,不另寫一份——黑改黃那天兩份要一起改(老毛病 P2)
+ */
 function inkOf(r) {
   const k = new Set((r?.items ?? []).map((i) => i.kind));
-  return k.has('ask') ? 'red' : k.has('todo') ? 'blue' : k.has('unknown') ? 'gray' : 'black';
+  return INK[['ask', 'todo', 'unknown'].find((x) => k.has(x)) ?? 'clear'];
 }
 /**
  * 工地主任的表情(AC-11):只看那幾件的種類,照五個工班的表情借——有事等你決定是擔心的圓眼、還差是看著那一串、看不到是問號眼(FACE 沒有這一種)、
@@ -316,7 +319,7 @@ function whiteboard(p) {
     // 件數一種一色(紅圈裡也可能有還差的事):收起來的時候,筆槽亮的每一支筆在圈旁都找得到那一色
     const parts = countParts(r);
     const count = parts.length ? parts.map((x) => `<span data-k="${x.k}">${esc(x.text)}</span>`).join(' · ')
-      : r.clear ? `<span data-k="clear">${esc(zhEn('沒有還差的事了', 'Nothing left'))}</span>` : '';
+      : r.clear ? `<span>${esc(zhEn('沒有還差的事了', 'Nothing left'))}</span>` : '';   // 不上色:黃字看不清楚,也不替「沒事」另外上色(P10)
     return `<li class="wb-item"><details class="wb-task" data-ink="${inkOf(r)}" data-fold="${esc(key)}"${foldOpen(key, false) ? ' open' : ''}>
         <summary><span class="wb-ring">${esc(r.title)}</span>${count ? ` <span class="wb-count">${count}</span>` : ''}
           <span class="smeta">${r.closedNote ? `${esc(r.closedNote)} · ` : ''}${esc(r.last)}</span></summary>
@@ -336,7 +339,7 @@ function whiteboard(p) {
   if (pushKind) used.add(INK[pushKind]);
   if (sec.note) used.add(INK.unknown);
   const pens = [['red', zhEn('紅筆＝等你決定', 'Red = your call')], ['blue', zhEn('藍筆＝還差什麼', 'Blue = what\'s still to do')],
-    ['gray', zhEn('灰筆＝看不到', 'Gray = can\'t see')], ['black', zhEn('黑筆＝只差按結案', 'Black = only closing left')]];
+    ['gray', zhEn('灰筆＝看不到', 'Gray = can\'t see')], ['yellow', zhEn('黃筆＝只差按結案', 'Yellow = only closing left')]];
   const tray = pens.map(([ink, label]) => `<span class="wb-pen" data-ink="${ink}" data-lit="${used.has(ink) ? 1 : 0}" title="${used.has(ink)
     ? zhEn('筆頭亮著：白板上有這一色', 'Lit: this color is on the board') : zhEn('筆頭沒亮：白板上沒有這一色', 'Off: this color isn\'t on the board')}"><i></i>${esc(label)}</span>`).join('');
   return `<div class="block">

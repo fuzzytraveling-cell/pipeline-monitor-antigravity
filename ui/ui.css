@@ -529,8 +529,8 @@ a.ext { color: var(--color-lake-blue); }
 .rnote { margin: .35rem 0 0; padding-left: 1.1rem; font-size: 12px; line-height: 1.5; color: var(--color-smoke); }
 
 /* ───────── 還差什麼白板(案件頁 Overview 下面,規格:還差什麼總表 AC-10、AC-11) ─────────
-   工地白板:白板面、鋁框、下緣的筆槽;每個對話一個手畫的馬克筆圈。筆的顏色照最急的那一件(紅等你決定、藍還差、灰看不到、黑沒有還差的事)——
-   「沒有還差的事」是黑筆,不變綠(老毛病 P10);顏色之外圈旁一定有字,角落寫四色的意思 */
+   工地白板:白板面、鋁框、下緣的筆槽;每個對話一個手畫的馬克筆圈。筆的顏色照最急的那一件(紅等你決定、藍還差、灰看不到、黃只差按結案)——
+   「沒有還差的事」是黃筆(工地主任的黃,Oscar 2026-11-02 指定),不變綠(老毛病 P10);顏色之外圈旁一定有字,筆槽寫四色的意思 */
 .wb {
   background: var(--color-whiteboard); border: 6px solid var(--color-whiteboard-frame); border-radius: 10px;
   padding: var(--spacing-16) var(--spacing-24) 12px; box-shadow: var(--shadow-note);
@@ -541,10 +541,12 @@ a.ext { color: var(--color-lake-blue); }
 .wb-boss-name { font-size: var(--text-caption); color: var(--color-smoke); }
 .wb-line { font-size: var(--text-caption); color: var(--color-graphite); margin: 0 0 8px; }
 .wb-tasks { list-style: none; margin: 10px 0 0; padding: 0 0 0 10px; display: grid; gap: 16px; }
-.wb-task { --ink: var(--color-marker-black); }
+/* 認不得的顏色畫成看不到,不畫成只差按結案(P10) */
+.wb-task { --ink: var(--color-marker-gray); }
 .wb-task[data-ink="red"] { --ink: var(--color-marker-red); }
 .wb-task[data-ink="blue"] { --ink: var(--color-marker-blue); }
 .wb-task[data-ink="gray"] { --ink: var(--color-marker-gray); }
+.wb-task[data-ink="yellow"] { --ink: var(--color-marker-yellow); }
 .wb-task > summary { cursor: pointer; list-style: none; display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; padding: 6px 4px; }
 .wb-task > summary::-webkit-details-marker { display: none; }
 .wb-ring { position: relative; display: inline-block; padding: 2px 12px; font-size: var(--text-body); color: var(--color-off-black); }
@@ -554,7 +556,8 @@ a.ext { color: var(--color-lake-blue); }
   border-radius: 52% 48% 55% 45% / 58% 46% 54% 42%; transform: rotate(-2.5deg);
 }
 .wb-item:nth-child(even) .wb-ring::before { transform: rotate(2deg); border-radius: 47% 53% 44% 56% / 50% 58% 42% 50%; }
-.wb-count { font-size: var(--text-caption); font-weight: 600; color: var(--ink); }
+/* 件數的字一種一色(下面 [data-k]);「沒有還差的事了」不上色——黃字在白板上看不清楚,也不替它另外上色(P10) */
+.wb-count { font-size: var(--text-caption); font-weight: 600; color: var(--color-off-black); }
 .wb-task .titems { margin: 8px 0 0 14px; }
 .wb-acts { display: flex; gap: 14px; align-items: center; margin: 8px 0 0 14px; font-size: var(--text-caption); }
 /* 一件一色(Oscar 2026-11-02):圈旁的件數、展開後每一件前面那一點、main 推了沒那一行,照那一件的種類上色——
@@ -575,10 +578,11 @@ a.ext { color: var(--color-lake-blue); }
   display: flex; flex-wrap: wrap; gap: 8px 22px; margin-top: 16px; padding: 8px 14px; border-radius: 4px;
   background: var(--color-whiteboard-frame); font-size: var(--text-caption);
 }
-.wb-pen { --ink: var(--color-marker-black); display: inline-flex; align-items: center; gap: 8px; color: var(--color-smoke); }
+.wb-pen { --ink: var(--color-marker-gray); display: inline-flex; align-items: center; gap: 8px; color: var(--color-smoke); }
 .wb-pen[data-ink="red"] { --ink: var(--color-marker-red); }
 .wb-pen[data-ink="blue"] { --ink: var(--color-marker-blue); }
 .wb-pen[data-ink="gray"] { --ink: var(--color-marker-gray); }
+.wb-pen[data-ink="yellow"] { --ink: var(--color-marker-yellow); }
 /* 筆身是白的、筆頭是那一色;筆頭亮了就發光。筆頭朝左、筆尾挨著字(Oscar 2026-11-02:筆頭轉到另一邊);左邊讓出筆頭那一截,不擠到前一支的字 */
 .wb-pen i { position: relative; display: block; flex: none; width: 34px; height: 9px; margin-left: 7px; border-radius: 2px 5px 5px 2px; background: var(--color-paper); }
 .wb-pen i::after {

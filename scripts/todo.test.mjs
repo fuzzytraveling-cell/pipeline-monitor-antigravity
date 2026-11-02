@@ -356,11 +356,11 @@ section('AC-10、AC-11:案件頁的白板——每個對話一個彩色筆圈、
   eq('有事等你決定 → 紅筆', inkOfTask('要你決定的'), 'red');
   eq('還差 → 藍筆', inkOfTask('還差的'), 'blue');
   eq('必抓:看不到 → 灰筆(不准跟沒事同色,P5)', inkOfTask('看不到的'), 'gray');
-  eq('沒有還差的事 → 黑筆', inkOfTask('沒事的'), 'black');
+  eq('沒有還差的事 → 黃筆(工地主任的黃)', inkOfTask('沒事的'), 'yellow');
   check('必抓:整塊白板沒有一處是綠色', !/green|mint|agent-c/i.test(html));
   check('預設收起:沒有一個圈是打開的', (html.match(/class="wb-task"/g) ?? []).length === 4 && !/class="wb-task"[^>]* open/.test(html), html.slice(0, 300));
   check('圈旁一定有字:等你決定幾件、還差幾件、看不到幾件、沒有還差的事', ['等你決定 1 件', '還差 1 件', '看不到 1 件', '沒有還差的事了'].every((t) => html.includes(t)), html);
-  check('筆槽每一支筆旁寫那一色的意思(不只靠顏色)', ['紅筆＝等你決定', '藍筆＝還差什麼', '灰筆＝看不到', '黑筆＝只差按結案'].every((t) => html.includes(t)), html.slice(-900));
+  check('筆槽每一支筆旁寫那一色的意思(不只靠顏色)', ['紅筆＝等你決定', '藍筆＝還差什麼', '灰筆＝看不到', '黃筆＝只差按結案'].every((t) => html.includes(t)), html.slice(-900));
   check('白板上有工地主任:有事等你決定 → 擔心的眼睛(不笑)', /class="agent" data-id="director" data-face="worry"/.test(html), html.match(/data-id="director"[^>]*/)?.[0]);
   const calm = uiOf({ projects: [{ name: 'p', suggestions: [] }], todo: board([proj([okRow])]) }).whiteboard({ name: 'p' });
   check('沒有還差的事 → 主任睜著眼,不笑(沒有人驗過,P10)', /data-id="director" data-face="open"/.test(calm), calm.match(/data-id="director"[^>]*/)?.[0]);
@@ -382,7 +382,7 @@ section('筆槽(Oscar 2026-11-02):白板上畫到哪一色,那一支的筆頭就
     sess({ id: 'r3', title: '看不到的', cwd: '/w/c', card: card({ path: '/w/c', gone: true }) }),
     sess({ id: 'r4', title: '沒事的', cwd: '/w/d', card: card({ path: '/w/d' }), tier: tierOk([]) }),
   ])])));
-  eq('四支筆都在、照紅藍灰黑排', Object.keys(four).join(','), 'red,blue,gray,black');
+  eq('四支筆都在、照紅藍灰黃排', Object.keys(four).join(','), 'red,blue,gray,yellow');
   check('四色的圈都有 → 四支都亮', Object.values(four).every(Boolean), JSON.stringify(four));
 
   // 紅圈裡另有一件還差:圈是紅的,藍筆也要亮;收起來的時候圈旁那一件就是藍的
@@ -392,13 +392,13 @@ section('筆槽(Oscar 2026-11-02):白板上畫到哪一色,那一支的筆頭就
   check('紅圈 → 紅筆亮', lit.red === true, JSON.stringify(lit));
   check('必抓:紅圈裡還有還差的事 → 藍筆也亮(只看圈的顏色,藍筆不亮就是把「有」講成「沒有」)', lit.blue === true, JSON.stringify(lit));
   check('……收起來就看得到那一色:圈旁的「還差 1 件」標成還差那一色', html.includes('<span data-k="todo">還差 1 件</span>'), html.match(/class="wb-count">.*/)?.[0]);
-  check('白板上沒畫到的顏色不亮(灰、黑)', lit.gray === false && lit.black === false, JSON.stringify(lit));
+  check('白板上沒畫到的顏色不亮(灰、黃)', lit.gray === false && lit.yellow === false, JSON.stringify(lit));
 
   // main 推了沒那一行也算:還沒推是還差(藍)、問不到是看不到(灰)
   const clean = sess({ id: 'c1', title: '沒事的', tier: tierOk([]) });
   const withPush = (state, text) => board([proj([clean], { cards: [card({ path: '/w/main', ladder: ladder({ push: [state, text] }) })] })]);
   const pending = litOf(wb(withPush('pending', 'main 有 5 個新存檔可以 push')));
-  check('main 還沒推 → 藍筆亮(圈之外那一行也算)', pending.blue === true && pending.black === true && pending.red === false, JSON.stringify(pending));
+  check('main 還沒推 → 藍筆亮(圈之外那一行也算)', pending.blue === true && pending.yellow === true && pending.red === false, JSON.stringify(pending));
   const unk = litOf(wb(withPush('unknown', '問不到 GitHub 上的 main')));
   check('問不到推了沒 → 灰筆亮,藍筆不亮', unk.gray === true && unk.blue === false, JSON.stringify(unk));
   const oldB = withPush('pending', 'main 有 5 個新存檔可以 push');
