@@ -412,6 +412,21 @@ section('筆槽(Oscar 2026-11-02):白板上畫到哪一色,那一支的筆頭就
   check('必抓:舊的服務沒有總表、總表裡找不到這個案件 → 都不畫筆槽', !/wb-pen/.test(noTodo) && !/wb-pen/.test(lost), noTodo + lost);
 }
 
+section('筆槽:白板最上面講紀錄可能不全(感測器掛壞了、退出記錄)→ 灰筆亮——字說看不全,燈不准說沒有看不到的(魔鬼教官第 3 輪)', 'P10');
+{
+  const litOf = (html) => Object.fromEntries([...html.matchAll(/class="wb-pen" data-ink="([a-z]+)" data-lit="([01])"/g)].map((m) => [m[1], m[2] === '1']));
+  const wb = (b) => uiOf({ projects: [{ name: 'p', suggestions: [] }], todo: b }).whiteboard({ name: 'p' });
+  const clean = sess({ id: 'c1', title: '沒事的', tier: tierOk([]) });
+  const brokenHtml = wb(board([proj([clean], { cards: [card({ path: '/w/main', sensor: { mount: { state: 'broken' } } })] })]));
+  const broken = litOf(brokenHtml);
+  check('必抓:感測器掛壞了 → 灰筆亮(新的對話記不到,不准講成沒有看不到的)', broken.gray === true, JSON.stringify(broken));
+  check('……那一行前面是灰點(看不到那一色),筆亮的那一色白板上找得到', /<p class="wb-line" data-k="unknown">⚠️ 這個專案的感測器掛壞了/.test(brokenHtml), brokenHtml.match(/<p class="wb-line"[^>]*>[^<]*/)?.[0]);
+  const off = litOf(wb(board([proj([clean], { optedOut: { at: '2026-11-01T00:00:00Z' }, optedOutLine: '這個專案已退出記錄（3 分鐘前），之前記的照樣留到滿 90 天。' })])));
+  check('退出記錄的專案 → 灰筆亮(之後的對話不會被記)', off.gray === true, JSON.stringify(off));
+  const fine = litOf(wb(board([proj([clean])])));
+  check('感測器好好的、沒退出 → 灰筆不亮(不是一律亮著)', fine.gray === false, JSON.stringify(fine));
+}
+
 section('AC-12:對話頁多一關 F 工地主任——收尾了沒、這個對話提的建議卡;沒記到不准講成沒有', 'P5');
 {
   const wfStages = ['A', 'B', 'C', 'D', 'E'].map((id) => ({ id, name: id, line: '這一輪還沒跑', state: 'none', ...(id === 'B' ? { type: 'main-conversation', state: 'main' } : id === 'E' ? { type: 'browser' } : { skill: id.toLowerCase() }) }));

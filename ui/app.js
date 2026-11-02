@@ -329,9 +329,12 @@ function whiteboard(p) {
   const pushKind = sec.push ? (INK[sec.pushKind] ? sec.pushKind : 'unknown') : null;
   // 筆槽(Oscar 2026-11-02):四支筆跟它的意思排在一起,白板上畫到哪一色,那一支的筆頭就亮。
   // 算的是白板上畫出來的每一處顏色——圈、圈旁的件數、展開後每一件、推了沒那一行——不只看圈:紅圈裡也有還差的事,藍筆不亮就是把「有」講成「沒有」(R1)。
-  // 白板畫不出來(上面那兩種)就走不到這裡:不畫四支都不亮的筆槽——那看起來就是「都沒事」(老毛病 P5)
+  // 白板畫不出來(上面那兩種)就走不到這裡:不畫四支都不亮的筆槽——那看起來就是「都沒事」(老毛病 P5)。
+  // 最上面那一行(感測器掛壞了、退出記錄)講的是新的對話記不到:算看不到、畫灰點、灰筆亮。
+  // 以前沒算:字說紀錄可能不全,灰筆卻說白板上沒有看不到的(魔鬼教官第 3 輪,P10 那一種)
   const used = new Set(sec.rows.flatMap((r) => [inkOf(r), ...r.items.map((i) => INK[i.kind]), r.clear ? INK.clear : null]));
   if (pushKind) used.add(INK[pushKind]);
+  if (sec.note) used.add(INK.unknown);
   const pens = [['red', zhEn('紅筆＝等你決定', 'Red = your call')], ['blue', zhEn('藍筆＝還差什麼', 'Blue = what\'s still to do')],
     ['gray', zhEn('灰筆＝看不到', 'Gray = can\'t see')], ['black', zhEn('黑筆＝只差按結案', 'Black = only closing left')]];
   const tray = pens.map(([ink, label]) => `<span class="wb-pen" data-ink="${ink}" data-lit="${used.has(ink) ? 1 : 0}" title="${used.has(ink)
@@ -342,7 +345,7 @@ function whiteboard(p) {
         <div><h2 class="section serif">${esc(t.head)}</h2><p class="section-note">${esc(t.note)}</p></div>
         <span class="wb-boss">${agent({ id: 'director' }, bossMood(sec.rows), false)}<span class="wb-boss-name">${zhEn('工地主任', 'Site director')}</span></span>
       </div>
-      ${sec.note ? `<p class="wb-line">${esc(sec.note)}</p>` : ''}
+      ${sec.note ? `<p class="wb-line" data-k="unknown">${esc(sec.note)}</p>` : ''}
       ${sec.push ? `<p class="wb-line" data-k="${pushKind}">${esc(sec.push)}</p>` : ''}
       ${sec.rows.length ? `<ul class="wb-tasks">${sec.rows.map(task).join('')}</ul>` : ''}
       ${sec.quiet ? `<p class="wb-line">${esc(sec.quiet)}</p>` : ''}
