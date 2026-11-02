@@ -181,9 +181,11 @@ const OLD_LINE = zhEn('（服務還在跑舊的程式）', '(the service is stil
 /** 伺服器給的句子裡把一段標起來(粗體、指令的樣子)。找不到那一段就照原樣——只影響長相,不影響字 */
 const mark = (text, part, tag = 'b') => { const t = esc(text), m = esc(part ?? ''); return m && t.includes(m) ? t.replace(m, () => `<${tag}>${m}</${tag}>`) : t; };
 /** 舊的服務一頁講一次怎麼修;每個缺字的地方只放上面那句短的。
- *  stampHelp 是存檔與蓋章卡那一版才有的(規格:先講commit再講蓋章 AC-10)——那一版以前的服務有 sharedLines,只看它認不出來 */
+ *  stampHelp 是存檔與蓋章卡那一版才有的(規格:先講commit再講蓋章 AC-10)——那一版以前的服務有 sharedLines,只看它認不出來。
+ *  todo 是「還差什麼」那一版才有的(規格:還差什麼總表 AC-7):要重啟那一句是服務自己講的,舊的服務講不出來——
+ *  不算進來的話,併進去、還沒重啟的那段時間,只有點進案件頁的白板才看得到要重啟,首頁一句都不講(魔鬼教官第二輪,R1) */
 function oldServerBanner() {
-  return latest && (!('sharedLines' in latest) || !('stampHelp' in latest))
+  return latest && (!('sharedLines' in latest) || !('stampHelp' in latest) || !('todo' in latest))
     ? zhEn('<p class="fault" data-tone="amber">🟡 儀表板的服務還在跑舊的程式，有幾句畫不出來——跑 <code>pipeline-status --serve-restart</code></p>',
       '<p class="fault" data-tone="amber">🟡 The dashboard service is still running the old program, so a few lines can\'t be drawn: run <code>pipeline-status --serve-restart</code></p>') : '';
 }
@@ -301,8 +303,8 @@ function whiteboard(p) {
   }
   const t = latest.todo;
   const sec = (t.projects ?? []).find((x) => x.name === p.name);
-  // 服務給的總表裡沒有這個案件(兩邊不是同一次算的):講對不上,不畫成沒事(R1)
-  if (!sec) return `<div class="block"><p class="muted">${zhEn('「還差什麼」裡找不到這個案件——白板跟案件列表不是同一次算的，等下一次更新。', 'This project isn\'t in "What\'s left": the board and the project list weren\'t worked out at the same time; wait for the next update.')}</p></div>`;
+  // 服務給的總表裡沒有這個案件:講找不到,不畫成沒事,也不猜原因(R1)
+  if (!sec) return `<div class="block"><p class="muted">${zhEn('「還差什麼」裡找不到這個案件，這塊白板畫不出來。', 'This project can\'t be found in "What\'s left", so this board can\'t be drawn.')}</p></div>`;
   const task = (r) => {
     const key = `wb|${p.name}|${r.id}`;
     const count = countsOf(r) || (r.clear ? zhEn('沒有還差的事了', 'Nothing left') : '');
