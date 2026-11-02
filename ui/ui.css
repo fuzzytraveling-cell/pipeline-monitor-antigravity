@@ -579,10 +579,10 @@ a.ext { color: var(--color-lake-blue); }
 .wb-pen[data-ink="red"] { --ink: var(--color-marker-red); }
 .wb-pen[data-ink="blue"] { --ink: var(--color-marker-blue); }
 .wb-pen[data-ink="gray"] { --ink: var(--color-marker-gray); }
-/* 筆身是白的、筆頭是那一色;筆頭亮了就發光 */
-.wb-pen i { position: relative; display: block; flex: none; width: 34px; height: 9px; border-radius: 5px 2px 2px 5px; background: var(--color-paper); }
+/* 筆身是白的、筆頭是那一色;筆頭亮了就發光。筆頭朝左、筆尾挨著字(Oscar 2026-11-02:筆頭轉到另一邊);左邊讓出筆頭那一截,不擠到前一支的字 */
+.wb-pen i { position: relative; display: block; flex: none; width: 34px; height: 9px; margin-left: 7px; border-radius: 2px 5px 5px 2px; background: var(--color-paper); }
 .wb-pen i::after {
-  content: ''; position: absolute; right: -7px; top: 1px; width: 9px; height: 7px; border-radius: 1px 50% 50% 1px;
+  content: ''; position: absolute; left: -7px; top: 1px; width: 9px; height: 7px; border-radius: 50% 1px 1px 50%;
   background: var(--ink); opacity: .28;
 }
 .wb-pen[data-lit="1"] { color: var(--color-off-black); font-weight: 600; }
