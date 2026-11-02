@@ -49,6 +49,19 @@ const rowsOf = (b) => b.projects.flatMap((p) => p.rows);
 const oneRow = (s, o = {}) => rowsOf(board([proj([s], o)]))[0] ?? null;
 const texts = (r) => (r?.items ?? []).map((i) => i.text);
 const has = (r, part) => texts(r).some((t) => t.includes(part));
+const escH = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+/** 真的跑整支 ui/app.js(L20:畫面的程式沒真的跑過就等於沒測):只拿掉最上面的 import 與最下面的輪詢,DOM、計時器、網路換成假的;latest 換成給的資料 */
+function uiOf(latest) {
+  const src = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8');
+  const body = src.replace(/^import .*$/m, '').replace(/^pollLoop\(\);$/m, '').replace(/^setInterval\(paintFreshness, 1000\);$/m, '');
+  const noop = () => {};
+  const el = () => ({ dataset: {}, classList: { toggle: noop }, innerHTML: '', textContent: '', setAttribute: noop });
+  const document = { getElementById: el, addEventListener: noop, body: el(), activeElement: null };
+  const make = new Function('describeFreshness', 'STALE_AFTER_SECONDS', 'document', 'window', 'localStorage', 'location', 'setTimeout', 'setInterval', 'fetch', '__LATEST',
+    `${body}\nlatest = __LATEST;\nreturn { whiteboard, workflow, directorOf, restartBanner, projectPage };`);
+  return make(() => ({ label: '', state: 'fresh', dim: false }), 60, document, { addEventListener: noop }, { getItem: () => null, setItem: noop },
+    { hash: '' }, noop, noop, () => Promise.reject(new Error('測試不連網路')), latest);
+}
 
 section('AC-3:問不到的講問不到——資料夾不在、三階梯問不到、分級讀不懂或沒設定、章問不到,那一行都不准變成「沒有還差的事」', 'P5');
 {
@@ -200,7 +213,7 @@ section('AC-6:結案的對話平常不在;資料夾還有沒存、沒併的照�
   const rows = rowsOf(board([proj([newer, older])]));
   const rn = rows.find((r) => r.id === 'n'), ro = rows.find((r) => r.id === 'o');
   check('最近動過的那一個講資料夾的事', has(rn, '還有 1 個檔案沒存'), JSON.stringify(texts(rn)));
-  check('另一個不再講一次,寫見哪一行', !has(ro, '還有 1 個檔案沒存') && has(ro, '資料夾的事見「新的」那一行'), JSON.stringify(texts(ro)));
+  check('另一個不再講一次,寫見哪一個', !has(ro, '還有 1 個檔案沒存') && has(ro, '資料夾的事見「新的」'), JSON.stringify(texts(ro)));
   check('……那一句只是說明,不擋它自己「沒有還差的事」', /可以按結案/.test(ro?.clear ?? ''), JSON.stringify(ro));
   // 最近動過的那一個已經結案:資料夾的事掛在還沒結案的那一個,不准兩邊都不講
   const closedNewer = sess({ id: 'n', title: '新的', lastTs: '2026-11-01T05:00:00Z', closedAt: '2026-11-01T05:30:00Z', card: dirty });
@@ -307,18 +320,18 @@ section('AC-8:終端機那一張跟網頁同一份——同一個函式出的字
   check('終端機印出總表的每一句(重啟、推了沒、每一件、可以按結案)', !missT.length, JSON.stringify(missT));
   check('終端機最上面也講故障(網頁每一頁上方那一條)', lines.includes('🔴 感測器壞了'));
 
-  const src = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8');
-  const code = src.match(/^function todoBlock\(\) \{\n[\s\S]*?\n\}\n/m)?.[0] ?? null;
-  check('從 ui/app.js 拿得出 todoBlock(拿不出來這一段就什麼都沒測到)', !!code);
-  const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  const draw = (latest) => (code ? new Function('esc', 'latest', `const zhEn = (zh) => zh;\n${code}; return todoBlock();`)(esc, latest) : '');
-  const html = draw({ projects: [{}], todo: b });
-  const missW = said.filter((t) => !html.includes(esc(t)));
-  check('網頁畫出總表的每一句(跟終端機同一份)', !missW.length, JSON.stringify(missW));
-  check('網頁每個進行中的對話一顆結案鈕(跟對話列同一個 data-close)', (html.match(/data-close="/g) ?? []).length === 2, html.slice(0, 200));
-  const oldHtml = draw({ projects: [{}] });
-  check('必抓:舊的服務沒有 todo 這一欄 → 講服務還在跑舊的程式,不畫空表', /--serve-restart/.test(oldHtml) && !/還差什麼<\/h2>/.test(oldHtml), oldHtml);
-  eq('一個案件都沒有 → 不畫(下面「案件」那一區自己會講)', draw({ projects: [], todo: board([]) }), '');
+  const p0 = b.projects[0];
+  const html = uiOf({ projects: [{ name: 'p', suggestions: [] }], todo: b }).whiteboard({ name: 'p' });
+  const saidHere = [p0.push, ...p0.rows.flatMap((r) => [...texts(r), r.clear])].filter(Boolean);
+  const missW = saidHere.filter((t) => !html.includes(escH(t)));
+  check('案件頁的白板畫出那個案件的每一句(跟終端機同一份)', !missW.length, JSON.stringify(missW));
+  check('白板上每個進行中的對話一顆結案鈕(跟對話列同一個 data-close)', (html.match(/data-close="/g) ?? []).length === 2, html.slice(0, 200));
+  const restart = uiOf({ projects: [], todo: b }).restartBanner();
+  check('要重啟那一句放在每一頁最上面那幾條(講的是整個儀表板,不跟著白板搬)', restart.includes(escH(b.restart)), restart);
+  const oldHtml = uiOf({ projects: [{ name: 'p' }] }).whiteboard({ name: 'p' });
+  check('必抓:舊的服務沒有 todo 這一欄 → 講服務還在跑舊的程式,不畫一塊空白板', /--serve-restart/.test(oldHtml) && !/wb-task/.test(oldHtml), oldHtml);
+  const lost = uiOf({ projects: [{ name: 'q' }], todo: b }).whiteboard({ name: 'q' });
+  check('總表裡找不到這個案件 → 講對不上,不畫成沒事', /找不到這個案件/.test(lost) && !/wb-task/.test(lost), lost);
 
   // 真的跑一次 pipeline-status --todo:不需要站在 git 專案裡;資料是空的、服務問不到 → 兩件都照講,不是一片空白
   const home = mkdtempSync(join(tmpdir(), 'pm-home-'));
@@ -329,6 +342,77 @@ section('AC-8:終端機那一張跟網頁同一份——同一個函式出的字
   check('……講看不到任何案件', /還看不到任何案件/.test(out.stdout), out.stdout + out.stderr);
   check('……服務問不到就講問不到,不講不用重啟', out.stdout.includes(serveDownLine()), out.stdout);
   rmSync(home, { recursive: true, force: true });
+}
+
+section('AC-10、AC-11:案件頁的白板——每個對話一個彩色筆圈、預設收起;筆的顏色照最急的那一件,沒有還差的事不准是綠色;主任的表情照那幾件', 'P10');
+{
+  const askRow = sess({ id: 'r1', title: '要你決定的', stages: stagesOf({ D: { state: 'stale', rerun: { state: 'ask', line: '要不要再跑由你決定' } } }) });
+  const todoRow = sess({ id: 'r2', title: '還差的', cwd: '/w/b', card: card({ path: '/w/b', ladder: ladder({ commit: ['pending', '還有 2 個檔案沒存'] }) }) });
+  const unkRow = sess({ id: 'r3', title: '看不到的', cwd: '/w/c', card: card({ path: '/w/c', gone: true }) });
+  const okRow = sess({ id: 'r4', title: '沒事的', cwd: '/w/d', card: card({ path: '/w/d' }), tier: tierOk([]) });
+  const b = board([proj([askRow, todoRow, unkRow, okRow])]);
+  const html = uiOf({ projects: [{ name: 'p', suggestions: [] }], todo: b }).whiteboard({ name: 'p' });
+  const inkOfTask = (title) => html.match(new RegExp(`data-ink="([a-z]+)"[^>]*>\\s*<summary><span class="wb-ring">${title}`))?.[1] ?? null;
+  eq('有事等你決定 → 紅筆', inkOfTask('要你決定的'), 'red');
+  eq('還差 → 藍筆', inkOfTask('還差的'), 'blue');
+  eq('必抓:看不到 → 灰筆(不准跟沒事同色,P5)', inkOfTask('看不到的'), 'gray');
+  eq('沒有還差的事 → 黑筆', inkOfTask('沒事的'), 'black');
+  check('必抓:整塊白板沒有一處是綠色', !/green|mint|agent-c/i.test(html));
+  check('預設收起:沒有一個圈是打開的', (html.match(/class="wb-task"/g) ?? []).length === 4 && !/class="wb-task"[^>]* open/.test(html), html.slice(0, 300));
+  check('圈旁一定有字:等你決定幾件、還差幾件、看不到幾件、沒有還差的事', ['等你決定 1 件', '還差 1 件', '看不到 1 件', '沒有還差的事了'].every((t) => html.includes(t)), html);
+  check('角落寫四色的意思(不只靠顏色)', html.includes('紅筆＝等你決定') && html.includes('黑筆＝沒有還差的事'));
+  check('白板上有工地主任:有事等你決定 → 擔心的眼睛(不笑)', /class="agent" data-id="director" data-face="worry"/.test(html), html.match(/data-id="director"[^>]*/)?.[0]);
+  const calm = uiOf({ projects: [{ name: 'p', suggestions: [] }], todo: board([proj([okRow])]) }).whiteboard({ name: 'p' });
+  check('沒有還差的事 → 主任睜著眼,不笑(沒有人驗過,P10)', /data-id="director" data-face="open"/.test(calm), calm.match(/data-id="director"[^>]*/)?.[0]);
+  const quietB = board([proj([sess({ closedAt: '2026-11-01T04:00:00Z' })])]);
+  const quietHtml = uiOf({ projects: [{ name: 'p', suggestions: [] }], todo: quietB }).whiteboard({ name: 'p' });
+  check('這個案件沒有要列的 → 白板照寫一句為什麼,不准空著(AC-1)', quietHtml.includes('沒有進行中的對話') && !/wb-task/.test(quietHtml), quietHtml);
+  const page = uiOf({ projects: [{ name: 'p', displayName: 'P', cards: [], sessions: [], suggestions: [] }], todo: b }).projectPage('p');
+  check('案件頁:白板在 Overview 下面、建議卡那一區上面', page.indexOf('Overview') < page.indexOf('class="wb"') && page.indexOf('class="wb"') < page.indexOf('建議新增的對話'), page.slice(0, 120));
+}
+
+section('AC-12:對話頁多一關 F 工地主任——收尾了沒、這個對話提的建議卡;沒記到不准講成沒有', 'P5');
+{
+  const wfStages = ['A', 'B', 'C', 'D', 'E'].map((id) => ({ id, name: id, line: '這一輪還沒跑', state: 'none', ...(id === 'B' ? { type: 'main-conversation', state: 'main' } : id === 'E' ? { type: 'browser' } : { skill: id.toLowerCase() }) }));
+  const s1 = sess({ stages: stagesOf({ D: { state: 'stale', rerun: { state: 'ask', line: '要不要再跑由你決定' } } }) });
+  const clean = sess({ id: 'c1', title: '收好的', cwd: '/w/c', closedAt: '2026-11-01T05:00:00Z', card: card({ path: '/w/c' }) });
+  const b = board([proj([s1, clean])]);
+  // oldServer:舊的服務根本沒有 todo 這一欄(JSON 裡沒有這個鍵),不是有鍵、值是空的
+  const run = (sid, cards = [], { oldServer = false } = {}) => {
+    const latest = { projects: [{ name: 'p', suggestions: cards }], ...(oldServer ? {} : { todo: b }) };
+    const ui = uiOf(latest);
+    return ui.workflow({ path: '/w/a', sensor: { state: 'ok' }, stages: wfStages, director: ui.directorOf(latest.projects[0], { id: sid }) });
+  };
+  const html = run('s1');
+  check('五關下面多一列,字母接在最後一關後面(F)、叫工地主任', /<span class="rlab">F<\/span>/.test(html) && html.includes('F 工地主任'), html.slice(-600));
+  check('狀態那一行講幾件(跟白板同一個算法)', html.includes('等你決定 1 件'), html.slice(-600));
+  check('下面列每一件,句子跟白板同一句', html.includes(escH('等你決定（D 魔鬼教官）：要不要再跑由你決定')));
+  check('主任擔心的眼睛(有事等你決定)', /data-id="director" data-face="worry"/.test(html));
+  const closedHtml = run('c1');
+  check('已結案、資料夾沒事 → 講已結案、資料夾裡沒有沒存沒併的,主任休息', closedHtml.includes('已結案') && closedHtml.includes('資料夾裡沒有沒存、沒併的東西') && /data-id="director" data-face="rest"/.test(closedHtml), closedHtml.slice(-500));
+  const card1 = (o) => ({ id: 'k', title: 't', session: 's1', ...o });
+  check('這個對話提的卡還沒開始 → 講幾張、在哪一區看', run('s1', [card1({}), card1({ id: 'k2' })]).includes('這個對話提了 2 張新對話的建議卡還沒開始'));
+  check('都開始了、不做了、被取代了 → 照講(跟建議卡那一區同一個判斷)', run('s1', [card1({ startedBy: 'x' }), card1({ id: 'k2', dismissedAt: '2026-11-01T00:00:00Z' })]).includes('都開始了'));
+  check('必抓:一張都沒記到 → 講不代表沒跳過,不講沒有(P5)', run('s1').includes('不代表沒跳過'));
+  check('必抓:分不出是哪個對話放的卡 → 另外講案件頁還有幾張,不算到這個對話頭上、也不因此講沒有(P7)', run('s1', [card1({ session: null }), card1({ id: 'k3', session: null })]).includes('案件頁另有 2 張還沒開始的建議卡，分不出是哪個對話放的'));
+  const old = run('s1', [], { oldServer: true });
+  check('舊的服務沒有 todo → F 那一行講服務還在跑舊的程式,不畫成沒事', old.includes('服務還在跑舊的程式') && /data-id="director" data-face="ask"/.test(old), old.slice(-500));
+  check('沒給主任資料的工作流照舊只畫五關(測試、舊的呼叫法不會壞)', !uiOf({ projects: [] }).workflow({ path: '/w', sensor: { state: 'ok' }, stages: wfStages }).includes('工地主任'));
+}
+
+section('AC-12:已結案、白板上不列的對話,F 那一關照樣講為什麼不列(不列不等於沒事)', 'P5');
+{
+  const open = sess({ id: 'o', title: '還在做的', lastTs: '2026-11-01T06:00:00Z' });
+  const closedHere = sess({ id: 'x', title: '同資料夾已結案', closedAt: '2026-11-01T05:00:00Z' });
+  const closedGone = sess({ id: 'g', title: '資料夾不在', cwd: '/w/g', closedAt: '2026-11-01T05:00:00Z', card: card({ path: '/w/g', gone: true }) });
+  const closedClean = sess({ id: 'k', title: '收好的', cwd: '/w/k', closedAt: '2026-11-01T05:00:00Z', card: card({ path: '/w/k' }) });
+  const b = board([proj([open, closedHere, closedGone, closedClean])]);
+  eq('進行中的那一個:F 用的就是白板那一行(同一份)', b.desk.o, b.projects[0].rows.find((r) => r.id === 'o'));
+  check('同資料夾、已結案 → 資料夾的事見還在做的那一個', b.desk.x?.closed === true && b.desk.x.items.some((i) => i.kind === 'note' && i.text.includes('資料夾的事見「還在做的」')), JSON.stringify(b.desk.x));
+  check('必抓:已結案、資料夾不在 → 看不到(不是沒事)', b.desk.g?.items.some((i) => i.kind === 'unknown' && i.text.includes('資料夾不在了')), JSON.stringify(b.desk.g));
+  check('已結案、資料夾都在、沒東西 → 資料夾裡沒有沒存、沒併的東西', b.desk.k?.items.some((i) => i.text === '資料夾裡沒有沒存、沒併的東西'), JSON.stringify(b.desk.k));
+  const q = board([proj([closedGone, closedClean])]).projects[0];
+  check('那個案件只剩已結案的 → 白板那一句,資料夾不在的照講看不到', q.quiet?.includes('沒有進行中的對話') && q.quiet.includes('資料夾已經不在的看不到'), q.quiet);
 }
 
 section('AC-1:真的資料夾、真的紀錄跑一次 collectAll——總表用的欄位名字對得上真的資料(不只對假資料)', 'P5');

@@ -256,8 +256,9 @@ section('畫面:每一頁最上面畫伺服器給的那一句;舊的服務沒給
   const s1 = { id: 's1', title: 't', prompts: 1, lastTs: H(1), closedAt: null, stages: [], cwd: '/w', sharesCwd: false, movedOn: null,
                card: { path: '/w', branch: 'b', stages: [] }, unknownNote: '⚠️ 這個對話有 1 則不是你打的 <x>', faultNotes: ['⚠️ 感測器在 3 小時前記不到'] };
   const oldLine = src.match(/^const OLD_LINE = .*;$/m)?.[0] ?? '';   // 「叫了不等於通過」那一句是伺服器給的;舊的服務沒給時用這一句
-  const page = sp ? new Function('latest', 'esc', 'ago', 'workflow', 'statRestore', 'statLadder', 'statChanges', 'statTier', 'sensorLine', 'stagesNoteLine', `const zhEn = (zh) => zh; const many = (n, one, more = one + 's') => n + ' ' + (n === 1 ? one : more);\n${oldLine}\n${sp}; return sessionPage;`)(
-    { projects: [{ name: 'p', sessions: [s1] }] }, esc, ago, stub('workflow'), stub('r'), stub('l'), stub('c'), stub('t'), stub('sensor'), stub('stagesNote')) : null;
+  // directorOf:F 工地主任要的那一份(規格:還差什麼總表 AC-12),這裡只看對話頁上面那幾行,給一個替身
+  const page = sp ? new Function('latest', 'esc', 'ago', 'workflow', 'statRestore', 'statLadder', 'statChanges', 'statTier', 'sensorLine', 'stagesNoteLine', 'directorOf', `const zhEn = (zh) => zh; const many = (n, one, more = one + 's') => n + ' ' + (n === 1 ? one : more);\n${oldLine}\n${sp}; return sessionPage;`)(
+    { projects: [{ name: 'p', sessions: [s1] }] }, esc, ago, stub('workflow'), stub('r'), stub('l'), stub('c'), stub('t'), stub('sensor'), stub('stagesNote'), () => null) : null;
   const html = page?.('p', 's1') ?? '';
   check('對話頁畫「沒算成你說的話」那一句與「感測器記不到」那一句(跳脫過)', html.includes('1 則不是你打的 &lt;x&gt;') && html.includes('感測器在 3 小時前記不到'), html);
 
@@ -422,8 +423,8 @@ section('魔鬼教官第一輪:三種頁面最上面都接了故障橫條(真的
   // 舊的服務那一條(規格:終端機與網頁說同一句 AC-5)也在每一頁最上面,接在故障橫條後面。
   // paint 是把整頁換上去的那一支(內容一樣就不換,工地工班風畫面 AC-3);這裡要看的是 render 交給它的那一整頁
   const paint = (html) => { $app.innerHTML = html; };
-  // todoBlock:首頁最上面的「還差什麼」總表(規格:還差什麼總表)——接在故障橫條、舊的服務那一條後面,這裡只看它沒擠到最上面
-  const render = code.every(Boolean) ? new Function('$app', '$crumb', 'location', 'latest', 'esc', 'projectList', 'projectPage', 'sessionPage', 'faultBanner', 'oldServerBanner', 'paint', 'langBanner', 'todoBlock',
+  // restartBanner:要重啟那一句(規格:還差什麼總表 AC-7)——接在故障橫條、舊的服務那一條後面,這裡只看它沒擠到最上面
+  const render = code.every(Boolean) ? new Function('$app', '$crumb', 'location', 'latest', 'esc', 'projectList', 'projectPage', 'sessionPage', 'faultBanner', 'oldServerBanner', 'paint', 'langBanner', 'restartBanner',
     `const zhEn = (zh) => zh; const many = (n, one, more = one + 's') => n + ' ' + (n === 1 ? one : more);\n${code.join('\n')}; return render;`)($app, $crumb, location, { projects: [] }, (v) => String(v ?? ''), stub('list'), stub('project'), stub('session'), stub('BANNER'), stub('OLD'), paint, () => '', stub('TODO')) : null;
   for (const [hash, what] of [['', '案件列表'], ['#/p/x', '對話清單'], ['#/p/x/s/s1', '對話頁']]) {
     location.hash = hash;

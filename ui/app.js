@@ -54,6 +54,10 @@ const ROLE = {
   E: { house: zhEn('你自己走進去住一晚', 'You move in for a night'), does: zhEn('真的開門、開燈、沖馬桶,確認能住人', 'Really open the doors, turn on the lights, flush the toilet: make sure people can live there'),
        // 小房子:你要住進去的那一間
        shape: '<path d="M32 9l22 18v27H10V27z"/>', eye: [32, 40] },
+  // 工地主任(規格:還差什麼總表 AC-11、AC-12):第六個角色,不是 stages.json 的關——收工 hook、分級、感測器都不認它,只畫在畫面上。
+  // 鍵不用字母:專案自己的關卡哪天多一個 F,也不會撞在一起。三角錐:工地上擺來提醒「這裡還沒弄好」的那個
+  director: { house: zhEn('工地主任巡一圈', 'The site director walks the site'), does: zhEn('看這個對話還有哪些沒收尾：等你決定的、還差的、看不到的', 'Checks what this conversation hasn\'t wrapped up: what\'s waiting for you, what\'s still to do, what can\'t be seen'),
+       shape: '<path d="M32 9 48.5 51h-33z"/><rect x="10" y="50" width="44" height="7" rx="2.5"/>', eye: [32, 39] },
 };
 /**
  * 表情只講感測器知道的事,不替結果背書(工地工班風畫面 AC-8):感測器只知道這一關被叫過,不知道做得好不好——
@@ -250,40 +254,80 @@ function focusOf(p) {
   return { session, card, liveCount: live.length };
 }
 
-/* ═══ 首頁最上面:還差什麼(規格:還差什麼總表) ═══ */
+/* ═══ 還差什麼(規格:還差什麼總表):每一頁最上面那一句、案件頁的白板、工地主任 ═══ */
+/** 要重啟那一句(AC-7):講的是整個儀表板,跟故障、語言那幾條一起放在每一頁最上面。是服務自己講的(lib/todo.mjs),這裡只畫 */
+function restartBanner() {
+  const t = latest?.todo?.restart;
+  return t ? `<p class="fault" data-tone="amber">${esc(t)}</p>` : '';
+}
+/** 建議卡收起來了沒:開始了、你說不做了、被同名的新卡取代了。「建議另開的對話」那一區跟 F 工地主任共用這一個判斷(老毛病 P2) */
+function cardFolded(s) {
+  return !!(s.dismissedAt || s.startedBy || s.supersededAt);
+}
+/** 幾件:等你決定、還差、看不到各幾件(白板的圈旁、F 那一行)。只數伺服器給的那幾件,不另判斷 */
+function countsOf(r) {
+  const n = (k) => (r?.items ?? []).filter((i) => i.kind === k).length;
+  return [[n('ask'), zhEn('等你決定', 'Your call')], [n('todo'), zhEn('還差', 'Still to do')], [n('unknown'), zhEn('看不到', 'Can\'t see')]]
+    .filter(([c]) => c > 0).map(([c, w]) => zhEn(`${w} ${c} 件`, `${w}: ${c}`)).join(' · ');
+}
+/** 馬克筆的顏色照最急的那一件(AC-10):紅＝等你決定、藍＝還差、灰＝看不到、黑＝沒有還差的事。沒有還差的事不准是綠色(P10),看不到不准跟沒事同色(P5) */
+function inkOf(r) {
+  const k = new Set((r?.items ?? []).map((i) => i.kind));
+  return k.has('ask') ? 'red' : k.has('todo') ? 'blue' : k.has('unknown') ? 'gray' : 'black';
+}
 /**
- * 每一句都是伺服器照 lib/todo.mjs 算好的,終端機 --todo 印的是同一份(規格:終端機與網頁說同一句);這裡只畫。
- * ⚠️ 舊的服務沒有 todo 這一欄:講服務還在跑舊的程式,不准畫成一張空的總表——空的看起來就是「都沒事」(老毛病 P5;AC-7)。
- *    一個案件都沒有時不畫:下面「案件」那一區自己會講為什麼看不到(還沒有、或舊的紀錄還沒搬過來)。
- * ⚠️ 「沒有還差的事了」那一行不打勾、不變綠(P10):它只是總表上沒有要做的,不是有人驗過了。
- * 結案鈕跟對話列那一顆是同一個(data-close:同一個點擊處理、同一個 /api/close)。已結案、還有檔案沒存沒併的那幾行不給鈕。
+ * 工地主任的表情(AC-11):只看那幾件的種類,照五個工班的表情借——有事等你決定是擔心的圓眼、還差是看著那一串、看不到是問號眼(FACE 沒有這一種)、
+ * 沒有還差的事是睜著眼、全都結案了是休息。不笑:笑眼只給「你說處理完了」,總表沒有人驗過(P10)
  */
-function todoBlock() {
-  if (!latest?.projects?.length) return '';
+function bossMood(rows) {
+  const k = new Set(rows.flatMap((r) => (r?.items ?? []).map((i) => i.kind)));
+  if (k.has('ask')) return 'stale';
+  if (k.has('todo')) return 'ran';
+  if (k.has('unknown')) return 'unknown';
+  return rows.length && rows.every((r) => r?.closed) ? 'passed' : 'main';
+}
+/**
+ * 案件頁 Overview 下面的「還差什麼」白板(AC-1、AC-10、AC-11):一個對話一個彩色筆圈,預設收起,點開才看每一件、結案鈕、到那個對話頁。
+ * 每一句都是伺服器照 lib/todo.mjs 算好的,終端機 --todo 印的是同一份(規格:終端機與網頁說同一句);這裡只畫。
+ * ⚠️ 顏色之外圈旁一定有字(幾件),白板角落寫四色的意思——不只靠顏色(DESIGN:警示膠帶那一條的道理)。
+ * ⚠️ 舊的服務沒有 todo 這一欄:講服務還在跑舊的程式,不准畫成一塊空白板——空的看起來就是「都沒事」(老毛病 P5)。
+ * 結案鈕跟對話列那一顆是同一個(data-close:同一個點擊處理、同一個 /api/close);已結案、還有檔案沒存沒併的不給鈕。
+ */
+function whiteboard(p) {
+  if (!latest) return '';
   if (!('todo' in latest)) {
-    return zhEn('<div class="block"><p class="fault" data-tone="amber">🟡 儀表板的服務還在跑舊的程式，「還差什麼」總表畫不出來——跑 <code>pipeline-status --serve-restart</code></p></div>',
-      '<div class="block"><p class="fault" data-tone="amber">🟡 The dashboard service is still running the old program, so the "What\'s left" table can\'t be drawn: run <code>pipeline-status --serve-restart</code></p></div>');
+    return zhEn('<div class="block"><p class="fault" data-tone="amber">🟡 儀表板的服務還在跑舊的程式，「還差什麼」白板畫不出來——跑 <code>pipeline-status --serve-restart</code></p></div>',
+      '<div class="block"><p class="fault" data-tone="amber">🟡 The dashboard service is still running the old program, so the "What\'s left" board can\'t be drawn: run <code>pipeline-status --serve-restart</code></p></div>');
   }
   const t = latest.todo;
-  const row = (p, r) => `<div class="srow trow">
-        <a class="sname" href="#/p/${encodeURIComponent(p.name)}/s/${encodeURIComponent(r.id)}">${esc(r.title)}</a>
-        <span class="smeta">${r.closedNote ? `${esc(r.closedNote)} · ` : ''}${esc(r.last)}</span>
+  const sec = (t.projects ?? []).find((x) => x.name === p.name);
+  // 服務給的總表裡沒有這個案件(兩邊不是同一次算的):講對不上,不畫成沒事(R1)
+  if (!sec) return `<div class="block"><p class="muted">${zhEn('「還差什麼」裡找不到這個案件——白板跟案件列表不是同一次算的，等下一次更新。', 'This project isn\'t in "What\'s left": the board and the project list weren\'t worked out at the same time; wait for the next update.')}</p></div>`;
+  const task = (r) => {
+    const key = `wb|${p.name}|${r.id}`;
+    const count = countsOf(r) || (r.clear ? zhEn('沒有還差的事了', 'Nothing left') : '');
+    return `<li class="wb-item"><details class="wb-task" data-ink="${inkOf(r)}" data-fold="${esc(key)}"${foldOpen(key, false) ? ' open' : ''}>
+        <summary><span class="wb-ring">${esc(r.title)}</span>${count ? ` <span class="wb-count">${esc(count)}</span>` : ''}
+          <span class="smeta">${r.closedNote ? `${esc(r.closedNote)} · ` : ''}${esc(r.last)}</span></summary>
         <ul class="titems">${r.items.map((i) => `<li data-k="${esc(i.kind)}">${esc(i.text)}</li>`).join('')}${r.clear ? `<li data-k="clear">${esc(r.clear)}</li>` : ''}</ul>
-        ${r.closed ? '' : `<button class="mini-btn" data-close="${esc(r.id)}" data-proj="${esc(p.name)}" data-cwd="${esc(r.cwd ?? '')}" data-undo="0">${zhEn('結案', 'Close')}</button>`}
-      </div>`;
-  const sec = (p) => `<div class="tproj">
-        <h3 class="tname">${esc(p.displayName)}</h3>
-        ${p.note ? `<p class="smeta">${esc(p.note)}</p>` : ''}
-        ${p.push ? `<p class="tpush">${esc(p.push)}</p>` : ''}
-        ${p.rows.length ? `<div class="slist">${p.rows.map((r) => row(p, r)).join('')}</div>` : ''}
-      </div>`;
-  return `<div class="block todo">
-      <h2 class="section serif">${esc(t.head)}</h2>
-      <p class="section-note">${esc(t.note)}</p>
-      ${t.restart ? `<p class="fault" data-tone="amber">${esc(t.restart)}</p>` : ''}
-      ${(t.projects ?? []).map(sec).join('')}
-      ${t.quiet ? `<p class="smeta">${esc(t.quiet)}</p>` : ''}
-    </div>`;
+        <div class="wb-acts"><a href="#/p/${encodeURIComponent(p.name)}/s/${encodeURIComponent(r.id)}">${zhEn('到這個對話頁 →', 'Open this conversation →')}</a>
+          ${r.closed ? '' : `<button class="mini-btn" data-close="${esc(r.id)}" data-proj="${esc(p.name)}" data-cwd="${esc(r.cwd ?? '')}" data-undo="0">${zhEn('結案', 'Close')}</button>`}</div>
+      </details></li>`;
+  };
+  return `<div class="block">
+    <div class="wb">
+      <div class="wb-head">
+        <div><h2 class="section serif">${esc(t.head)}</h2><p class="section-note">${esc(t.note)}</p></div>
+        <span class="wb-boss">${agent({ id: 'director' }, bossMood(sec.rows), false)}<span class="wb-boss-name">${zhEn('工地主任', 'Site director')}</span></span>
+      </div>
+      ${sec.note ? `<p class="wb-line">${esc(sec.note)}</p>` : ''}
+      ${sec.push ? `<p class="wb-line">${esc(sec.push)}</p>` : ''}
+      ${sec.rows.length ? `<ul class="wb-tasks">${sec.rows.map(task).join('')}</ul>` : ''}
+      ${sec.quiet ? `<p class="wb-line">${esc(sec.quiet)}</p>` : ''}
+      <p class="wb-legend">${zhEn('紅筆＝等你決定　藍筆＝還差　灰筆＝看不到　黑筆＝沒有還差的事', 'Red: your call · Blue: still to do · Gray: can\'t see · Black: nothing left')}</p>
+      <div class="wb-tray" aria-hidden="true"><i data-ink="red"></i><i data-ink="blue"></i><i data-ink="gray"></i><i data-ink="black"></i></div>
+    </div>
+  </div>`;
 }
 
 /* ═══ 第一層:案件列表 ═══ */
@@ -660,7 +704,52 @@ function workflow(c) {
     <svg class="wf-line" preserveAspectRatio="none" viewBox="0 0 10 1000">
       <path d="M5 6 C2.6 130, 7.8 250, 4.6 372 C1.8 480, 8 600, 5.2 720
                C3 820, 7.4 900, 5 994"/>
-    </svg>${rows}</div>`;
+    </svg>${rows}${c.director ? directorRow(c) : ''}</div>`;
+}
+
+/** F 工地主任要的那一份:這個對話在總表裡的收尾狀況(lib/todo.mjs 的 desk)、它提的建議卡。舊的服務沒有 todo → 那一列講服務是舊的 */
+function directorOf(p, s) {
+  // loose:記不到是哪個對話放的卡(終端機 --suggest 放的沒有對話代號)——算不到這個對話頭上,也不准因此講成沒有(R1、P7)
+  const all = p?.suggestions ?? [];
+  return { hasTodo: !!latest && 'todo' in latest, desk: latest?.todo?.desk?.[s.id] ?? null,
+           cards: all.filter((x) => x.session === s.id), loose: all.filter((x) => !x.session && !cardFolded(x)).length };
+}
+/**
+ * F 工地主任(規格:還差什麼總表 AC-12):五關下面多一列,提醒這個對話收尾了沒、有沒有它提的新對話建議卡。
+ * ⚠️ 不是 stages.json 的關:收工 hook、分級、感測器都不認它,只是畫面上的一列;字母照最後一關的下一個排(不寫死,也不會跟真的關撞名)。
+ * 每一件的字是伺服器照 lib/todo.mjs 算好的,跟案件頁白板、終端機 --todo 同一句;建議卡「還沒開始」跟「建議新增的對話」那一區同一個判斷(cardFolded)。
+ * ⚠️ 一張卡都沒記到要講「不代表沒跳過」,不講「沒有」(老毛病 P5)
+ */
+function directorRow(c) {
+  const d = c.director, e = d.desk;
+  const last = c.stages[c.stages.length - 1];
+  const letter = /^[A-Y]$/.test(last?.id ?? '') ? String.fromCharCode(last.id.charCodeAt(0) + 1) : '+';
+  const r = ROLE.director ?? { house: '', does: '' };
+  const mood = !d.hasTodo || !e ? 'unknown' : bossMood([e]);
+  const status = !d.hasTodo ? OLD_LINE
+    : !e ? zhEn('總表裡還找不到這個對話——等下一次更新', 'This conversation isn\'t in the summary yet: wait for the next update')
+    : e.clear ?? [e.closed ? e.closedNote : null, countsOf(e)].filter(Boolean).join(' · ');
+  const items = e?.items?.length ? `<ul class="titems">${e.items.map((i) => `<li data-k="${esc(i.kind)}">${esc(i.text)}</li>`).join('')}</ul>` : '';
+  const n = d.cards.length, open = d.cards.filter((x) => !cardFolded(x)).length;
+  const cards = open ? zhEn(`這個對話提了 ${open} 張新對話的建議卡還沒開始——在案件頁「建議新增的對話」那一區`, `This conversation raised ${open === 1 ? '1 suggestion card for a new conversation that hasn\'t' : `${open} suggestion cards for new conversations that haven't`} been started yet: see "Suggested new conversations" on the project page`)
+    : n ? zhEn(`這個對話提的 ${n} 張建議卡都開始了、你說不做了，或被同名的新卡取代了`, `The ${n === 1 ? 'suggestion card' : `${n} suggestion cards`} this conversation raised ${n === 1 ? 'was' : 'were'} all started, set aside by you, or replaced by a newer card with the same name`)
+    : zhEn('紀錄裡沒有這個對話提的新對話建議卡——不代表沒跳過：有些卡這裡看不到（見案件頁「建議新增的對話」那一區的說明）', 'No suggestion cards for new conversations from this conversation are in the records; that doesn\'t mean none came up: some cards can\'t be seen here (see the note in "Suggested new conversations" on the project page)');
+  return `<div class="railcell" data-state="${mood}">
+        <span class="rlab">${esc(letter)}</span>
+        <span class="dot"></span>
+      </div>
+      <div class="acard adirector" data-state="${mood}">
+        ${agent({ id: 'director' }, mood, false)}
+        <div class="abody">
+          <div class="atitle">${esc(letter)} ${zhEn('工地主任', 'Site director')}
+            <span class="ahouse">${esc(r.house)}</span></div>
+          <div class="astatus">${esc(status)}</div>
+          <div class="adoes">${esc(r.does)}</div>
+          ${items}
+          <div class="said">${esc(cards)}</div>
+          ${d.loose ? `<div class="said">${esc(zhEn(`案件頁另有 ${d.loose} 張還沒開始的建議卡，分不出是哪個對話放的`, `The project page has ${d.loose === 1 ? '1 more suggestion card that hasn\'t' : `${d.loose} more suggestion cards that haven't`} been started; which conversation raised ${d.loose === 1 ? 'it' : 'them'} can't be told`))}</div>` : ''}
+        </div>
+      </div>`;
 }
 
 /* ═══ Overview:左邊在跑的、中間這個專案的狀態、右邊已結案的 ═══ */
@@ -767,7 +856,7 @@ function projectPage(name) {
       <h2 class="section serif">Overview</h2>
       ${overview(p)}
       ${optOutLine(p)}
-    </div>` + suggestionsBlock(p) + sessionList(p);
+    </div>` + whiteboard(p) + suggestionsBlock(p) + sessionList(p);
 }
 
 /**
@@ -787,7 +876,7 @@ function suggestionsBlock(p) {
   // 已開始的從清單拿掉——那個對話會出現在「對話」裡,留著就是同一件事出現兩次(Oscar 2026-09-15)。
   // 拿掉不是刪掉:跟「不做了」的一起收在最下面。一張卡不見了,要查得到它是被認成已開始、還是你按了不做了——不然跟弄丟分不出來。
   // 當場問的卡後來在同一個對話又提了同名的卡(supersededAt):跟著後來那一張,這張也收到最下面
-  const isFolded = (s) => !!(s.dismissedAt || s.startedBy || s.supersededAt);
+  const isFolded = cardFolded;   // 跟 F 工地主任「還沒開始幾張」同一個判斷(老毛病 P2)
   const open = all.filter((s) => !isFolded(s));
   const folded = all.filter(isFolded);
   const sessionHref = (proj, sid) => `#/p/${encodeURIComponent(proj)}/s/${encodeURIComponent(sid)}`;
@@ -1000,7 +1089,7 @@ function sessionPage(name, sid) {
     </div>
     <div class="block">
       <h2 class="section serif">My Agent work flow</h2>
-      ${workflow({ ...c, sensor: { state: 'ok' }, stages: s.stages })}
+      ${workflow({ ...c, sensor: { state: 'ok' }, stages: s.stages, director: directorOf(p, s) })}
     </div>`;
   }
   // 資料夾換人了(規格:新對話接手舊資料夾 AC-5):app 把這個對話留下的資料夾換一條新分支給別的對話用。
@@ -1017,7 +1106,7 @@ function sessionPage(name, sid) {
     </div>
     <div class="block">
       <h2 class="section serif">My Agent work flow</h2>
-      ${workflow({ ...c, path: null, sensor: { state: 'ok' }, stages: s.stages })}
+      ${workflow({ ...c, path: null, sensor: { state: 'ok' }, stages: s.stages, director: directorOf(p, s) })}
     </div>`;
   }
 
@@ -1045,7 +1134,7 @@ function sessionPage(name, sid) {
       <p class="callout">${calledHtml}</p>
       ${sensorLine(c)}
       ${stagesNoteLine(c)}
-      ${workflow({ ...c, stages: s.stages })}
+      ${workflow({ ...c, stages: s.stages, director: directorOf(p, s) })}
     </div>`;
 }
 
@@ -1077,12 +1166,12 @@ function render() {
   const cases = zhEn('案件', 'Projects');
   if (r.view === 'projects') {
     $crumb.innerHTML = `<span>${cases}</span>`;
-    paint(faultBanner() + langBanner() + oldServerBanner() + todoBlock() + projectList());
+    paint(faultBanner() + langBanner() + oldServerBanner() + restartBanner() + projectList());
   } else if (r.view === 'project') {
     // 路由用的是檔名(safeName 過的);麵包屑給人看,要用真的資料夾名
     const p = latest?.projects?.find((x) => x.name === r.project);
     $crumb.innerHTML = link('#/', cases) + `<span>${esc(p?.displayName ?? r.project)}</span>`;
-    paint(faultBanner() + langBanner() + oldServerBanner() + projectPage(r.project));
+    paint(faultBanner() + langBanner() + oldServerBanner() + restartBanner() + projectPage(r.project));
   } else {
     const p = latest?.projects?.find((x) => x.name === r.project);
     const s = p?.sessions.find((x) => x.id === r.session);
@@ -1092,7 +1181,7 @@ function render() {
     $crumb.innerHTML = link('#/', cases)
       + link(`#/p/${encodeURIComponent(r.project)}`, p?.displayName ?? r.project)
       + `<span${t.length > room ? ` title="${esc(t)}"` : ''}>${esc(t.slice(0, room))}</span>`;
-    paint(faultBanner() + langBanner() + oldServerBanner() + sessionPage(r.project, r.session));
+    paint(faultBanner() + langBanner() + oldServerBanner() + restartBanner() + sessionPage(r.project, r.session));
   }
 }
 /**

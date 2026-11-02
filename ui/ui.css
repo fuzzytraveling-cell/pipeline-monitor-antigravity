@@ -245,6 +245,8 @@ h2.section { font-size: var(--text-subheading); letter-spacing: var(--tracking-s
 .agent[data-id="C"] { --agent: var(--color-agent-c); --ph: -2s; }
 .agent[data-id="D"] { --agent: var(--color-agent-d); --ph: -3s; }
 .agent[data-id="E"] { --agent: var(--color-agent-e); --ph: -4s; }
+/* 工地主任(還差什麼總表 AC-11):第六個角色,不是一關;紫色跟三階梯同一家 */
+.agent[data-id="director"] { --agent: var(--color-agent-f); --ph: -5s; }
 .agent svg { position: relative; z-index: 1; width: 58px; height: 60px; overflow: visible; }
 .ag-body > * { fill: var(--agent); stroke: var(--agent); stroke-width: 5; stroke-linejoin: round; }
 .ag-face { fill: var(--color-paper); }
@@ -446,15 +448,6 @@ a.ext { color: var(--color-lake-blue); }
 .srow .sname:hover { color: var(--color-lake-blue); }
 .srow .smeta { grid-column: 1; font-size: var(--text-caption); color: var(--color-smoke); }
 .srow .mini-btn { grid-column: 2; grid-row: 1 / span 2; }
-/* 還差什麼(首頁最上面,規格:還差什麼總表):沿用對話列的樣子,多一串「還差的事」。
-   「沒有還差的事了」那一行跟其他行同一個顏色——不變綠、不打勾(老毛病 P10);問不到的、只是說明的淡一點,等你決定的粗一點 */
-.todo .tproj { margin-top: var(--spacing-16); }
-.todo .tname { font-size: var(--text-body); margin: 0 0 6px; }
-.todo .tpush { font-size: var(--text-caption); color: var(--color-graphite); margin: 0 0 6px; }
-.trow .titems { grid-column: 1; margin: 4px 0 0; padding-left: 1.1em; font-size: var(--text-caption); color: var(--color-off-black); }
-.trow .titems li[data-k="unknown"], .trow .titems li[data-k="note"] { color: var(--color-smoke); }
-.trow .titems li[data-k="ask"] { font-weight: 600; }
-.trow .mini-btn { grid-row: 1 / span 3; align-self: start; }
 /* 結案:用一條手繪感的線劃掉,不是刪掉——紀錄還在 */
 .srow.closed { opacity: .62; }
 .srow.closed .sname {
@@ -531,4 +524,47 @@ a.ext { color: var(--color-lake-blue); }
 .acl li[data-batch="out"] { opacity: .5; }
 /* 結論的清單(C 的建議、D 的發現):一行一條 */
 .rnote { margin: .35rem 0 0; padding-left: 1.1rem; font-size: 12px; line-height: 1.5; color: var(--color-smoke); }
+
+/* ───────── 還差什麼白板(案件頁 Overview 下面,規格:還差什麼總表 AC-10、AC-11) ─────────
+   工地白板:白板面、鋁框、下緣的筆槽;每個對話一個手畫的馬克筆圈。筆的顏色照最急的那一件(紅等你決定、藍還差、灰看不到、黑沒有還差的事)——
+   「沒有還差的事」是黑筆,不變綠(老毛病 P10);顏色之外圈旁一定有字,角落寫四色的意思 */
+.wb {
+  background: var(--color-whiteboard); border: 6px solid var(--color-whiteboard-frame); border-radius: 10px;
+  padding: var(--spacing-16) var(--spacing-24) 12px; box-shadow: var(--shadow-note);
+}
+.wb-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.wb-head .section { margin-bottom: 4px; }
+.wb-boss { display: flex; flex-direction: column; align-items: center; gap: 2px; flex: none; }
+.wb-boss-name { font-size: var(--text-caption); color: var(--color-smoke); }
+.wb-line { font-size: var(--text-caption); color: var(--color-graphite); margin: 0 0 8px; }
+.wb-tasks { list-style: none; margin: 10px 0 0; padding: 0 0 0 10px; display: grid; gap: 16px; }
+.wb-task { --ink: var(--color-marker-black); }
+.wb-task[data-ink="red"] { --ink: var(--color-marker-red); }
+.wb-task[data-ink="blue"] { --ink: var(--color-marker-blue); }
+.wb-task[data-ink="gray"] { --ink: var(--color-marker-gray); }
+.wb-task > summary { cursor: pointer; list-style: none; display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; padding: 6px 4px; }
+.wb-task > summary::-webkit-details-marker { display: none; }
+.wb-ring { position: relative; display: inline-block; padding: 2px 12px; font-size: var(--text-body); color: var(--color-off-black); }
+/* 手畫的圈:不規則的橢圓、歪一點;單雙數歪的方向不一樣,像真的一個一個用筆圈的 */
+.wb-ring::before {
+  content: ''; position: absolute; inset: -6px -10px; border: 2.5px solid var(--ink); pointer-events: none;
+  border-radius: 52% 48% 55% 45% / 58% 46% 54% 42%; transform: rotate(-2.5deg);
+}
+.wb-item:nth-child(even) .wb-ring::before { transform: rotate(2deg); border-radius: 47% 53% 44% 56% / 50% 58% 42% 50%; }
+.wb-count { font-size: var(--text-caption); font-weight: 600; color: var(--ink); }
+.wb-task .titems { margin: 8px 0 0 14px; }
+.wb-acts { display: flex; gap: 14px; align-items: center; margin: 8px 0 0 14px; font-size: var(--text-caption); }
+.wb-legend { margin: 14px 0 0; font-size: var(--text-caption); color: var(--color-smoke); text-align: right; }
+/* 筆槽:白板下緣一條托盤,放四支馬克筆——只是樣子,不代表任何狀態 */
+.wb-tray { display: flex; gap: 8px; margin-top: 6px; padding: 5px 10px; border-radius: 4px; background: var(--color-whiteboard-frame); width: max-content; }
+.wb-tray i { position: relative; display: block; width: 30px; height: 7px; border-radius: 4px; background: var(--color-paper); }
+.wb-tray i::after { content: ''; position: absolute; right: 0; top: 0; width: 9px; height: 7px; border-radius: 0 4px 4px 0; }
+.wb-tray i[data-ink="red"]::after { background: var(--color-marker-red); }
+.wb-tray i[data-ink="blue"]::after { background: var(--color-marker-blue); }
+.wb-tray i[data-ink="gray"]::after { background: var(--color-marker-gray); }
+.wb-tray i[data-ink="black"]::after { background: var(--color-marker-black); }
+/* 每一件(白板展開之後、F 工地主任那一列共用):問不到的、只是說明的淡一點,等你決定的粗一點;「沒有還差的事」跟其他行同一個顏色 */
+.titems { margin: 4px 0 0; padding-left: 1.1em; font-size: var(--text-caption); color: var(--color-off-black); }
+.titems li[data-k="unknown"], .titems li[data-k="note"] { color: var(--color-smoke); }
+.titems li[data-k="ask"] { font-weight: 600; }
 

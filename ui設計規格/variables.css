@@ -118,6 +118,17 @@
   --color-agent-c: #34bf8f;
   --color-agent-d: #f2744f;
   --color-agent-e: #e3ae35;
+  /* 工地主任（規格：還差什麼總表 AC-11）：不是一關，是第六個角色。三階梯那一家的紫——主任管的就是收尾 */
+  --color-agent-f: #6c5bc0;
+
+  /* 還差什麼白板（規格：還差什麼總表 AC-10）：白板本身與鋁框，四色馬克筆照最急的那一件——
+     紅＝等你決定、藍＝還差、灰＝看不到、黑＝沒有還差的事。沒有還差的事是黑筆，不准是綠色（老毛病 P10） */
+  --color-whiteboard: #fcfdfd;
+  --color-whiteboard-frame: #d5d9dd;
+  --color-marker-red: #dc4a3d;
+  --color-marker-blue: #2b59d1;
+  --color-marker-gray: #9b9896;
+  --color-marker-black: #2b2b2b;
 
   /* 字：一般的句子用系統的無襯線字（中文是蘋方）；指令、檔名、數字照舊等寬 */
   --font-body: -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;

@@ -368,12 +368,15 @@ function loadPollLoop() {
  * ⚠️ 不把它搬成獨立的檔案給兩邊 import:常駐的儀表板服務只送它啟動那一刻白名單裡的檔案,多一個新檔,更新後沒重啟的那段時間整個畫面會載不進來。
  */
 function loadSuggestionsBlock(latest) {
-  const m = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8').match(/^function suggestionsBlock\(p\) \{\n[\s\S]*?\n\}\n/m);
-  if (!m) return null;
+  const src = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8');
+  const m = src.match(/^function suggestionsBlock\(p\) \{\n[\s\S]*?\n\}\n/m);
+  // 「這張卡收起來了沒」跟 F 工地主任共用一個 cardFolded(規格:還差什麼總表 AC-12),一起拿出來
+  const cf = src.match(/^function cardFolded\(s\) \{\n[\s\S]*?\n\}\n/m);
+  if (!m || !cf) return null;
   const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const ago = (iso) => (iso ? '3 分鐘前' : '');
   const clock = (iso) => (Number.isFinite(new Date(iso).getTime()) ? '9/17 12:00' : '時間對不上');
-  return new Function('esc', 'ago', 'clock', 'foldOpen', 'latest', `const zhEn = (zh) => zh; const many = (n, one, more = one + 's') => n + ' ' + (n === 1 ? one : more);\n${m[0]}; return suggestionsBlock;`)(esc, ago, clock, () => false, latest);
+  return new Function('esc', 'ago', 'clock', 'foldOpen', 'latest', `const zhEn = (zh) => zh; const many = (n, one, more = one + 's') => n + ' ' + (n === 1 ? one : more);\n${cf[0]}\n${m[0]}; return suggestionsBlock;`)(esc, ago, clock, () => false, latest);
 }
 const TS = '2026-09-17T04:00:00Z';
 const sgCard = (o) => ({ id: 'toolu_1', ts: TS, source: 'app', title: '修徽章', tldr: '一句說明', prompt: '要貼的話', cwd: '/x', session: 's1', target: null, cut: [],
@@ -696,8 +699,9 @@ section('上一手的對話頁:講明資料夾換人了,不畫資料夾現在的
   ] }] };
   // workflow 換成會講出它拿到哪個資料夾的替身:E 那一格「你說驗收過了」的按鈕是按資料夾記的,path 在就會畫
   const oldLine = src.match(/^const OLD_LINE = .*;$/m)?.[0] ?? '';   // 「叫了不等於通過」那一句是伺服器給的;舊的服務沒給時用這一句
-  const page = code ? new Function('latest', 'esc', 'ago', 'workflow', 'statRestore', 'statLadder', 'statChanges', 'statTier', 'sensorLine', 'stagesNoteLine',
-    `const zhEn = (zh) => zh; const many = (n, one, more = one + 's') => n + ' ' + (n === 1 ? one : more);\n${oldLine}\n${code}; return sessionPage;`)(latest, esc, ago, (c) => `<workflow path=${c.path}>`, stub('restore'), stub('ladder'), stub('changes'), stub('tier'), stub('sensor'), stub('stagesNote')) : null;
+  // directorOf:F 工地主任要的那一份(規格:還差什麼總表 AC-12),這一段只看資料夾換人那幾行,給一個替身
+  const page = code ? new Function('latest', 'esc', 'ago', 'workflow', 'statRestore', 'statLadder', 'statChanges', 'statTier', 'sensorLine', 'stagesNoteLine', 'directorOf',
+    `const zhEn = (zh) => zh; const many = (n, one, more = one + 's') => n + ' ' + (n === 1 ? one : more);\n${oldLine}\n${code}; return sessionPage;`)(latest, esc, ago, (c) => `<workflow path=${c.path}>`, stub('restore'), stub('ladder'), stub('changes'), stub('tier'), stub('sensor'), stub('stagesNote'), () => null) : null;
   const old = page?.('p', 's0') ?? '';
   check('上一手:講這個資料夾 N 前換到另一條分支、給別的對話用了', /2 天前換到另一條分支、給別的對話用了/.test(old), old);
   check('上一手:不畫還原點、三階梯、改動、分級(那是下一手的)', !/<restore>|<ladder>|<changes>|<tier>/.test(old), old);
