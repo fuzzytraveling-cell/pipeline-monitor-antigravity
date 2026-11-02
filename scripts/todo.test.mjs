@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
-import { todoBoard, boardText, programChanges, restartLine, serveDownLine, serveOldLine } from '../lib/todo.mjs';
+import { todoBoard, boardText, programChanges, restartLine, serveDownLine, serveSlowLine, serveOldLine } from '../lib/todo.mjs';
 import { askServe } from '../lib/cliTodo.mjs';
 import { sessionsOf } from '../lib/rounds.mjs';
 import { collectAll } from '../lib/collect.mjs';
@@ -81,6 +81,15 @@ section('AC-3:問不到的講問不到——資料夾不在、三階梯問不到
   check('安靜的專案有已結案、資料夾不在的對話 → 那一句講它們看不到,不講成都沒事', /資料夾已經不在的看不到/.test(quiet.quiet ?? ''), quiet.quiet);
   const quiet2 = board([proj([sess({ closedAt: '2026-11-01T04:00:00Z' })])]);
   check('……都還在就不加那半句(不多話)', !!quiet2.quiet && !/看不到/.test(quiet2.quiet), quiet2.quiet);
+}
+
+section('魔鬼教官第一輪:沒有對話要列的專案,感測器掛壞了、退出記錄就照樣自己一段講出來——不收進「沒有進行中的對話」(證據在手上、那一句沒用它)', 'P3');
+{
+  // 魔鬼教官第一輪:沒有對話要列的專案,如果感測器掛壞了、或退出記錄,它新的對話根本沒被記——不准收進「沒有進行中的對話」那一句(R1、P3)
+  const mountBroken = board([proj([], { cards: [card({ path: '/w/main', sensor: { mount: { state: 'broken' } } })] })]);
+  check('必抓:感測器掛壞了、沒有對話要列 → 照樣自己一段、講掛壞了,不收進安靜的那一句', mountBroken.projects.length === 1 && /感測器掛壞了/.test(mountBroken.projects[0].note ?? '') && mountBroken.quiet === null, JSON.stringify(mountBroken));
+  const optedOut = board([proj([], { optedOut: { at: '2026-11-01T00:00:00Z' }, optedOutLine: '這個專案已經退出記錄（1 天前）' })]);
+  check('必抓:退出記錄的專案 → 照樣自己一段、講退出記錄了', optedOut.projects.length === 1 && /退出記錄/.test(optedOut.projects[0].note ?? '') && optedOut.quiet === null, JSON.stringify(optedOut));
 }
 
 section('AC-4:沒有還差的事的那一行——寫「可以按結案」,不打勾、不變綠;Claude 說的照寫是 Claude 說的', 'P10');
@@ -263,8 +272,19 @@ section('AC-7:服務用到的程式在它啟動之後改過 → 講要重啟;只
   check('……首頁總表最上面講要重啟', /lib\/b\.mjs/.test(st1.todo?.restart ?? '') && /--serve-restart/.test(st1.todo?.restart ?? ''), st1.todo?.restart);
   await new Promise((r) => server.close(r));
 
+  rmSync(prog, { recursive: true, force: true }); rmSync(monitorDir, { recursive: true, force: true });
+}
+
+section('AC-7＋魔鬼教官第一輪:終端機問服務要不要重啟——連不上、等不到、舊的服務各講各的;服務在忙不准講成沒在跑,也都不准講成不用重啟', 'P5');
+{
   // 終端機問服務:沒在跑 → 問不到;舊的服務(沒有這個網址)→ 它是舊的;有改 → 要重啟。都不准講成「不用重啟」
-  check('服務沒在跑 → 講問不到', (await askServe({ url: 'http://127.0.0.1:1/', ms: 1500 })) === serveDownLine());
+  check('服務沒在跑(連不上)→ 講連不上', (await askServe({ url: 'http://127.0.0.1:1/', ms: 1500 })) === serveDownLine());
+  // 魔鬼教官第一輪:服務正在替開著的分頁算整頁,這一題排在後面——等不到要講「沒回答」,不准講成沒在跑(R1)
+  const busy = await new Promise((r) => { const sv = createServer((req, res) => setTimeout(() => { res.writeHead(200); res.end('{}'); }, 2500)); sv.listen(0, '127.0.0.1', () => r(sv)); });
+  eq('必抓:連得上、等不到 → 講幾秒內沒回答(可能在忙),不講沒在跑', await askServe({ url: `http://127.0.0.1:${busy.address().port}/`, ms: 1000 }), serveSlowLine(1));
+  busy.closeAllConnections?.(); busy.close();
+  const defaultWait = /ms = 10_000/.test(readFileSync(join(ROOT, 'lib', 'cliTodo.mjs'), 'utf8'));
+  check('預設等 10 秒(整頁算一次要 3～5 秒,等 3 秒實測 10 次有 2 次等不到)', defaultWait);
   const fake = (handler) => new Promise((r) => { const sv = createServer(handler); sv.listen(0, '127.0.0.1', () => r(sv)); });
   const old = await fake((req, res) => { res.writeHead(404); res.end('找不到'); });
   check('舊的服務(沒有 /api/serve-state)→ 講它還在跑舊的程式', (await askServe({ url: `http://127.0.0.1:${old.address().port}/` })) === serveOldLine());
@@ -272,7 +292,6 @@ section('AC-7:服務用到的程式在它啟動之後改過 → 講要重啟;只
   const fresh = await fake((req, res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ bootAt: new Date().toISOString(), changed: [] })); });
   eq('新的服務、沒改過 → 不講', await askServe({ url: `http://127.0.0.1:${fresh.address().port}/` }), null);
   fresh.close();
-  rmSync(prog, { recursive: true, force: true }); rmSync(monitorDir, { recursive: true, force: true });
 }
 
 section('AC-8:終端機那一張跟網頁同一份——同一個函式出的字,網頁照畫、終端機照印;舊的服務不准畫成空表', 'P2');
