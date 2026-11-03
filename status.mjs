@@ -39,7 +39,7 @@ import { doCheckpoint } from './lib/cliStamp.mjs';
 import { doClear, doSpec, doReport, doSuggest } from './lib/cliReport.mjs';
 import { doRound, doDecide } from './lib/cliRerun.mjs';
 import { doMount } from './lib/cliOnOff.mjs';
-import { doTodo } from './lib/cliTodo.mjs';
+import { doTodo, doCards } from './lib/cliTodo.mjs';
 import { readLang, withLang, zhEn, langBrokenLine, doLang } from './lib/lang.mjs';
 
 /* ══════════════════════════ main ══════════════════════════ */
@@ -87,6 +87,8 @@ async function main(L = { lang: 'zh', state: 'ok' }) {
     return 0;
   }
   if (at('--on') !== -1 || at('--off') !== -1) return doMount(ctx, at('--on') !== -1);
+  // 這個專案的建議卡:要知道是哪個專案,不需要有 commit(規格:主任技能 AC-7)
+  if (at('--cards') !== -1) return doCards(ctx);
   // 分級的設定不需要有 commit
   if (at('--tier-init') !== -1) return doTierInit(ctx, after('--tier-init'));
   if (at('--tier-off') !== -1) return doTierOff(ctx, after('--tier-off').join(' '));

@@ -26,6 +26,8 @@ pipeline-status --round D    # D 這一輪第幾次、怎麼跑、第一次之�
 pipeline-status --decide D skip "你的原話"   # 你說這一輪不用再跑 D：Claude 代記，儀表板附你在 D 之後說的最後一句
 pipeline-status --round E    # E 驗收這一輪照哪份規格、要驗哪幾條、第幾趟、專案怎麼跑起來（Claude 跑 verify 的第一步）
 pipeline-status --report E ok|found "…"   # Claude 記下走一遍的結論：第一行摘要，之後一行一條（AC-1 看到了：「原文」／沒看到／驗不了）
+pipeline-status --todo       # 還差什麼：所有專案的對話各還差什麼（Claude 在對話裡跑的時候，那個對話那一行標「← 這個對話」）
+pipeline-status --cards      # 這個專案的每一張新對話建議卡：還沒開始、已開始、你說不做了（主任開卡之前查有沒有了）
 pipeline-status --on         # 把感測器掛到**這個**專案（--off 拆掉）
 pipeline-status --tier-init  # 設定分級的骨架（程式區）；危險清單在對話裡說「幫我設定分級」
 pipeline-status --tier T2 "理由"   # 這次調高（只准往上）；收回是 --tier-retract
@@ -66,6 +68,10 @@ pipeline-status --install
 | `/pipeline-monitor:cleanup` | C 打掃：只刪證明得出來是死的東西，其餘出建議清單 | 不碰測試檔、不改控制流 |
 | `/pipeline-monitor:chaos-check` | D 魔鬼教官：拿這個專案自己的 `docs/FAILURE-PATTERNS.md` 對照這次改動 | 不改檔案、**不說「通過」** |
 | `/pipeline-monitor:verify` | E 驗收：照這一輪的規格在畫面上走一遍，每條記看到了（附畫面上的原文）／沒看到／驗不了，給你做第二次查核 | 不改程式、不存截圖、**不說「驗收過了」**（那句只有你能說） |
+
+另外一支不是關的：`/pipeline-monitor:director`（F 工地主任）。在對話裡說「主任」，它讀 `pipeline-status --todo`，給**一個**下一步（不給選單）；
+只替已經決定要做的事開新對話的建議卡（開之前用 `--cards` 查有沒有了），途中看到的小問題不開；這個對話的收尾（D 要不要再跑、併、推、重啟、蓋章）
+合成一個問題，你一句「照建議收尾」帶走。它**只問不動手**：你回答之後，做事的是那個對話。規格：主任技能（路徑看 `CLAUDE.md` 的表）。
 
 它們是**通用版**：不知道你的專案的任何事。專案專屬的內容（死法清單、教訓、規格範本、分級、要跑的檢查）
 一律從那個專案自己的檔案讀；讀不到就退回三條紅線（沒問到≠沒有、跑過≠通過、不編數字），並且會在回覆裡說用的是哪一套。

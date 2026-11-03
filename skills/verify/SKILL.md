@@ -20,7 +20,7 @@ allowed-tools: Bash(pipeline-status --round:*), Bash(git status:*), Bash(git dif
   What `pipeline-status` prints follows its own language setting, which may differ from the user's language: go by what it means. The tables below that route on its words list both languages.
 - 講英文的時候，紅線那幾個字照這張表講（when speaking English, say the red-line words this way）：
 
-<!-- 用語對照:跟 lib/lang.mjs 的 TERMS 逐字對(scripts/skills.test.mjs,老毛病 P2)。要改先改那裡,五支技能一起改 -->
+<!-- 用語對照:跟 lib/lang.mjs 的 TERMS 逐字對(scripts/skills.test.mjs,老毛病 P2)。要改先改那裡,每一支技能一起改 -->
 | 中文 | English | 不准說 (never say) |
 |---|---|---|
 | 叫了／跑過（記號 ⏸，一定帶過了多久） | called / ran (mark ⏸, always with how long ago) | passed, succeeded, done, ✓ |

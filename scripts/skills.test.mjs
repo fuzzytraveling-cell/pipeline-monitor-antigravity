@@ -102,8 +102,10 @@ section('AC-1:每一支技能的說明中英兩段——英文使用者講的話
   const zhOnly = 'A 寫規格這一關（產線監視器 pipeline-monitor 帶的通用版）：…使用者說「幫我寫規格」「先列驗收條件」時用；專案自己也有 /spec 時，使用者叫哪個就跑哪個。';
   check('必須抓到:只有中文的說明(裡面的 pipeline-monitor、/spec 不算英文的觸發句)', !bilingual(zhOnly), JSON.stringify(englishTriggers(zhOnly)));
   check('必須放過:中英都有的說明', bilingual(`${zhOnly} English — use it when the user says "write a spec".`));
-  const want = { spec: ['write a spec'], cleanup: ['clean up'], 'chaos-check': ['chaos check'], verify: ['walk through it', 'verify'], 'tier-setup': ['set up tiers', 'this project doesn\'t need tiers', 'look at my danger list'] };
-  check('五支技能都在(不然下面什麼都沒比到)', ALL.length === 5 && Object.keys(want).every((d) => ALL.includes(d)), ALL.join(','));
+  const want = { spec: ['write a spec'], cleanup: ['clean up'], 'chaos-check': ['chaos check'], verify: ['walk through it', 'verify'], 'tier-setup': ['set up tiers', 'this project doesn\'t need tiers', 'look at my danger list'],
+    director: ['site director', 'what\'s next'] };
+  // 不寫死幾支(CLAUDE.md:文件與測試不寫量測值):多一支技能,這裡就要多一列它的英文觸發句,少了就紅
+  check('每一支技能都列了要求的英文觸發句、列了的每一支都在(不然下面什麼都沒比到)', ALL.length > 0 && ALL.every((d) => want[d]) && Object.keys(want).every((d) => ALL.includes(d)), ALL.join(','));
   for (const d of ALL) {
     const fm = frontmatter(textOf(d));
     check(`skills/${d}:說明中英兩段(中文那一段、英文的觸發句)`, bilingual(fm?.description), fm?.description);
@@ -125,7 +127,7 @@ section('AC-1:每一支技能的說明中英兩段——英文使用者講的話
   check('……「你說的話的前 200 字」英文寫 characters,不寫 words', /first 200 characters/.test(plugin) && !/200 words/.test(plugin), plugin);
 }
 
-section('AC-2:五支技能的用語對照、三條通用判準的英文那一份,跟 lib/lang.mjs 那一份逐字一樣(兩份就要有測試真的對兩邊)', 'P2');
+section('AC-2:每一支技能的用語對照、三條通用判準的英文那一份,跟 lib/lang.mjs 那一份逐字一樣(兩份就要有測試真的對兩邊)', 'P2');
 {
   const table = termsTable().join('\n'), red = RED_LINES_EN.join('\n');
   check('lib 那一份不是空的(不然下面一定綠)', termsTable().length > 10 && RED_LINES_EN.length === 3);
