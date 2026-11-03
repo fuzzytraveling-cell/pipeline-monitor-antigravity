@@ -213,10 +213,12 @@ section('技能照指令的字分路:找「這個對話」的那幾句、建議�
       check(`技能的表有「${keys[i]}」(${lang}),而且是指令真的會印的字`, skill.includes(keys[i]) && printedLine.includes(keys[i]), printedLine);
     });
   }
+  // --round E 講「照哪份規格」有好幾種說法:技能每一種都要列——只認一份的話,好幾份只讀一份的「接下來」、找不到被當成沒有(魔鬼教官第一輪,P2／R1)
   const src = readFileSync(join(ROOT, 'lib', 'cliRerun.mjs'), 'utf8').replace(/\\'/g, '\'');
-  for (const k of ['照這份規格驗：', 'Verify against this spec: ']) {
+  for (const k of ['照這份規格驗：', 'Verify against this spec: ', 'Verify against these ', '讀不到', 'can\'t be read', '規格：找不到這一輪的規格檔', 'Spec: can\'t find this round\'s spec file', '這一輪沒有規格', 'This round has no spec']) {
     check(`技能找這一輪的規格靠「${k.trim()}」,那是 --round E 真的會印的字`, skill.includes(k.trim()) && src.includes(k), k);
   }
+  check('技能找這一輪的規格靠「照這 N 份規格驗」,那是 --round E 真的會印的字', /照這 N 份規格驗/.test(skill) && /照這 \$\{vl\.specs\.length\} 份規格驗/.test(src));
 }
 
 section('AC-10、AC-4:主任只問不動手;「照建議收尾」不准拿來繞過 D 要不要再跑');
@@ -232,6 +234,14 @@ section('AC-10、AC-4:主任只問不動手;「照建議收尾」不准拿來繞
   check('D 修完要再問、蓋章不准拿來跳過這一題', skill.includes('修完會再問你一次要不要再跑；蓋章等你回答之後才蓋') && skill.includes('不准拿蓋章跳過這一題'));
   check('「驗收過了」只有使用者能說,不包進照建議收尾', skill.includes('「驗收過了」只有使用者能說') && skill.includes('照建議收尾不算這一句'));
   check('開卡之前先查,說不做了的不准再開', skill.includes('pipeline-status --cards') && skill.includes('不准再開'));
+}
+
+section('魔鬼教官第一輪:主任開卡的來源不把對話開頭別的對話、app 包進來的說明當成使用者說的(寫這份技能的對話,第一則就是另一個 Claude 寫的)', 'P7');
+{
+  const skill = readFileSync(join(ROOT, 'skills', 'director', 'SKILL.md'), 'utf8');
+  check('技能點名那兩種包裝(Background／Task from the session that started this one),寫明不算使用者說的', skill.includes('Background (from the session that started this one)')
+    && skill.includes('Task (from the session that started this one)') && skill.includes('**不算他說的**'));
+  check('……包進來的說明裡講到的決定,要在規格施作紀錄找得到他的原話才算', skill.includes('要在規格的施作紀錄裡找得到他的原話，才算'));
 }
 
 section('AC-1:F 工地主任那一列講怎麼叫主任;已結案的對話沒有收尾要合成,不畫');
