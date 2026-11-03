@@ -52,10 +52,10 @@ function scene() {
   const onWork = (sec, files, msg = '這個對話的存檔') => commit(wt, sec, files, msg);
   const ff = (sec) => g(wt, sec, 'merge', '-q', '--ff-only', main);       // 快轉跟上 main(git 記「merge master: Fast-forward」)
   // 終端機與儀表板都走的那一條:changeFacts 照這一輪的起點決定基準、拿掉併進來的(lib/origin.mjs)
-  const facts = (originSec, { edits = [] } = {}) => {
+  const facts = (originSec, { edits = [], mainRoot = null } = {}) => {
     const origin = { at: T(originSec), from: 'prompt', sessions: 1 };
     const c = changeFacts({ root: wt, hasCommits: true, isCode: (f) => f.startsWith('src/'), relationOf: (x) => checkpointRelation(wt, x),
-      healthOf: (s, skip) => changeHealth(wt, s, { skip }), reflog: reflogOf(wt), edits });
+      healthOf: (s, skip) => changeHealth(wt, s, { skip }), reflog: reflogOf(wt), edits, mainRoot });
     c.gitChanges(origin);
     return c.facts();
   };
@@ -84,7 +84,7 @@ section('AC-1、AC-8:快轉跟上 main 之後,main 帶進來、這個對話沒�
   check('對照:以前的算法把 5 個都算成這一輪的、還說動到既有測試、多了新相依', old.list.length === 5 && old.modifiedTests.length === 1 && old.newDeps.includes('right'), JSON.stringify(old));
   const sc = changeScope(base, () => '10 分鐘前');
   check('0 的時候不講「一模一樣」(檔案已經不一樣了),講這一輪自己沒有改動、另外 5 個從 main 併進來',
-    /這一輪自己沒有改動；另外 5 個檔是從 main 併進來的（別的對話改的），不算這一輪/.test(sc.empty) && !/一模一樣/.test(sc.empty), sc.empty);
+    /這一輪自己沒有改動；另外 5 個檔是從 main 併進來的，這個對話沒動過，不算這一輪/.test(sc.empty) && !/一模一樣/.test(sc.empty), sc.empty);
   check('收工 hook 理由裡那個括號講不含幾個', /這一輪，含已存檔的，不含從 main 併進來的 5 個檔/.test(sc.short), sc.short);
   // 起點之後每一次移動都是從 main 拿進來的:「中間動過」就是那一次,沒有藏在別條線上的自己的存檔——不講看不全
   eq('每一次移動都是拿進來的 → 不算「這一輪中間動過」', `${merged.explained}|${base.moved}`, 'true|false');
@@ -179,6 +179,17 @@ section('AC-2:自己改過的檔,main 也改過,照樣算——快轉的、合�
   const edits = [{ ts: T(-95 * MIN), hook: 'PostToolUse', tool: 'Edit', file: join(s.wt, 'src/a.js'), cwd: s.wt }];
   eq('感測器記到改過的 a.js 照算', s.facts(-100 * MIN, { edits }).health.list.join(','), 'src/a.js');
   eq('對照:感測器沒記到就拿掉', s.facts(-100 * MIN).health.skipped.join(','), 'src/a.js');
+  s.cleanup();
+}
+{
+  // 魔鬼教官第一輪:對話(資料夾是 worktree)用 Edit 改了**主資料夾**的 a.js、在主資料夾存檔,再把自己的分支快轉跟上 main——
+  // 那是它自己改的。感測器記的路徑在主資料夾底下,以前只認這個資料夾底下的路徑,a.js 就被當成從 main 拿進來的拿掉
+  const s = scene();
+  s.onMain(-90 * MIN, { 'src/a.js': 'this conversation, in the main folder\n', 'src/c.js': 'c\n' });
+  s.ff(-80 * MIN);
+  const edits = [{ ts: T(-95 * MIN), hook: 'PostToolUse', tool: 'Edit', file: join(s.r.dir, 'src/a.js'), cwd: s.wt }];
+  const { health } = s.facts(-100 * MIN, { edits, mainRoot: s.r.dir });
+  eq('改在主資料夾的 a.js 照算、別的 c.js 拿掉', `${health.list.join(',')}|${health.skipped.join(',')}`, 'src/a.js|src/c.js');
   s.cleanup();
 }
 
@@ -334,19 +345,44 @@ section('AC-6、AC-7:D 跑完之後才併 main(10/30 兩次的形狀)——收�
 
   const round = w.cli(['--round', 'D']);
   check('--round D:第一次之後沒有改到程式區,另外講 3 個從 main 併進來、D 不用看',
-    /之後沒有改到程式區或測試檔/.test(round) && /另外 3 個檔是從 main 併進來的（別的對話改的），D 不用看/.test(round) && !/src\/b\.js/.test(round), round);
+    /之後沒有改到程式區或測試檔/.test(round) && /另外 3 個檔是從 main 併進來的，這個對話沒動過，D 不用看/.test(round) && !/src\/b\.js/.test(round), round);
   const scope = w.cli(['--round', 'C']);
   check('--round C 的範圍:只有自己的 a.js,另外講 3 個 C 不用看(打掃不去清別的對話的程式)',
-    /這一輪改過的 1 個要看的檔/.test(scope) && /src\/a\.js/.test(scope) && /另外 3 個檔是從 main 併進來的（別的對話改的），C 不用看/.test(scope) && !/src\/danger\.js/.test(scope), scope);
+    /這一輪改過的 1 個要看的檔/.test(scope) && /src\/a\.js/.test(scope) && /另外 3 個檔是從 main 併進來的，這個對話沒動過，C 不用看/.test(scope) && !/src\/danger\.js/.test(scope), scope);
   const view = w.cli([]);
   check('終端機「這一輪的改動」:1 個檔,底下講另外 3 個從 main 併進來、不算這一輪',
-    /━━ 這一輪的改動 ━━[\s\S]*1 個檔案[\s\S]*另外 3 個檔是從 main 併進來的（別的對話改的），不算這一輪。/.test(view), view);
+    /━━ 這一輪的改動 ━━[\s\S]*1 個檔案[\s\S]*另外 3 個檔是從 main 併進來的，這個對話沒動過，不算這一輪。/.test(view), view);
 
   // 對照:這一回合這個對話自己又改了 a.js → 照舊先停下來問 D 要不要再跑(拿掉的只有 main 的,自己的一個都沒少)
   writeFileSync(join(w.wt, 'src/a.js'), 'mine again\n');
   const again = w.gate();
   check('自己又改了程式 → 收工 hook 照舊先問 D 要不要再跑', (again?.missing ?? []).includes('D:ask'), JSON.stringify(again));
   check('理由的括號講不含從 main 併進來的 3 個檔', /不含從 main 併進來的 3 個檔/.test(again?.reason ?? ''), again?.reason);
+  w.cleanup();
+}
+
+section('魔鬼教官第一輪:D 之前自己改過、D 之後被 main 改寫的檔——收工 hook 先問要不要再跑,--round D 也列得出它(兩處講同一件事)', 'P2');
+{
+  const w = world();
+  writeFileSync(join(w.wt, 'src/b.js'), 'mine\nb2\nb3\nb4\nb5\n');
+  const edited = new Date(Date.parse(T(-28 * MIN)));
+  utimesSync(join(w.wt, 'src/b.js'), edited, edited);
+  w.g(w.wt, -27 * MIN, 'commit', '-qam', '這個對話改 b.js 第一行');
+  w.g(w.r.dir, -26 * MIN, 'merge', '-q', '--ff-only', 'work');
+  const h = out(w.wt, 'rev-parse', '--short', 'HEAD');
+  w.write([
+    said(-30 * MIN, '修一下'),
+    { ts: T(-28 * MIN), hook: 'PostToolUse', tool: 'Edit', file: join(w.wt, 'src/b.js') },
+    callD(-25 * MIN, h), reportD(-24 * MIN),
+    said(-12 * MIN, '跟上 main'),
+  ]);
+  w.onMain(-20 * MIN, { 'src/b.js': 'mine\nb2\nb3\nb4\nmain\n', 'src/c.js': 'c\n' });   // 別的對話改 b.js 最後一行、加 c.js
+  w.ff(-11 * MIN);
+  const d = w.gate();
+  check('收工 hook:兩邊都動過的 b.js 在 D 之後被改寫 → 先問 D 要不要再跑', (d?.missing ?? []).includes('D:ask'), JSON.stringify(d));
+  const round = w.cli(['--round', 'D']);
+  check('--round D 列得出 b.js(D 看過你的那一版,沒看過跟 main 的放在一起),只拿掉 c.js',
+    /之後改了 1 個要看的檔：\n\s+src\/b\.js/.test(round) && /另外 1 個檔是從 main 併進來的，這個對話沒動過，D 不用看/.test(round) && !/src\/c\.js/.test(round), round);
   w.cleanup();
 }
 
