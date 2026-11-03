@@ -10,7 +10,7 @@
  */
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, rmSync, existsSync, realpathSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 
@@ -27,29 +27,40 @@ export function cleanEnv(home, execPath = process.execPath) {
   };
 }
 
+/**
+ * 從存檔 clone 一份到短的暫存路徑(tmp 底下;macOS 給的暫存資料夾很長),切到那個版本。回 {sha, base, copy}——base 用完由呼叫端刪。
+ * 認不出版本、clone 不了 → 丟出去,訊息給人看(沒跑,不是紅了)。
+ * ⚠️ 在 worktree 裡問 --git-common-dir 回的是絕對路徑,一般資料夾回的是相對路徑(.git)——用 resolve,不用 join:
+ *    join 會把兩段硬接成一條不存在的路,在 worktree 裡一次都跑不起來(寫的時候真的跑一次才踩到;lib/git.mjs 的 gitContext 講過同一件事)
+ */
+export function cloneAt(root, ref = 'HEAD', { tmp = '/tmp' } = {}) {
+  const git = (args, cwd) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  let sha;
+  try { sha = git(['rev-parse', '--verify', `${ref}^{commit}`], root); } catch { throw new Error(`認不出版本「${ref}」`); }
+  const common = resolve(root, git(['rev-parse', '--git-common-dir'], root));
+  const base = mkdtempSync(join(tmp, 'pmc-'));
+  const copy = join(base, 'repo');
+  try {
+    git(['clone', '-q', common, copy], base);
+    git(['checkout', '-q', '--detach', sha], copy);
+  } catch (e) {
+    rmSync(base, { recursive: true, force: true });
+    throw new Error(`clone 不了（${String(e.stderr ?? e.message).trim().split('\n').at(-1)}）`);
+  }
+  return { sha, base, copy };
+}
+
 function main() {
   const ref = process.argv[2] ?? 'HEAD';
-  const git = (args, cwd) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
-  let sha, common;
-  try {
-    sha = git(['rev-parse', '--verify', `${ref}^{commit}`], ROOT);
-    common = realpathSync(join(ROOT, git(['rev-parse', '--git-common-dir'], ROOT)));
-  } catch {
-    console.log(`❌ 認不出版本「${ref}」——沒跑。`);
+  let c;
+  try { c = cloneAt(ROOT, ref); } catch (e) {
+    console.log(`❌ ${e.message}——沒跑。`);
     return 2;
   }
-  // 短的暫存路徑:/tmp 底下(macOS 給的暫存資料夾很長)
-  const base = mkdtempSync('/tmp/pmc-');
-  const copy = join(base, 'repo'), home = join(base, 'home');
+  const { sha, base, copy } = c;
+  const home = join(base, 'home');
   mkdirSync(home);
   try {
-    try {
-      git(['clone', '-q', common, copy], base);
-      git(['checkout', '-q', '--detach', sha], copy);
-    } catch (e) {
-      console.log(`❌ clone 不了（${String(e.stderr ?? e.message).trim().split('\n').at(-1)}）——沒跑。`);
-      return 2;
-    }
     const npm = existsSync(join(dirname(process.execPath), 'npm')) ? join(dirname(process.execPath), 'npm') : 'npm';
     console.log(`在乾淨的副本跑 npm test（${sha.slice(0, 7)}；空的家目錄、UTC、清掉環境變數、不讀系統的 git 設定）\n`);
     const r = spawnSync(npm, ['test'], { cwd: copy, env: cleanEnv(home), stdio: 'inherit' });
