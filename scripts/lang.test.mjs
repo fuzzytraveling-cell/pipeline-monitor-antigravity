@@ -10,7 +10,7 @@
  */
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 import { execFileSync } from 'node:child_process';
-import { readFileSync, readdirSync, writeFileSync, mkdtempSync, mkdirSync, rmSync, copyFileSync, symlinkSync, existsSync, chmodSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, writeFileSync, appendFileSync, mkdtempSync, mkdirSync, rmSync, copyFileSync, symlinkSync, existsSync, chmodSync, statSync, utimesSync } from 'node:fs';
 import { request as httpRequest } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, dirname, basename } from 'node:path';
@@ -1067,11 +1067,18 @@ section('終端機(真的跑 status.mjs,英文):現況、--checkpoint、--clear�
     try { return execFileSync('node', [join(ROOT, 'status.mjs'), ...args], { cwd, encoding: 'utf8', env: e, stdio: ['ignore', 'pipe', 'pipe'] }); }
     catch (x) { return `${x.stdout ?? ''}${x.stderr ?? ''}`; }
   };
+  // 這個專案有分級、改了程式,D 沒了結就不蓋章(規格:主任動手收尾 AC-5)。這一段看的是 --checkpoint 每一種結果的英文,不是 D 的規矩——
+  // 每次要蓋之前,記一次「D 跑過、沒對到已知死法」(叫的時間在改檔之後)
+  const settleD = () => appendFileSync(join(monitorDir, 'logs', `${safeName(basename(root))}.jsonl`), [
+    { ts: new Date().toISOString(), hook: 'PreToolUse', tool: 'Skill', skill: 'pipeline-monitor:chaos-check', head: git(root, 'rev-parse', '--short', 'HEAD') },
+    { ts: new Date().toISOString(), event: 'stage_report', stage: 'D', verdict: 'ok', note: 'didn\'t match any known failure pattern', source: 'claude' },
+  ].map((o) => JSON.stringify({ session: 's1', cwd: root, ...o })).join('\n') + '\n');
   const outs = {};
   writeFileSync(join(root, 'src/app.js'), '2\n');
   outs['現況(沒有還原點、有沒 commit 的檔)'] = run([]);
   outs['--checkpoint(還有沒 commit 的)'] = run(['--checkpoint']);
   git(root, 'add', '-A'); git(root, 'commit', '-qm', 'export button');
+  settleD();
   outs['--checkpoint(全綠,蓋章)'] = run(['--checkpoint']);
   writeFileSync(join(root, 'src/save.js'), 'changed\n');
   writeFileSync(join(root, 'src/new.js'), 'n\n');
@@ -1087,10 +1094,19 @@ section('終端機(真的跑 status.mjs,英文):現況、--checkpoint、--clear�
   outs['--clear E(Claude 代記、附了話)'] = run(['--clear', 'E', 'looks good, accepted'], { sid: 's1' });
   writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'export-app', scripts: { test: 'node -e "console.error(\'boom\'); process.exit(1)"' } }));
   git(root, 'add', '-A'); git(root, 'commit', '-qm', 'break the test');
+  settleD();
   outs['--checkpoint(跑了沒過)'] = run(['--checkpoint']);
   writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'export-app', scripts: {} }));
   git(root, 'add', '-A'); git(root, 'commit', '-qm', 'no checks');
+  settleD();
   outs['--checkpoint(認不出要跑哪些檢查)'] = run(['--checkpoint']);
+  // 反過來:D 之後又改了程式、還沒決定要不要再跑 → 不蓋,英文講卡在哪一句。改檔的時間要在叫 D 之後兩秒以上(工具留的誤差),往後推 5 秒
+  writeFileSync(join(root, 'src/app.js'), '4\n');
+  const later = new Date(Date.now() + 5000);
+  utimesSync(join(root, 'src/app.js'), later, later);
+  git(root, 'add', '-A'); git(root, 'commit', '-qm', 'one more change');
+  outs['--checkpoint(D 沒了結)'] = run(['--checkpoint']);
+  check('英文:D 之後又改了程式 → 不蓋章,講卡在哪一句', /No stamp: a stage's conclusion isn't settled yet: .*D /.test(outs['--checkpoint(D 沒了結)']), outs['--checkpoint(D 沒了結)']);
   outs['--off(沒裝 plugin:舊接法)'] = run(['--off']);
   outs['--on(沒裝 plugin:舊接法)'] = run(['--on']);
   outs['--on(再一次:已經掛上了)'] = run(['--on']);

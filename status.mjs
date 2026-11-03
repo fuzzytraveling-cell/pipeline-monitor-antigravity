@@ -14,7 +14,8 @@
  *
  * 這支只做分派：哪個旗標交給誰（規格：終端機照指令拆開）。每個指令住 lib/ 底下 cli 開頭的那幾支——
  *   cliView（畫面上半）、cliStages（五關那一段）、cliTier（分級卡與 --tier-*）、cliStamp（--checkpoint）、
- *   cliReport（--report／--clear／--spec／--suggest）、cliRerun（--round／--decide）、cliOnOff（--on／--off）；大家共用的事實在 cliFacts。
+ *   cliReport（--report／--clear／--spec／--suggest）、cliRerun（--round／--decide）、cliOnOff（--on／--off）、
+ *   cliWrap（--wrap：主任收尾那四步，與 --serve-restart 重啟完的確認）；大家共用的事實在 cliFacts。
  *   新指令的程式放進對應的那一支（或新開一支），這裡只加轉接的那一行——以前全部擠在這一支，改一個指令要讀整支、兩個對話一起改就撞。
  * 別的檔案不准 import 這支（以前 lib/collect.mjs 回頭 import 指令，跟這支繞成一圈）；要用什麼，去它住的那一支拿。
  * 中英切換(規格:儀表板與終端機中英切換、技能與寫給AI的話中英切換):語言設定在這裡讀一次,整個指令用同一種(lib/lang.mjs 的 withLang)——
@@ -28,7 +29,7 @@ import process from 'node:process';
 import { gitContext, withClock } from './lib/git.mjs';
 import { readEvents, RETAIN_DAYS } from './lib/events.mjs';
 import { faultsNow } from './lib/faults.mjs';
-import { installService, uninstallService, restartService, describeService, openDashboard } from './lib/service.mjs';
+import { installService, uninstallService, describeService, openDashboard } from './lib/service.mjs';
 import { installPlugin, uninstallPlugin } from './lib/mount.mjs';
 import { moveState } from './lib/paths.mjs';
 import { LOG_DIR, gatherChange, stageFacts } from './lib/cliFacts.mjs';
@@ -40,6 +41,7 @@ import { doClear, doSpec, doReport, doSuggest } from './lib/cliReport.mjs';
 import { doRound, doDecide } from './lib/cliRerun.mjs';
 import { doMount } from './lib/cliOnOff.mjs';
 import { doTodo, doCards } from './lib/cliTodo.mjs';
+import { doWrap, restartConfirmed } from './lib/cliWrap.mjs';
 import { readLang, withLang, zhEn, langBrokenLine, doLang } from './lib/lang.mjs';
 
 /* ══════════════════════════ main ══════════════════════════ */
@@ -63,7 +65,8 @@ async function main(L = { lang: 'zh', state: 'ok' }) {
   if (serveFlag) {
     const r = serveFlag === '--serve-install' ? await installService()
       : serveFlag === '--serve-uninstall' ? uninstallService()
-      : serveFlag === '--serve-restart' ? await restartService()
+      // 重啟完再問一次服務跑的是不是現在的程式——主任收尾那一步講同一句(規格:主任動手收尾 AC-4,兩條路只補一條就是老毛病 P6)
+      : serveFlag === '--serve-restart' ? await restartConfirmed()
       : await describeService();
     for (const line of r.out) console.log(line);
     return r.ok ? 0 : 1;
@@ -117,7 +120,10 @@ async function main(L = { lang: 'zh', state: 'ok' }) {
     try { stdin = readFileSync(0, 'utf8'); } catch { stdin = ''; }
     return doSuggest(ctx, after('--suggest').join(' '), stdin);
   }
-  if (at('--checkpoint') !== -1) return doCheckpoint(ctx);
+  // 主任收尾(規格:主任動手收尾):併、推、重啟、蓋章,一步一次,要帶你在主任問完之後說的原話
+  if (at('--wrap') !== -1) return doWrap(ctx, ev, after('--wrap'));
+  // 蓋章前先看還有沒有一關的結論沒了結(紀錄要帶進去;規格:主任動手收尾 AC-5)
+  if (at('--checkpoint') !== -1) return doCheckpoint(ctx, ev);
 
   // 事實各算一次,三段畫面共用。「這次改動」從五關那一輪的起點算,所以跟五關一起算完才放回 info
   const info = gatherChange(ctx, ev);

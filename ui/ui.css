@@ -308,6 +308,11 @@ h2.section { font-size: var(--text-subheading); letter-spacing: var(--tracking-s
 .acard[data-state="notbuilt"] .astatus,
 .acard[data-state="main"] .astatus { color: var(--color-smoke); }
 .said { color: var(--color-smoke); font-size: var(--text-caption); margin-top: 4px; }
+/* F 那一格「現在可以叫主任」(主任動手收尾 AC-9):主任的黃當底,字照舊深色——黃字放在白底上看不清楚。亮＝可以叫,不是做完了,所以不用綠 */
+.said.call {
+  color: var(--color-off-black); font-weight: 600; padding: 4px 8px; border-radius: 6px;
+  background: color-mix(in srgb, var(--color-agent-f) 45%, transparent); border-left: 3px solid var(--color-agent-f);
+}
 
 /* 燈號:亮＝跑過了。⚠️ 亮不代表通過,只代表有紀錄。 */
 .lamp {

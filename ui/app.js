@@ -752,7 +752,8 @@ function directorOf(p, s) {
  * ⚠️ 不是 stages.json 的關:收工 hook、分級、感測器都不認它,只是畫面上的一列;字母照最後一關的下一個排(不寫死,也不會跟真的關撞名)。
  * 每一件的字是伺服器照 lib/todo.mjs 算好的,跟案件頁白板、終端機 --todo 同一句;建議卡「還沒開始」跟「建議新增的對話」那一區同一個判斷(cardFolded)。
  * ⚠️ 一張卡都沒記到要講「不代表沒跳過」,不講「沒有」(老毛病 P5)
- * 最後一行講怎麼叫主任(規格:主任技能 AC-1):主任是對話裡的一支技能,這一列只照總表講、不會自己給建議。已結案的對話沒有收尾要合成,不畫
+ * 最後一行講怎麼叫主任(規格:主任技能 AC-1):主任是對話裡的一支技能,這一列只照總表講、不會自己給建議。已結案的對話沒有收尾要合成,不畫。
+ * 只剩收尾的時候那一行亮起來(規格:主任動手收尾 AC-9):亮不亮與那一句是伺服器照總表算好的(lib/todo.mjs 的 callLine),這裡只照印——用主任的黃,不用綠、不打勾
  */
 function directorRow(c) {
   const d = c.director, e = d.desk;
@@ -782,8 +783,9 @@ function directorRow(c) {
           ${items}
           <div class="said">${esc(cards)}</div>
           ${d.loose ? `<div class="said">${esc(zhEn(`案件頁另有 ${d.loose} 張還沒開始的建議卡，分不出是哪個對話放的`, `The project page has ${d.loose === 1 ? '1 more suggestion card that hasn\'t' : `${d.loose} more suggestion cards that haven't`} been started; which conversation raised ${d.loose === 1 ? 'it' : 'them'} can't be told`))}</div>` : ''}
-          ${e && !e.closed ? `<div class="said">${esc(zhEn('要主任給一個下一步、把這個對話的收尾合成一個問題：在對話裡說「主任」（/pipeline-monitor:director）',
-            'For one next step, and this conversation\'s wrap-up as a single question: say "site director" in the conversation (/pipeline-monitor:director)'))}</div>` : ''}
+          ${e && !e.closed ? (e.call ? `<div class="said call">${esc(e.call)}</div>`
+            : `<div class="said">${esc(zhEn('要主任給一個下一步、把這個對話的收尾合成一個問題（你回一句它就照順序做）：在對話裡說「主任」（/pipeline-monitor:director）',
+            'For one next step, and this conversation\'s wrap-up as a single question (one reply from you has it do them in order): say "site director" in the conversation (/pipeline-monitor:director)'))}</div>`) : ''}
         </div>
       </div>`;
 }

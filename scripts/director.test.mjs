@@ -230,15 +230,18 @@ section('實況走一遍:白板上一個箭頭都沒有,有兩種意思——拿
   check('……而且講分不出是哪一種、不照標題猜', row.includes('分不出是哪一種') && skill.includes('都不照標題猜'), row);
 }
 
-section('AC-10、AC-4:主任只問不動手;「照建議收尾」不准拿來繞過 D 要不要再跑');
+section('AC-10、AC-4(主任動手收尾 AC-1、AC-6、AC-7 改過):回答之前不動手,回答之後只走 --wrap、只做問題裡的;「照建議收尾」不准拿來繞過 D 要不要再跑');
 {
   const skill = readFileSync(join(ROOT, 'skills', 'director', 'SKILL.md'), 'utf8');
   const tools = skill.match(/^allowed-tools:(.*)$/m)?.[1] ?? '';
-  check('先許可的指令裡有讀總表、查卡(不然主任每次都要問)', tools.includes('pipeline-status --todo') && tools.includes('pipeline-status --cards'), tools);
-  // git merge-base 只讀(查存檔在不在 main 上),不算併
+  check('先許可的指令裡有讀總表、查卡、收尾那一支(不然主任每次都要問)', tools.includes('pipeline-status --todo') && tools.includes('pipeline-status --cards') && tools.includes('pipeline-status --wrap'), tools);
+  // 併、推、重啟、蓋章只准走 --wrap:它先在紀錄裡找你的原話、做完自己確認。直接叫的那幾個不先許可。git merge-base 只讀(查存檔在不在 main 上),不算併
   for (const [bad, re] of [['git merge', /git merge(?!-base)/], ['git push', /git push/], ['--serve-restart', /--serve-restart/], ['--checkpoint', /--checkpoint/], ['--decide', /--decide/], ['git commit', /git commit/]]) {
-    check(`先許可的指令裡沒有「${bad}」(併、推、重啟、蓋章、代記決定都不是這一支的事)`, !re.test(tools), tools);
+    check(`先許可的指令裡沒有「${bad}」(直接叫就少了找原話、自己確認那兩道)`, !re.test(tools), tools);
   }
+  check('回答之後每一步走哪一個指令都寫了', ['merge', 'push', 'restart', 'stamp'].every((s) => skill.includes(`pipeline-status --wrap ${s} "<原話>"`)), skill.slice(-2500));
+  check('不是照做的回答 → 一步都不做;第一個不是成了、不用的就停;不准把沒成、問不到講成成了',
+    skill.includes('**一步都不做**') && skill.includes('第一個不是「成了」「不用」的就停') && skill.includes('不准把沒成、問不到講成成了'));
   check('說明裡講明「照建議收尾」是在回答它,不是叫它', /「照建議收尾」是在回答它，不是叫它/.test(skill) && /that's an answer to it, not a call for it/.test(skill));
   check('D 修完要再問、蓋章不准拿來跳過這一題', skill.includes('修完會再問你一次要不要再跑；蓋章等你回答之後才蓋') && skill.includes('不准拿蓋章跳過這一題'));
   check('「驗收過了」只有使用者能說,不包進照建議收尾', skill.includes('「驗收過了」只有使用者能說') && skill.includes('照建議收尾不算這一句'));
@@ -279,6 +282,42 @@ section('AC-9:切成英文——標這個對話、不在白板上、建議卡那
   });
   check('英文:這一段新的字沒有中文', !CJK.test(en), en.match(/.*[一-鿿　-〿＀-￯].*/)?.[0]);
   check('英文:箭頭、不在白板上、找不到、建議卡那一行、--cards 的幾區都在', ['← this conversation', 'isn\'t on the board', 'isn\'t in the records', 'Suggestion cards not started yet: 2', 'Not started yet (2)', 'Started (1)', 'You said you\'re not doing it (1)'].every((k) => en.includes(k)), en);
+}
+
+section('主任動手收尾 AC-9:這一輪該做的都有結論、只剩收尾 → F 那一格亮起來;還在做、等你點頭、待討論、問不到、沒有還差的事 → 不亮', 'P2');
+{
+  const wrapLadder = () => ({ steps: [step('commit', 'done', '都存好了'), step('merge', 'pending', '這條分支還多 2 個存檔沒併'), step('push', 'done', 'GitHub 上的跟 main 一樣')] });
+  const deskOf = (s) => board([proj([s])]).desk[s.id];
+  const only = deskOf(sess({ card: card({ ladder: wrapLadder() }) }));
+  check('只剩存檔、併、章(這裡是還沒併、蓋章之後又存了) → 亮,件數照那一格列的數', /^現在可以叫主任：只剩收尾——在對話裡說「主任」（\/pipeline-monitor:director），它會把這 2 件合成一個問題/.test(only?.call ?? ''), JSON.stringify(only));
+  const dAsk = { id: 'D', name: '魔鬼教官', skill: 'chaos-check', state: 'stale', rerunAfterChange: true, rerun: { state: 'ask', line: '之後又改了程式檔，還沒再跑——要不要再跑由你決定' } };
+  const withD = deskOf(sess({ stages: [...stages(), dAsk], card: card({ ladder: wrapLadder() }) }));
+  check('D 要不要再跑等你決定 + 收尾 → 亮(主任會把這個決定合進同一個問題)', /這 3 件/.test(withD?.call ?? ''), JSON.stringify(withD));
+  const dFound = { ...dAsk, rerun: { state: 'found', line: 'Claude 說找到問題，還沒處理完' } };
+  eq('D 找到的還沒處理完(Claude 的事) → 不亮', deskOf(sess({ stages: [...stages(), dFound], card: card({ ladder: wrapLadder() }) })).call, null);
+  const unmarked = stages().map((x) => (x.id === 'A' ? { ...x, checklist: { parsed: true, total: 2, checked: 1, unmarked: 1, pending: 0 } } : x));
+  eq('清單還沒對完 → 不亮', deskOf(sess({ stages: unmarked, card: card({ ladder: wrapLadder() }) })).call, null);
+  const pending = stages().map((x) => (x.id === 'A' ? { ...x, checklist: { parsed: true, total: 2, checked: 1, unmarked: 0, pending: 1 } } : x));
+  eq('清單有待討論的 → 不亮(那要跟你談,不是收尾)', deskOf(sess({ stages: pending, card: card({ ladder: wrapLadder() }) })).call, null);
+  const nod = stages().map((x) => (x.id === 'A' ? { ...x, doneAt: '2026-11-01T02:30:00Z' } : x.id === 'B' ? { ...x, closedBy: null, nodAt: null } : x));
+  const waiting = deskOf(sess({ stages: nod, card: card({ ladder: wrapLadder() }) }));
+  check('規格寫好、在等你點頭開工 → 不亮(那是開工,不是收尾)', waiting.call === null && waiting.items.some((i) => /等你點頭開工/.test(i.text)), JSON.stringify(waiting));
+  eq('問不到檔案存了沒、併了沒 → 不亮(R1)', deskOf(sess({ card: card({ ladder: null }) })).call, null);
+  eq('問不到分級 → 不亮', deskOf(sess({ tier: null, card: card({ ladder: wrapLadder() }) })).call, null);
+  const done = deskOf(sess({ card: card({ checkpointRelation: { state: 'ok', commitsAfter: 0 } }) }));
+  check('沒有還差的事 → 不亮,照舊「可以按結案」', done.call === null && /可以按結案/.test(done.clear ?? ''), JSON.stringify(done));
+
+  // 網頁:F 那一格照伺服器算好的那一句印,亮的時候換掉平常那一行
+  const wfStages = ['A', 'B', 'C', 'D', 'E'].map((id) => ({ id, name: id, line: '這一輪還沒跑', state: 'none', ...(id === 'B' ? { type: 'main-conversation', state: 'main' } : id === 'E' ? { type: 'browser' } : { skill: id.toLowerCase() }) }));
+  const lit = sess({ id: 'l', card: card({ ladder: wrapLadder() }) });
+  const busy = sess({ id: 'b', stages: unmarked, card: card({ ladder: wrapLadder() }) });
+  const latest = { projects: [{ name: 'p', suggestions: [] }], todo: board([proj([lit, busy])]) };
+  const ui = uiOf(latest);
+  const html = (sid) => ui.workflow({ path: '/w/a', sensor: { state: 'ok' }, stages: wfStages, director: ui.directorOf(latest.projects[0], { id: sid }) });
+  check('只剩收尾的對話:F 那一格亮起來(class call),寫現在可以叫主任', /<div class="said call">現在可以叫主任：只剩收尾/.test(html('l')) && !html('l').includes('要主任給一個下一步'), html('l').slice(-600));
+  check('還在做的對話:照舊平常那一行(講叫主任之後你回一句它就照順序做),不亮', html('b').includes('要主任給一個下一步、把這個對話的收尾合成一個問題（你回一句它就照順序做）') && !html('b').includes('said call'), html('b').slice(-600));
+  const en = withLang('en', () => board([proj([sess({ card: card({ ladder: wrapLadder() }) })])]).desk.s1?.call ?? '');
+  check('英文:亮燈那一句沒有中文,講 site director', /^Now's a good time to call the site director: only wrap-up is left/.test(en) && !CJK.test(en), en);
 }
 
 process.exit(summary());
