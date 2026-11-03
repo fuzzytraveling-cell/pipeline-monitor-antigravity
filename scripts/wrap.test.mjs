@@ -308,6 +308,10 @@ section('AC-8:推之前在乾淨副本跑一次測試——環境照 L24 給齊,
   eq('npm run test:clean 指到這一支', pkg.scripts?.['test:clean'], 'node scripts/clean-run.mjs');
   check('手冊(CLAUDE.md)寫了推上 GitHub 之前跑它', /推上 GitHub 之前[\s\S]{0,40}npm run test:clean/.test(readFileSync(join(ROOT, 'CLAUDE.md'), 'utf8')));
   check('主任技能:手冊寫「推之前」要做的,排在推的前一步', readFileSync(join(ROOT, 'skills', 'director', 'SKILL.md'), 'utf8').includes('手冊寫「推之前」要做的'));
+}
+
+section('AC-8:乾淨副本在 worktree 裡也 clone 得起來——git 給的共用資料夾在 worktree 裡是絕對路徑,硬接就是一條不存在的路', 'P13');
+{
   // 寫的時候真的跑一次才發現:在 worktree 裡一次都 clone 不起來(共用資料夾的路徑接錯)。worktree 正是 app 給每個對話的那一種資料夾
   const w = world();
   let c = null, err = null;
