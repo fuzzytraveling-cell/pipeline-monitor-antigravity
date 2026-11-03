@@ -313,7 +313,9 @@ section('AC-8:推之前在乾淨副本跑一次測試——環境照 L24 給齊,
   let c = null, err = null;
   try { c = cloneAt(w.wt, 'HEAD'); } catch (e) { err = e.message; }
   check('在 worktree 裡也 clone 得出來,版本就是那個存檔', !!c && out(c.copy, 'rev-parse', 'HEAD') === out(w.wt, 'rev-parse', 'HEAD'), err ?? '');
-  check('……副本在短的暫存路徑底下', /^\/tmp\/pmc-/.test(c?.base ?? ''), c?.base ?? err);
+  check('……副本在短的暫存路徑底下(真實路徑:不走 /tmp 那個捷徑)', /^\/(private\/)?tmp\/pmc-/.test(c?.base ?? ''), c?.base ?? err);
+  // 第一次叫 repo:舊接法認自己的接點看指令裡有沒有專案的名字,掛感測器那一支紅一整片(GitHub 的機器上資料夾就叫專案的名字)
+  eq('……副本的資料夾照專案的名字取(跟 GitHub 的機器一樣)', basename(c?.copy ?? ''), basename(w.mainDir));
   if (c) rmSync(c.base, { recursive: true, force: true });
   let why = null;
   try { cloneAt(w.wt, 'no-such-version'); } catch (e) { why = e.message; }

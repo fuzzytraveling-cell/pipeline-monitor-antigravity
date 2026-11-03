@@ -10,7 +10,7 @@
  */
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, rmSync, existsSync, realpathSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 
@@ -38,8 +38,11 @@ export function cloneAt(root, ref = 'HEAD', { tmp = '/tmp' } = {}) {
   let sha;
   try { sha = git(['rev-parse', '--verify', `${ref}^{commit}`], root); } catch { throw new Error(`認不出版本「${ref}」`); }
   const common = resolve(root, git(['rev-parse', '--git-common-dir'], root));
-  const base = mkdtempSync(join(tmp, 'pmc-'));
-  const copy = join(base, 'repo');
+  // 真實路徑:Mac 的 /tmp 是 /private/tmp 的捷徑,GitHub 的機器沒有——照真的那一個給,比對路徑的測試才跟那裡一樣
+  const base = realpathSync(mkdtempSync(join(tmp, 'pmc-')));
+  // 副本的資料夾照專案的名字取,跟 GitHub 的機器一樣(…/pipeline-monitor/pipeline-monitor):舊接法認「是不是我們的接點」看指令裡有沒有
+  // pipeline-monitor 這幾個字(lib/mount.mjs 的 isOurs),資料夾叫別的名字,掛感測器那一支就紅一整片——第一次叫 repo,真的紅了(寫的時候踩到)
+  const copy = join(base, basename(dirname(common)));
   try {
     git(['clone', '-q', common, copy], base);
     git(['checkout', '-q', '--detach', sha], copy);
