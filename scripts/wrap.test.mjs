@@ -283,6 +283,20 @@ section('AC-5:還有一關的結論沒了結就不蓋章——主任收尾那一
   w.cleanup();
 }
 
+section('魔鬼教官第一輪:D 找到問題、之後沒再改程式(你決定那幾條不修)——蓋章不擋,跟收工 hook 講同一件事;擋了就沒有出口', 'P2');
+{
+  const w = world();
+  w.commit(w.wt, -36 * MIN, { 'src/a.js': 'v1\n' }, '改程式');
+  const h = out(w.wt, 'rev-parse', '--short', 'HEAD');
+  const before = new Date(Date.parse(T(-36 * MIN)));
+  utimesSync(join(w.wt, 'src/a.js'), before, before);                  // 改在叫 D 之前:之後沒再改
+  w.write([said(-40 * MIN, '修一下'), callD(-30 * MIN, h), { ...reportD(-29 * MIN), verdict: 'found', note: '找到 1 條' }, said(-20 * MIN, '那一條不修')]);
+  const cp = w.cli(['--checkpoint']);
+  check('直接叫 --checkpoint → 照舊跑檢查、蓋章,不講「不蓋章」', cp.code === 0 && /🟢 蓋章完成/.test(cp.text) && !/不蓋章/.test(cp.text), cp.text);
+  eq('……真的寫了一顆章', w.stamps().length, 1);
+  w.cleanup();
+}
+
 section('英文:--wrap 那幾行沒有中文', 'P2');
 {
   const w = world();

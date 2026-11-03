@@ -289,10 +289,18 @@ section('主任動手收尾 AC-9:這一輪該做的都有結論、只剩收尾 �
   const wrapLadder = () => ({ steps: [step('commit', 'done', '都存好了'), step('merge', 'pending', '這條分支還多 2 個存檔沒併'), step('push', 'done', 'GitHub 上的跟 main 一樣')] });
   const deskOf = (s) => board([proj([s])]).desk[s.id];
   const only = deskOf(sess({ card: card({ ladder: wrapLadder() }) }));
-  check('只剩存檔、併、章(這裡是還沒併、蓋章之後又存了) → 亮,件數照那一格列的數', /^現在可以叫主任：只剩收尾——在對話裡說「主任」（\/pipeline-monitor:director），它會把這 2 件合成一個問題/.test(only?.call ?? ''), JSON.stringify(only));
+  check('只剩存檔、併、章(這裡是還沒併、蓋章之後又存了) → 亮,件數照那一格列的數', /^現在可以叫主任：只剩收尾——在對話裡說「主任」（\/pipeline-monitor:director），它會把上面能一起做的 2 件合成一個問題/.test(only?.call ?? ''), JSON.stringify(only));
   const dAsk = { id: 'D', name: '魔鬼教官', skill: 'chaos-check', state: 'stale', rerunAfterChange: true, rerun: { state: 'ask', line: '之後又改了程式檔，還沒再跑——要不要再跑由你決定' } };
   const withD = deskOf(sess({ stages: [...stages(), dAsk], card: card({ ladder: wrapLadder() }) }));
-  check('D 要不要再跑等你決定 + 收尾 → 亮(主任會把這個決定合進同一個問題)', /這 3 件/.test(withD?.call ?? ''), JSON.stringify(withD));
+  check('D 要不要再跑等你決定 + 收尾 → 亮(主任會把這個決定合進同一個問題)', /能一起做的 3 件/.test(withD?.call ?? ''), JSON.stringify(withD));
+  // 魔鬼教官第一輪:「驗收過了」只有你能說,主任不把它包進那一個問題——件數不算它;只剩它就沒有東西可以合成,不亮(老毛病 P2)
+  const eWalked = { id: 'E', name: '驗收', type: 'browser', state: 'ran', ewhere: 'Claude 走過一遍，等你查核', rerun: { state: 'ok', estate: 'ok', line: 'Claude 走過一遍' } };
+  const withE = deskOf(sess({ stages: [...stages(), eWalked], card: card({ ladder: wrapLadder() }) }));
+  check('E 走過一遍、等你查核 + 收尾 → 亮,件數不算 E(主任另外講驗收過了只有你能說)', /能一起做的 2 件/.test(withE?.call ?? '') && withE.items.some((i) => /等你查核/.test(i.text)), JSON.stringify(withE));
+  const eOnly = deskOf(sess({ stages: [...stages(), eWalked], card: card({ checkpointRelation: { state: 'ok', commitsAfter: 0 } }) }));
+  eq('只剩「等你查核」→ 不亮(沒有東西可以合成)', eOnly.call, null);
+  const eAgain = { ...eWalked, rerun: { state: 'ask', estate: 'ask', line: '之後又改了程式檔，還沒再走——要不要再走由你決定' } };
+  check('E「要不要再走由你決定」跟 D 一樣算進件數', /能一起做的 3 件/.test(deskOf(sess({ stages: [...stages(), eAgain], card: card({ ladder: wrapLadder() }) })).call ?? ''));
   const dFound = { ...dAsk, rerun: { state: 'found', line: 'Claude 說找到問題，還沒處理完' } };
   eq('D 找到的還沒處理完(Claude 的事) → 不亮', deskOf(sess({ stages: [...stages(), dFound], card: card({ ladder: wrapLadder() }) })).call, null);
   const unmarked = stages().map((x) => (x.id === 'A' ? { ...x, checklist: { parsed: true, total: 2, checked: 1, unmarked: 1, pending: 0 } } : x));
