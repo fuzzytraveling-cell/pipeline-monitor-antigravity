@@ -585,6 +585,31 @@ section('分級卡與存檔與蓋章卡:只看得到還沒存的時候不畫「�
     /服務還在跑舊的程式/.test(old) && !/class="num"/.test(old) && !/undefined|NaN|\bnull\b/.test(old), old);
   check('畫面不 import 新檔(常駐服務只送啟動那一刻白名單裡的檔案,多一個新檔,重啟之前整個畫面載不進來)',
     !/from '\/scope\.mjs'/.test(src) && [...src.matchAll(/^import .* from '([^']+)'/gm)].every((m) => m[1] === '/freshness.mjs'), [...src.matchAll(/^import .* from '([^']+)'/gm)].map((m) => m[1]).join(','));
+
+  // 從 main 併進來、這一輪沒算的檔(規格:併進來的不算這一輪 AC-5):0 的時候不畫「沒有改動」、不講「一模一樣」——檔案已經跟開始時不一樣了
+  const mergedBase = (extra) => ({ kind: 'origin', why: null, moved: true, merged: 22, origin: { at: '2026-11-03T02:00:00Z', from: 'A', sessions: null }, ...extra });
+  const onlyMerged = { path: '/x', files: empty, scope: changeScope(mergedBase(), ago) };
+  const onlyHtml = ui?.statChanges(onlyMerged) ?? '';
+  check('存檔與蓋章卡:只有從 main 併進來的 → 大字「這一輪沒有改動」,底下講另外 22 個從 main 併進來,不寫「沒有改動」「看不全」「一模一樣」',
+    /<div class="big">這一輪沒有改動<\/div>/.test(onlyHtml) && /另外 22 個檔是從 main 併進來的（別的對話改的），不算這一輪/.test(onlyHtml)
+    && !/<div class="big">(沒有改動|看不全)<\/div>/.test(onlyHtml) && !/一模一樣/.test(onlyHtml), onlyHtml);
+  const g1 = [{ dir: 'src', items: [{ name: 'a.js', isNew: false, uncommitted: null }] }];
+  const mine = { total: 1, newCount: 0, uncommittedCount: 0, groups: g1, unsaved: { count: 0, groups: [] }, saved: { count: 1, groups: g1 } };
+  const bothHtml = ui?.statChanges({ path: '/x', files: mine, scope: changeScope(mergedBase(), ago) }) ?? '';
+  check('自己有改的(都 commit 了):照舊「1 個檔案還沒蓋章」,清單底下另起一行講 22 個從 main 併進來',
+    /<span class="num">1<\/span>/.test(bothHtml) && /a\.js/.test(bothHtml) && /<div class="hint">另外 22 個檔是從 main 併進來的（別的對話改的），不算這一輪。<\/div>/.test(bothHtml), bothHtml);
+  const dirtyHtml = ui?.statChanges({ path: '/x', files: { ...mine, uncommittedCount: 1, unsaved: { count: 1, groups: g1 }, saved: { count: 0, groups: [] } }, scope: changeScope(mergedBase(), ago) }) ?? '';
+  check('還有沒 commit 的:那一張也講 22 個從 main 併進來', /個檔案還沒 commit/.test(dirtyHtml) && /另外 22 個檔是從 main 併進來的/.test(dirtyHtml), dirtyHtml);
+  const stampedHtml = ui?.statChanges({ path: '/x', files: empty, scope: changeScope({ kind: 'checkpoint', merged: 3 }, ago) }) ?? '';
+  check('蓋章之後才併進來的:講它們在這個資料夾還沒跑過檢查,不講「跟蓋章時一模一樣」',
+    /蓋章之後從 main 併進來的（別的對話改的），不算這一輪；它們在這個資料夾還沒跑過檢查/.test(stampedHtml) && !/一模一樣/.test(stampedHtml), stampedHtml);
+  const ovMerged = { path: '/x', ladder: { uncommitted: 0 }, checkpoint: null, files: empty, scope: onlyMerged.scope };
+  const ovMergedHtml = ov?.({ name: 'p', mainRoot: '/x', cards: [ovMerged], sessions: [{ id: 's1', title: '主任第三段', lastTs: '2026-11-03T02:00:00Z', closedAt: null, card: ovMerged }] }) ?? '';
+  check('案件首頁:只有從 main 併進來的 → 講這一輪沒有待檢查的、另外 22 個從 main 併進來,不寫「沒有待檢查的檔案」「看不全」',
+    /這一輪沒有待檢查的檔案；另外 22 個從 main 併進來/.test(ovMergedHtml) && !/<div>沒有待檢查的檔案<\/div>/.test(ovMergedHtml) && !/看不全/.test(ovMergedHtml), ovMergedHtml.slice(0, 800));
+  const ovMine = { ...ovMerged, files: mine };
+  const ovMineHtml = ov?.({ name: 'p', mainRoot: '/x', cards: [ovMine], sessions: [{ id: 's1', title: '主任第三段', lastTs: '2026-11-03T02:00:00Z', closedAt: null, card: ovMine }] }) ?? '';
+  check('案件首頁:自己有 1 個 → 「1 個檔案還沒檢查（另外 22 個從 main 併進來）」', /1 個檔案還沒檢查（另外 22 個從 main 併進來）/.test(ovMineHtml), ovMineHtml.slice(0, 800));
 }
 
 section('存檔與蓋章卡:先講 commit 了沒,都 commit 了才講還沒蓋章;問不到不講成都 commit 了;不打勾、不變綠(真的跑 ui/app.js 的 statChanges;規格:先講commit再講蓋章 AC-1、AC-3~AC-8)', 'P10');

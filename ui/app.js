@@ -536,6 +536,8 @@ function statChanges(c) {
     </details>`;
 
   const u = f.unsaved;
+  // 從 main 併進來、這一輪沒算的檔(規格:併進來的不算這一輪 AC-5):清單底下講幾個,句子是伺服器照 lib/scope.mjs 給的。舊的服務沒給就不講(照舊)
+  const merged = sc.mergedNote ? `<div class="hint">${esc(sc.mergedNote)}${zhEn('。', '.')}</div>` : '';
   // 問不到 ≠ 沒有(R1):問不到哪些還沒 commit,就不往下講「都 commit 了」「N 個還沒蓋章」(AC-6)
   if (u === null) return card(`<div class="big">${zhEn('問不到', 'Couldn\'t check')}</div><div class="sub">${q.unsavedWhether ? `${esc(q.unsavedWhether)}${zhEn('。', '.')}` : OLD_LINE}</div>${help}`);
 
@@ -547,17 +549,18 @@ function statChanges(c) {
       : f.saved?.count && sc.savedTail ? `<details class="more" data-fold="${esc(savedKey)}"${foldOpen(savedKey, false) ? ' open' : ''}><summary>${zhEn(`另外 ${f.saved.count} 個${esc(sc.savedTail)}`, `${many(f.saved.count, 'more file')} ${esc(sc.savedTail)}`)}</summary>${groupsOf(f.saved.groups)}</details>`
       : '';
     return card(`<div class="big"><span class="num">${u.count}</span><span class="unit">${zhEn('個檔案還沒 commit', u.count === 1 ? 'file not committed yet' : 'files not committed yet')}</span></div>
-    ${listOf(u.groups)}${others}${help}`);
+    ${listOf(u.groups)}${others}${merged}${help}`);
   }
   // 都 commit 了,但看不到 commit 過的是哪些:不畫「沒有改動」(老毛病 P5),講看不到
   if (sc.blind) return card(`<div class="big">${zhEn('都 commit 了', 'All committed')}</div><div class="sub">${sc.unseen ? `${esc(sc.unseen)}${zhEn('。', '.')}` : ''}</div>${help}`);
   // 都 commit 了、跟起點一樣:這一輪中間存過檔或切過分支的話,0 不是「沒有改動」(P5),照伺服器給的那一句講
   const s = f.saved;
-  if (!s?.count) return card(`<div class="big">${sc.emptyBlind ? zhEn('看不全', 'Can\'t see all of it') : zhEn('沒有改動', 'No changes')}</div><div class="sub">${esc(sc.empty ?? '')}</div>${help}`);
+  // 只有從 main 併進來的:不是「沒有改動」(檔案已經跟開始時不一樣),是這一輪自己沒有改動——底下那一句講拿掉幾個(併進來的不算這一輪 AC-5)
+  if (!s?.count) return card(`<div class="big">${sc.merged ? zhEn('這一輪沒有改動', 'No changes this round') : sc.emptyBlind ? zhEn('看不全', 'Can\'t see all of it') : zhEn('沒有改動', 'No changes')}</div><div class="sub">${esc(sc.empty ?? '')}</div>${help}`);
   // 都 commit 了:改講還沒蓋章(AC-4)。不加綠色、不打勾——蓋過章也只代表檢查全綠(老毛病 P10)
   return card(`<div class="big"><span class="num">${s.count}</span><span class="unit">${zhEn('個檔案還沒蓋章', s.count === 1 ? 'file not stamped yet' : 'files not stamped yet')}</span></div>
     <div class="sub">${sc.allSaved ? `${esc(sc.allSaved)}${zhEn('。', '. ')}` : ''}${zhEn('要蓋章：在那個資料夾跑 <code>pipeline-status --checkpoint</code>', 'To stamp: run <code>pipeline-status --checkpoint</code> in that folder')}</div>
-    ${listOf(s.groups)}${help}`);
+    ${listOf(s.groups)}${merged}${help}`);
 }
 
 /* ═══ 分級:伺服器(lib/tier.mjs)算好,這裡只畫。那幾句是伺服器照 tierLines 算好的(tier.lines),跟終端機的 describeTier 同一句 ═══ */
@@ -814,8 +817,11 @@ function overview(p) {
     card.ladder?.uncommitted === null ? zhEn('問不到有沒有沒存的檔案', 'Couldn\'t check for files not committed yet')
       : card.ladder?.uncommitted ? zhEn(`${card.ladder.uncommitted} 個檔案沒存`, `${many(card.ladder.uncommitted, 'file')} not committed yet`) : zhEn('都存好了', 'All committed'),
     !card.checkpoint ? zhEn('還沒有還原點', 'No restore point yet') : cpOk(card) ? zhEn(`還原點 ${ago(card.checkpoint.at)}`, `Restore point from ${ago(card.checkpoint.at)}`) : zhEn('還原點失效', 'Restore point unusable'),
-    // 0 有兩種意思(老毛病 P5):存檔過的看不到的時候,不准寫「沒有待檢查的檔案」——對話頁那張卡寫的是「看不全」
-    card.files?.total ? zhEn(`${card.files.total} 個檔案還沒檢查`, `${many(card.files.total, 'file')} not checked yet`)
+    // 0 有兩種意思(老毛病 P5):存檔過的看不到的時候,不准寫「沒有待檢查的檔案」——對話頁那張卡寫的是「看不全」。
+    // 從 main 併進來、這一輪沒算的:個數照講,0 的時候不講成資料夾沒變(規格:併進來的不算這一輪 AC-5)
+    card.files?.total ? zhEn(`${card.files.total} 個檔案還沒檢查${card.scope?.merged ? `（另外 ${card.scope.merged} 個從 main 併進來）` : ''}`,
+        `${many(card.files.total, 'file')} not checked yet${card.scope?.merged ? ` (${card.scope.merged} more came in from main)` : ''}`)
+      : card.scope?.merged ? zhEn(`這一輪沒有待檢查的檔案；另外 ${card.scope.merged} 個從 main 併進來`, `No files of this round waiting to be checked; ${card.scope.merged} came in from main`)
       : card.scope?.emptyBlind ? zhEn('看不全：這一輪存檔過的看不到', 'Can\'t see all of it: this round\'s commits can\'t be seen') : zhEn('沒有待檢查的檔案', 'No files waiting to be checked'),
   ] : [p.noRecords && !p.cards?.length && within ? zhEn(`${within}沒有紀錄，也沒有還原點`, `No records${within}, and no restore point`) : zhEn('還沒有資料', 'No data yet')];
 
