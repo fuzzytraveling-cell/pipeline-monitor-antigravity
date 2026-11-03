@@ -221,6 +221,15 @@ section('技能照指令的字分路:找「這個對話」的那幾句、建議�
   check('技能找這一輪的規格靠「照這 N 份規格驗」,那是 --round E 真的會印的字', /照這 N 份規格驗/.test(skill) && /照這 \$\{vl\.specs\.length\} 份規格驗/.test(src));
 }
 
+section('實況走一遍:白板上一個箭頭都沒有,有兩種意思——拿不到對話代號、或 pipeline-status 是還不會標的舊版;技能兩種都講,不照標題猜', 'P5');
+{
+  // 2026-11-03 照技能自己走一遍時真的碰到:pipeline-status 指著主資料夾,那時還是舊版,環境明明有對話代號,白板一個箭頭都沒有
+  const skill = readFileSync(join(ROOT, 'skills', 'director', 'SKILL.md'), 'utf8');
+  const row = skill.split('\n').find((l) => l.startsWith('| 一個箭頭都沒有')) ?? '';
+  check('那一列兩種原因都列(拿不到對話代號、還不會標箭頭的舊版)', row.includes('拿不到對話代號') && row.includes('還不會標箭頭的舊版'), row);
+  check('……而且講分不出是哪一種、不照標題猜', row.includes('分不出是哪一種') && skill.includes('都不照標題猜'), row);
+}
+
 section('AC-10、AC-4:主任只問不動手;「照建議收尾」不准拿來繞過 D 要不要再跑');
 {
   const skill = readFileSync(join(ROOT, 'skills', 'director', 'SKILL.md'), 'utf8');
