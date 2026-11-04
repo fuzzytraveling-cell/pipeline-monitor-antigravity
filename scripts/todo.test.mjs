@@ -447,10 +447,12 @@ section('AC-12:對話頁多一關 F 工地主任——收尾了沒、這個對�
   const closedHtml = run('c1');
   check('已結案、資料夾沒事 → 講已結案、資料夾裡沒有沒存沒併的,主任休息', closedHtml.includes('已結案') && closedHtml.includes('資料夾裡沒有沒存、沒併的東西') && /data-id="director" data-face="rest"/.test(closedHtml), closedHtml.slice(-500));
   const card1 = (o) => ({ id: 'k', title: 't', session: 's1', ...o });
-  check('這個對話提的卡還沒開始 → 講幾張、在哪一區看', run('s1', [card1({}), card1({ id: 'k2' })]).includes('這個對話提了 2 張新對話的建議卡還沒開始'));
+  // F 那一格改成條列(規格:主任條列與工地帽 AC-1):外面講幾張、在案件頁,哪一區收在「細節」
+  const two = run('s1', [card1({}), card1({ id: 'k2' })]);
+  check('這個對話提的卡還沒開始 → 講幾張、在哪一區看', two.includes('建議卡：還沒開始 2 張（在案件頁）') && two.includes('「建議新增的對話」那一區'), two.slice(-900));
   check('都開始了、不做了、被取代了 → 照講(跟建議卡那一區同一個判斷)', run('s1', [card1({ startedBy: 'x' }), card1({ id: 'k2', dismissedAt: '2026-11-01T00:00:00Z' })]).includes('都開始了'));
   check('必抓:一張都沒記到 → 講不代表沒跳過,不講沒有(P5)', run('s1').includes('不代表沒跳過'));
-  check('必抓:分不出是哪個對話放的卡 → 另外講案件頁還有幾張,不算到這個對話頭上、也不因此講沒有(P7)', run('s1', [card1({ session: null }), card1({ id: 'k3', session: null })]).includes('案件頁另有 2 張還沒開始的建議卡，分不出是哪個對話放的'));
+  check('必抓:分不出是哪個對話放的卡 → 另外講案件頁還有幾張,不算到這個對話頭上、也不因此講沒有(P7)', run('s1', [card1({ session: null }), card1({ id: 'k3', session: null })]).includes('另有 2 張建議卡分不出是哪個對話放的（在案件頁）'));
   const old = run('s1', [], { oldServer: true });
   check('舊的服務沒有 todo → F 那一行講服務還在跑舊的程式,不畫成沒事', old.includes('服務還在跑舊的程式') && /data-id="director" data-face="ask"/.test(old), old.slice(-500));
   check('沒給主任資料的工作流照舊只畫五關(測試、舊的呼叫法不會壞)', !uiOf({ projects: [] }).workflow({ path: '/w', sensor: { state: 'ok' }, stages: wfStages }).includes('工地主任'));

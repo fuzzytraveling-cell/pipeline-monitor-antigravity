@@ -437,7 +437,7 @@ section('D 那一格:擱著(held)的樣子、那一句與花了多久——句�
   const constLine = (name) => src.match(new RegExp(`^const ${name} = .*$`, 'm'))?.[0] ?? null;
   // 那一句、旁白都是伺服器給的(規格:終端機與網頁說同一句):畫面只剩 workflow 與它的小幫手
   // roundStage:這一輪走到哪一關;FACE／eyes／agent:畫工班(工地工班風畫面 AC-7、AC-8)
-  const parts = [constLine('stageState'), constLine('OLD_LINE'), constLine('FACE'), fn('roundStage', 'stages'), fn('eyes', 'face, at'), fn('agent', 'st, s, here'), fn('workflow', 'c')];
+  const parts = [constLine('stageState'), constLine('OLD_LINE'), constLine('FACE'), fn('roundStage', 'stages'), fn('eyes', 'face, at'), fn('hat', 'at, ai = false'), fn('agent', 'st, s, here'), fn('workflow', 'c')];
   check('從 ui/app.js 拿得出 workflow 與它用到的那幾個(拿不出來這一段就什麼都沒測到)', parts.every(Boolean), parts.map((p, i) => (p ? '' : i)).join(','));
   const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const ago = (iso) => (iso ? '5 分鐘前' : '');

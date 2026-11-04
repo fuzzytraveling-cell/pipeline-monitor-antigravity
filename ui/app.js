@@ -36,30 +36,47 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 /* ═══ 五個工班:五種形狀加兩隻眼睛,像 Grok 那樣——不畫人、不畫嘴(Oscar 2026-10-27;工地工班風畫面 AC-7) ═══ */
-/* 每一關在做什麼——用 Oscar 自己那張「蓋房子」對照表的白話。
-   形狀畫在 64×66 的格子裡(底下留兩格給影子);eye 是兩隻眼睛中間那一點。顏色在 ui.css,跟著 data-id 走,永遠是那一關的顏色 */
+/* 2026-11-03 起六個角色都戴工地帽、眼睛一律黑色,顏色照 Oscar 給的校色參考圖(規格:主任條列與工地帽 AC-7、AC-8、AC-12)。
+   每一關在做什麼——用 Oscar 自己那張「蓋房子」對照表的白話。
+   形狀畫在 64×66 的格子裡(底下留兩格給影子);eye 是兩隻眼睛中間那一點;hat 是帽緣的中間那一點——尖頂的形狀,帽子要蓋住尖端。
+   顏色在 ui.css,跟著 data-id 走,永遠是那一關的顏色 */
 const ROLE = {
   A: { house: zhEn('建築師畫圖', 'The architect draws the plans'), does: zhEn('把需求翻成一條條可以打勾的驗收條件', 'Turns the request into acceptance criteria you can tick off one by one'),
        // 墨水滴:建築師畫圖用的墨
-       shape: '<path d="M32 7C27 15 13 27 13 39c0 11 8.5 18 19 18s19-7 19-18C51 27 37 15 32 7z"/>', eye: [32, 40] },
+       shape: '<path d="M32 7C27 15 13 27 13 39c0 11 8.5 18 19 18s19-7 19-18C51 27 37 15 32 7z"/>', eye: [32, 40], hat: [32, 14] },
   B: { house: zhEn('工班施工', 'The crew builds'), does: zhEn('照圖蓋,蓋到每條都打勾', 'Builds to the plans until every item is ticked'),
        // 圓球:就是你在講話的那個對話
-       shape: '<circle cx="32" cy="34" r="22"/>', eye: [32, 33] },
+       shape: '<circle cx="32" cy="34" r="22"/>', eye: [32, 33], hat: [32, 14.5] },
   C: { house: zhEn('收尾清場', 'Site cleanup'), does: zhEn('清掉施工留下的鷹架、暫時變數、複製貼上', 'Clears away the scaffolding left from building: temporary variables, copy-paste'),
        // 雲朵:清乾淨之後的泡泡
-       shape: '<path d="M20 52c-8 0-12-5.5-11-11 1-5 5.5-8 10-7.5C19.5 25.5 25.5 20 33 20c6.5 0 11.5 4 13 9.5 6-.5 11 4.5 10.5 11S51 52 45 52z"/>', eye: [33, 41] },
+       shape: '<path d="M20 52c-8 0-12-5.5-11-11 1-5 5.5-8 10-7.5C19.5 25.5 25.5 20 33 20c6.5 0 11.5 4 13 9.5 6-.5 11 4.5 10.5 11S51 52 45 52z"/>', eye: [33, 41], hat: [33, 22.5] },
   D: { house: zhEn('驗屋師傅拿槌子敲牆', 'The inspector taps the walls with a hammer'), does: zhEn('不是看漂不漂亮,是找「哪裡是空心的」', 'Not checking whether it looks nice — looking for where it\'s hollow'),
        // 六角螺帽:敲敲看有沒有鎖緊
-       shape: '<path d="M32 10l19.9 11.5v23L32 56 12.1 44.5v-23z"/>', eye: [32, 34] },
+       shape: '<path d="M32 10l19.9 11.5v23L32 56 12.1 44.5v-23z"/>', eye: [32, 34], hat: [32, 15.5] },
   E: { house: zhEn('你自己走進去住一晚', 'You move in for a night'), does: zhEn('真的開門、開燈、沖馬桶,確認能住人', 'Really open the doors, turn on the lights, flush the toilet: make sure people can live there'),
        // 小房子:你要住進去的那一間
-       shape: '<path d="M32 9l22 18v27H10V27z"/>', eye: [32, 40] },
+       shape: '<path d="M32 9l22 18v27H10V27z"/>', eye: [32, 40], hat: [32, 14.5] },
   // 工地主任(規格:還差什麼總表 AC-11、AC-12):第六個角色,不是 stages.json 的關——收工 hook、分級、感測器都不認它,只畫在畫面上。
-  // 鍵不用字母:專案自己的關卡哪天多一個 F,也不會撞在一起。直角三角形:主任手上那把三角板(Oscar 2026-11-02 指定;以前是三角錐)。
-  // 眼睛擺在直角那一角:「看著右邊」的時候右眼往斜邊靠,這個位置還塞得下
+  // 鍵不用字母:專案自己的關卡哪天多一個 F,也不會撞在一起。
+  // 戴工地帽的等腰三角形,尖的朝上、帽子蓋住尖端,帽子正面寫 AI(Oscar 2026-11-03 給的參考圖;以前是直角三角形的三角板、更早是三角錐)
   director: { house: zhEn('工地主任巡一圈', 'The site director walks the site'), does: zhEn('看這個對話還有哪些沒收尾：等你決定的、還差的、看不到的', 'Checks what this conversation hasn\'t wrapped up: what\'s waiting for you, what\'s still to do, what can\'t be seen'),
-       shape: '<path d="M10 6v51h46z"/>', eye: [24, 44] },
+       shape: '<path d="M32 15L55.5 56H8.5z"/>', eye: [32, 42], hat: [32, 21], ai: true },
 };
+/**
+ * 工地帽(規格:主任條列與工地帽 AC-7、AC-8):六個角色同一頂——圓頂、帽緣、頂上一道稜,戴在 ROLE 的 hat 那一點;
+ * 顏色是身體的淺一號(ui.css 的 .ag-hat),不跟狀態變。只有主任那一頂正面有 AI(ai)。
+ * AI 用線畫、不用 <text>:字小到這樣,有的瀏覽器會照「最小字級」把它放大,撐出帽子。
+ * 放在帽子這一組、不放在眼睛那一組:這一輪走到的那一關眼睛會眨,字不能跟著眨
+ */
+function hat(at, ai = false) {
+  const [x, y] = at;
+  // 以帽緣中間為原點畫,再搬到那一點:六頂一樣大(參考圖上帽子大小差不多,身體才不一樣)。帽緣下那一道影子讓帽子跟身體分得開
+  const letters = 'M-2.1 -3.4L-0.7 -6.6L0.7 -3.4M-1.55 -4.5H0.15M2.1 -6.6V-3.4';
+  return `<g class="ag-hat" transform="translate(${x} ${y}) scale(1.15)"><ellipse class="hat-shade" cx="0" cy="1.6" rx="10.5" ry="1.8"/>`
+    + '<path class="hat-dome" d="M-8 -1.5C-8 -11.5 8 -11.5 8 -1.5z"/><rect class="hat-ridge" x="-1.6" y="-9.8" width="3.2" height="3.6" rx="1.6"/>'
+    + '<rect class="hat-brim" x="-11" y="-2.6" width="22" height="3.6" rx="1.8"/>'
+    + `${ai ? `<path class="hat-ai-edge" d="${letters}"/><path class="hat-ai" d="${letters}"/>` : ''}</g>`;
+}
 /**
  * 表情只講感測器知道的事,不替結果背書(工地工班風畫面 AC-8):感測器只知道這一關被叫過,不知道做得好不好——
  * 笑眼只給「你說處理完了」(done 而且 doneBy 是 human,見 agent);叫了(ran)是睜眼看著右邊那一行字。
@@ -95,7 +112,7 @@ function agent(st, s, here) {
     : face === 'worry' ? '<path class="ag-sweat" d="M52 11c-2 4-3.5 6-3.5 8a3.5 3.5 0 0 0 7 0c0-2-1.5-4-3.5-8z"/>' : '';
   return `<span class="agent" data-id="${esc(st.id)}" data-face="${face}"${here ? ' data-here="1"' : ''}>${here ? '<span class="halo"></span><span class="halo"></span>' : ''}
     <svg viewBox="0 0 64 66" aria-hidden="true"><ellipse class="ag-ground" cx="32" cy="62" rx="14" ry="2.5"/>
-      <g class="ag-float"><g class="ag-body">${r?.shape ?? '<circle cx="32" cy="34" r="22"/>'}</g><g class="ag-face">${eyes(face, r?.eye ?? [32, 33])}</g>${extra}</g></svg></span>`;
+      <g class="ag-float"><g class="ag-body">${r?.shape ?? '<circle cx="32" cy="34" r="22"/>'}</g>${hat(r?.hat ?? [32, 14], !!r?.ai)}<g class="ag-face">${eyes(face, r?.eye ?? [32, 33])}</g>${extra}</g></svg></span>`;
 }
 
 /* ═══ 新鮮度(AC-1／AC-2) ═══ */
@@ -744,7 +761,7 @@ function workflow(c) {
 function directorOf(p, s) {
   // loose:記不到是哪個對話放的卡(終端機 --suggest 放的沒有對話代號)——算不到這個對話頭上,也不准因此講成沒有(R1、P7)
   const all = p?.suggestions ?? [];
-  return { hasTodo: !!latest && 'todo' in latest, desk: latest?.todo?.desk?.[s.id] ?? null,
+  return { id: s.id, hasTodo: !!latest && 'todo' in latest, desk: latest?.todo?.desk?.[s.id] ?? null,
            cards: all.filter((x) => x.session === s.id), loose: all.filter((x) => !x.session && !cardFolded(x)).length };
 }
 /**
@@ -754,6 +771,9 @@ function directorOf(p, s) {
  * ⚠️ 一張卡都沒記到要講「不代表沒跳過」,不講「沒有」(老毛病 P5)
  * 最後一行講怎麼叫主任(規格:主任技能 AC-1):主任是對話裡的一支技能,這一列只照總表講、不會自己給建議。已結案的對話沒有收尾要合成,不畫。
  * 只剩收尾的時候那一行亮起來(規格:主任動手收尾 AC-9):亮不亮與那一句是伺服器照總表算好的(lib/todo.mjs 的 callLine),這裡只照印——用主任的黃,不用綠、不打勾
+ * 外面只講重點:狀態一句、一串條列(每一件、建議卡、分不出是誰放的卡、叫主任),說明收進「細節」(規格:主任條列與工地帽 AC-1)。
+ * ⚠️ 會讓人誤會的但書留在外面,縮短就好:「紀錄裡沒有」後面的「不代表沒跳過」剪掉,就讀成「沒有建議卡」(AC-2,R1、老毛病 P5)。
+ * 左邊那一顆圓點不借五關的樣子(實心藍是「這一輪走到這一關」):平常空心,那一行亮的時候才塗主任的黃,跟那一行同一個判斷(AC-6,老毛病 P2)
  */
 function directorRow(c) {
   const d = c.director, e = d.desk;
@@ -764,12 +784,25 @@ function directorRow(c) {
   const status = !d.hasTodo ? OLD_LINE
     : !e ? zhEn('總表裡還找不到這個對話——等下一次更新', 'This conversation isn\'t in the summary yet: wait for the next update')
     : e.clear ?? [e.closed ? e.closedNote : null, countsOf(e)].filter(Boolean).join(' · ');
-  const items = e?.items?.length ? `<ul class="titems">${e.items.map((i) => `<li data-k="${esc(i.kind)}">${esc(i.text)}</li>`).join('')}</ul>` : '';
   const n = d.cards.length, open = d.cards.filter((x) => !cardFolded(x)).length;
-  const cards = open ? zhEn(`這個對話提了 ${open} 張新對話的建議卡還沒開始——在案件頁「建議新增的對話」那一區`, `This conversation raised ${open === 1 ? '1 suggestion card for a new conversation that hasn\'t' : `${open} suggestion cards for new conversations that haven't`} been started yet: see "Suggested new conversations" on the project page`)
-    : n ? zhEn(`這個對話提的 ${n} 張建議卡都開始了、你說不做了，或被同名的新卡取代了`, `The ${n === 1 ? 'suggestion card' : `${n} suggestion cards`} this conversation raised ${n === 1 ? 'was' : 'were'} all started, set aside by you, or replaced by a newer card with the same name`)
-    : zhEn('紀錄裡沒有這個對話提的新對話建議卡——不代表沒跳過：有些卡這裡看不到（見案件頁「建議新增的對話」那一區的說明）', 'No suggestion cards for new conversations from this conversation are in the records; that doesn\'t mean none came up: some cards can\'t be seen here (see the note in "Suggested new conversations" on the project page)');
-  return `<div class="railcell" data-state="${mood}">
+  const cards = open ? zhEn(`建議卡：還沒開始 ${open} 張（在案件頁）`, `Suggestion cards: ${open} not started yet (on the project page)`)
+    : n ? zhEn(`建議卡：提過 ${n} 張，都開始了、不做了或被取代了`, `Suggestion cards: ${n === 1 ? '1 raised; it was' : `${n} raised; all were`} started, set aside, or replaced`)
+    : zhEn('建議卡：紀錄裡沒有（不代表沒跳過）', 'Suggestion cards: none in the records (that doesn\'t mean none came up)');
+  const loose = d.loose ? zhEn(`另有 ${d.loose} 張建議卡分不出是哪個對話放的（在案件頁）`, `${d.loose === 1 ? '1 more suggestion card' : `${d.loose} more suggestion cards`}: which conversation placed ${d.loose === 1 ? 'it' : 'them'} can't be told (on the project page)`) : '';
+  const call = !e || e.closed ? '' : e.call ?? zhEn('叫主任：在對話裡說「主任」', 'To call the site director: say "site director" in the conversation');
+  // 每一件照伺服器那一句(跟白板、終端機 --todo 同一句,AC-3);後面那幾條不是還差的事,記號用說明的那一種(AC-4,data-k="note")
+  const list = [...(e?.items ?? []).map((i) => `<li data-k="${esc(i.kind)}">${esc(i.text)}</li>`),
+    `<li data-k="note">${esc(cards)}</li>`, loose ? `<li data-k="note">${esc(loose)}</li>` : '',
+    call ? `<li data-k="note"${e.call ? ' class="call"' : ''}>${esc(call)}</li>` : ''].join('');
+  const foldKey = `director|${c.path ?? ''}|${d.id ?? ''}`;
+  const why = [r.does,
+    e && !e.closed ? zhEn('叫了之後：它給一個下一步，把這個對話能一起做的收尾合成一個問題；你回一句，它才照順序做（併進 main、推上 GitHub、要的話重啟、最後蓋章），每一步講成了沒。按結案留給你。也可以打 /pipeline-monitor:director 叫它。',
+      'After you call it: it gives one next step and puts this conversation\'s wrap-up that can go together into one question; only after your one reply does it do them in order (merge into main, push to GitHub, restart if needed, stamp last), saying for each step whether it went through. Close is left to you. You can also type /pipeline-monitor:director to call it.') : '',
+    e?.call ? zhEn('那一行亮黃燈只表示現在可以叫主任，不是做完了：白板看不到 Claude 這一回合做完了沒。', 'The yellow line only means you can call the site director now, not that the work is done: the board can\'t see whether Claude has finished this turn.') : '',
+    zhEn('建議卡在案件頁「建議新增的對話」那一區；有些卡這裡看不到，原因寫在那一區的說明。', 'Suggestion cards are in "Suggested new conversations" on the project page; some cards can\'t be seen here, and why is explained in that section.'),
+    d.loose ? zhEn('分不出是哪個對話放的那幾張，紀錄裡沒記是誰放的（例如在終端機用 --suggest 放的）：算不到這個對話頭上，也不能當成沒有。', 'For the cards whose conversation can\'t be told, the records don\'t say who placed them (for example, ones placed with --suggest in the terminal): they can\'t be counted for this conversation, and can\'t be taken as none either.') : '',
+  ].filter(Boolean).map((t) => `<div class="said">${esc(t)}</div>`).join('');
+  return `<div class="railcell" data-state="director" data-lit="${e?.call ? 1 : 0}">
         <span class="rlab">${esc(letter)}</span>
         <span class="dot"></span>
       </div>
@@ -779,13 +812,8 @@ function directorRow(c) {
           <div class="atitle">${esc(letter)} ${zhEn('工地主任', 'Site director')}
             <span class="ahouse">${esc(r.house)}</span></div>
           <div class="astatus">${esc(status)}</div>
-          <div class="adoes">${esc(r.does)}</div>
-          ${items}
-          <div class="said">${esc(cards)}</div>
-          ${d.loose ? `<div class="said">${esc(zhEn(`案件頁另有 ${d.loose} 張還沒開始的建議卡，分不出是哪個對話放的`, `The project page has ${d.loose === 1 ? '1 more suggestion card that hasn\'t' : `${d.loose} more suggestion cards that haven't`} been started; which conversation raised ${d.loose === 1 ? 'it' : 'them'} can't be told`))}</div>` : ''}
-          ${e && !e.closed ? (e.call ? `<div class="said call">${esc(e.call)}</div>`
-            : `<div class="said">${esc(zhEn('要主任給一個下一步、把這個對話的收尾合成一個問題（你回一句它就照順序做）：在對話裡說「主任」（/pipeline-monitor:director）',
-            'For one next step, and this conversation\'s wrap-up as a single question (one reply from you has it do them in order): say "site director" in the conversation (/pipeline-monitor:director)'))}</div>`) : ''}
+          <ul class="titems">${list}</ul>
+          <details class="amore" data-fold="${esc(foldKey)}"${foldOpen(foldKey, false) ? ' open' : ''}><summary>${zhEn('細節', 'Details')}</summary>${why}</details>
         </div>
       </div>`;
 }

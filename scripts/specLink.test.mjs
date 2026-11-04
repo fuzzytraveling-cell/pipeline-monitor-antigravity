@@ -956,7 +956,7 @@ const webWorkflow = (() => {
   const one = (name) => src.match(new RegExp(`^const ${name} = .*;$`, 'm'))?.[0] ?? null;
   // 那一句、旁白、清單的那幾句都是伺服器給的(規格:終端機與網頁說同一句):畫面只剩 workflow 與它的小幫手
   // (roundStage:這一輪走到哪一關;FACE／eyes／agent:畫工班——工地工班風畫面 AC-7、AC-8)
-  const parts = [one('stageState'), one('OLD_LINE'), one('FACE'), fn('roundStage'), fn('eyes'), fn('agent'), fn('workflow')];
+  const parts = [one('stageState'), one('OLD_LINE'), one('FACE'), fn('roundStage'), fn('eyes'), fn('hat'), fn('agent'), fn('workflow')];
   const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   return parts.every(Boolean) ? new Function('esc', 'ago', 'ROLE', 'foldOpen', `const zhEn = (zh) => zh; const many = (n, one, more = one + 's') => n + ' ' + (n === 1 ? one : more);\n${parts.join('\n')}; return workflow;`)(esc, (t) => (t ? '5 分鐘前' : ''), {}, () => true) : null;
 })();

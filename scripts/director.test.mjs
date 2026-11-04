@@ -37,16 +37,24 @@ const sg = (o = {}) => ({ id: 'k', title: '一張卡', ts: '2026-11-01T00:00:00Z
   dismissedAt: null, startedBy: null, supersededAt: null, openIn: null, startedTitle: null, startedProject: null, fromTitle: null, ...o });
 
 /** 真的跑整支 ui/app.js(L20):只拿掉最上面的 import 與最下面的輪詢,DOM、計時器、網路換成假的 */
-function uiOf(latest) {
+function uiOf(latest, { lang = 'zh' } = {}) {
   const src = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8');
   const body = src.replace(/^import .*$/m, '').replace(/^pollLoop\(\);$/m, '').replace(/^setInterval\(paintFreshness, 1000\);$/m, '');
   const noop = () => {};
   const el = () => ({ dataset: {}, classList: { toggle: noop }, innerHTML: '', textContent: '', setAttribute: noop });
-  const document = { getElementById: el, addEventListener: noop, body: el(), activeElement: null };
+  // 一頁的語言是伺服器寫在 <html data-lang> 的那一種(ui/app.js 最上面讀它)
+  const document = { getElementById: el, addEventListener: noop, body: el(), activeElement: null, documentElement: { dataset: { lang } } };
   const make = new Function('describeFreshness', 'STALE_AFTER_SECONDS', 'document', 'window', 'localStorage', 'location', 'setTimeout', 'setInterval', 'fetch', '__LATEST',
     `${body}\nlatest = __LATEST;\nreturn { workflow, directorOf, cardFolded };`);
   return make(() => ({ label: '', state: 'fresh', dim: false }), 60, document, { addEventListener: noop }, { getItem: () => null, setItem: noop },
     { hash: '' }, noop, noop, () => Promise.reject(new Error('測試不連網路')), latest);
+}
+
+/** F 工地主任那一格「細節」以外的那一段(規格:主任條列與工地帽 AC-1、AC-2):外面該留的但書要在這一段找得到。拿不到回 null */
+function outsideOf(html) {
+  const at = html.indexOf('class="acard adirector"');
+  const end = at < 0 ? -1 : html.indexOf('<details class="amore"', at);
+  return end < 0 ? null : html.slice(at, end);
 }
 
 /** 印到終端機的每一行收起來(doTodo、doCards 直接 console.log) */
@@ -264,8 +272,54 @@ section('AC-1:F 工地主任那一列講怎麼叫主任;已結案的對話沒有
   const latest = { projects: [{ name: 'p', suggestions: [] }], todo: board([proj([live, shut])]) };
   const ui = uiOf(latest);
   const html = (sid) => ui.workflow({ path: '/w/a', sensor: { state: 'ok' }, stages: wfStages, director: ui.directorOf(latest.projects[0], { id: sid }) });
-  check('進行中的對話:F 那一列講在對話裡說「主任」', html('l').includes('在對話裡說「主任」（/pipeline-monitor:director）'), html('l').slice(-700));
-  check('已結案的對話:不畫這一行', !html('c').includes('在對話裡說「主任」'), html('c').slice(-700));
+  // 斜線指令搬進「細節」了(規格:主任條列與工地帽 AC-1):外面那一條只講在對話裡說「主任」
+  check('進行中的對話:F 那一列講在對話裡說「主任」,斜線指令在細節裡', html('l').includes('在對話裡說「主任」') && outsideOf(html('l')) !== null
+    && !outsideOf(html('l')).includes('/pipeline-monitor:director') && html('l').includes('/pipeline-monitor:director'), html('l').slice(-900));
+  check('已結案的對話:不畫這一行', !html('c').includes('在對話裡說「主任」') && !html('c').includes('/pipeline-monitor:director'), html('c').slice(-700));
+}
+
+section('主任條列與工地帽 AC-1、AC-2、AC-4:F 那一格外面是條列重點,說明在「細節」;「不代表沒跳過」這種但書留在外面——剪掉就讀成「沒有建議卡」', 'P5');
+{
+  const wfStages = ['A', 'B', 'C', 'D', 'E'].map((id) => ({ id, name: id, line: '這一輪還沒跑', state: 'none', ...(id === 'B' ? { type: 'main-conversation', state: 'main' } : id === 'E' ? { type: 'browser' } : { skill: id.toLowerCase() }) }));
+  const s = sess({ id: 'l' });
+  const page = (suggestions) => {
+    const latest = { projects: [{ name: 'p', suggestions }], todo: board([proj([s])]) };
+    const ui = uiOf(latest);
+    return ui.workflow({ path: '/w/a', sensor: { state: 'ok' }, stages: wfStages, director: ui.directorOf(latest.projects[0], { id: 'l' }) });
+  };
+  const none = page([]);
+  const out = outsideOf(none);
+  check('拿得出 F 那一格「細節」以外的那一段(拿不出來下面什麼都沒比到)', out !== null, none.slice(-900));
+  check('必抓:一張建議卡都沒記到 → 外面那一條照樣寫「不代表沒跳過」,不准只寫「沒有」', (out ?? '').includes('建議卡：紀錄裡沒有（不代表沒跳過）'), out);
+  check('主任做什麼、建議卡為什麼可能看不到 → 在細節裡,不在外面', !(out ?? '').includes('看這個對話還有哪些沒收尾') && none.includes('看這個對話還有哪些沒收尾')
+    && !(out ?? '').includes('有些卡這裡看不到') && none.includes('有些卡這裡看不到'), out);
+  const loose = outsideOf(page([sg({ id: 'x1' }), sg({ id: 'x2' })])) ?? '';
+  check('案件頁有分不出是誰放的卡 → 外面照樣列幾張', loose.includes('另有 2 張建議卡分不出是哪個對話放的'), loose);
+  const mine = outsideOf(page([sg({ id: 'm1', session: 'l' }), sg({ id: 'm2', session: 'l', dismissedAt: '2026-11-01T00:00:00Z' })])) ?? '';
+  check('這個對話提的卡:外面講還沒開始幾張', mine.includes('建議卡：還沒開始 1 張'), mine);
+  // 不是還差的事的那幾條,記號是說明的那一種(data-k="note"):紅藍灰點是等你決定／還差／看不到(AC-4)
+  const kinds = [...(out ?? '').matchAll(/<li data-k="([a-z]+)"[^>]*>([^<]*)</g)].filter(([, , t]) => /^(建議卡|另有|叫主任|現在可以叫主任)/.test(t)).map(([, k]) => k);
+  check('建議卡、叫主任那幾條都是說明的記號,不借還差的事的', kinds.length >= 2 && kinds.every((k) => k === 'note'), kinds.join(','));
+}
+
+section('主任條列與工地帽 AC-10:切成英文——F 那一格外面、細節、亮燈那一句都沒有中文(英文那一頁的測試沒畫到 F 這一格)', 'P2');
+{
+  const wfStages = ['A', 'B', 'C', 'D', 'E'].map((id) => ({ id, name: id, line: 'Not run yet this round', state: 'none', ...(id === 'B' ? { type: 'main-conversation', state: 'main' } : id === 'E' ? { type: 'browser' } : { skill: id.toLowerCase() }) }));
+  const wrapLadder = () => ({ steps: [step('commit', 'done', 'all committed'), step('merge', 'pending', 'this branch has 2 commits not merged'), step('push', 'done', 'GitHub matches main')] });
+  const fOf = (html) => { const at = html.indexOf('class="acard adirector"'); return at < 0 ? '' : html.slice(at); };
+  const enHtml = (s, suggestions) => withLang('en', () => {
+    const latest = { projects: [{ name: 'p', suggestions }], todo: board([proj([s])], () => '3 minutes ago') };
+    const ui = uiOf(latest, { lang: 'en' });
+    return fOf(ui.workflow({ path: '/w/a', sensor: { state: 'ok' }, stages: wfStages, director: ui.directorOf(latest.projects[0], { id: s.id }) }));
+  });
+  const lit = enHtml(sess({ id: 'l', card: card({ ladder: wrapLadder() }) }), [sg({ id: 'x1' })]);
+  const mine = enHtml(sess({ id: 'm' }), [sg({ id: 'm1', session: 'm' }), sg({ id: 'm2', session: 'm', startedBy: 'x' })]);
+  const none = enHtml(sess({ id: 'n' }), []);
+  check('畫得出 F 那一格(不然下面什麼都沒比到)', [lit, mine, none].every((h) => h.includes('Site director')), lit.slice(0, 300));
+  for (const [name, h] of [['亮燈、分不出是誰放的卡', lit], ['這個對話提的卡', mine], ['一張都沒記到', none]]) {
+    check(`英文:${name} → F 那一格沒有中文`, !CJK.test(h.replace(/<[^>]*>/g, '')), h.replace(/<[^>]*>/g, ' ').match(/.{0,40}[一-鿿　-〿＀-￯].{0,40}/)?.[0]);
+  }
+  check('英文:一張都沒記到 → 照樣講「不代表沒跳過」那一句', none.includes('that doesn&#39;t mean none came up') || none.includes('that doesn\'t mean none came up'), none.slice(0, 600));
 }
 
 section('AC-9:切成英文——標這個對話、不在白板上、建議卡那一行、--cards 的字都是英文', 'P2');
@@ -289,7 +343,8 @@ section('主任動手收尾 AC-9:這一輪該做的都有結論、只剩收尾 �
   const wrapLadder = () => ({ steps: [step('commit', 'done', '都存好了'), step('merge', 'pending', '這條分支還多 2 個存檔沒併'), step('push', 'done', 'GitHub 上的跟 main 一樣')] });
   const deskOf = (s) => board([proj([s])]).desk[s.id];
   const only = deskOf(sess({ card: card({ ladder: wrapLadder() }) }));
-  check('只剩存檔、併、章(這裡是還沒併、蓋章之後又存了) → 亮,件數照那一格列的數', /^現在可以叫主任：只剩收尾——在對話裡說「主任」（\/pipeline-monitor:director），它會把上面能一起做的 2 件合成一個問題/.test(only?.call ?? ''), JSON.stringify(only));
+  // 那一句變短了(規格:主任條列與工地帽 AC-3):叫了之後會怎樣搬進網頁 F 那一格的「細節」
+  check('只剩存檔、併、章(這裡是還沒併、蓋章之後又存了) → 亮,件數照那一格列的數', /^現在可以叫主任：只剩收尾，能一起做的 2 件——在對話裡說「主任」$/.test(only?.call ?? ''), JSON.stringify(only));
   const dAsk = { id: 'D', name: '魔鬼教官', skill: 'chaos-check', state: 'stale', rerunAfterChange: true, rerun: { state: 'ask', line: '之後又改了程式檔，還沒再跑——要不要再跑由你決定' } };
   const withD = deskOf(sess({ stages: [...stages(), dAsk], card: card({ ladder: wrapLadder() }) }));
   check('D 要不要再跑等你決定 + 收尾 → 亮(主任會把這個決定合進同一個問題)', /能一起做的 3 件/.test(withD?.call ?? ''), JSON.stringify(withD));
@@ -322,10 +377,43 @@ section('主任動手收尾 AC-9:這一輪該做的都有結論、只剩收尾 �
   const latest = { projects: [{ name: 'p', suggestions: [] }], todo: board([proj([lit, busy])]) };
   const ui = uiOf(latest);
   const html = (sid) => ui.workflow({ path: '/w/a', sensor: { state: 'ok' }, stages: wfStages, director: ui.directorOf(latest.projects[0], { id: sid }) });
-  check('只剩收尾的對話:F 那一格亮起來(class call),寫現在可以叫主任', /<div class="said call">現在可以叫主任：只剩收尾/.test(html('l')) && !html('l').includes('要主任給一個下一步'), html('l').slice(-600));
-  check('還在做的對話:照舊平常那一行(講叫主任之後你回一句它就照順序做),不亮', html('b').includes('要主任給一個下一步、把這個對話的收尾合成一個問題（你回一句它就照順序做）') && !html('b').includes('said call'), html('b').slice(-600));
+  check('只剩收尾的對話:F 那一格亮起來(class call),寫現在可以叫主任', /<li data-k="note" class="call">現在可以叫主任：只剩收尾/.test(html('l')) && !html('l').includes('叫主任：在對話裡說'), html('l').slice(-900));
+  check('……叫了之後會怎樣、亮燈不是做完了,在細節裡', /<details class="amore"[^>]*>[\s\S]*你回一句，它才照順序做[\s\S]*不是做完了/.test(html('l')), html('l').slice(-900));
+  check('還在做的對話:照舊平常那一條(叫主任：在對話裡說「主任」),不亮', html('b').includes('叫主任：在對話裡說「主任」') && !html('b').includes('class="call"'), html('b').slice(-900));
+  // 左邊那一顆圓點(規格:主任條列與工地帽 AC-6):不借五關的樣子,亮不亮只看那一句在不在
+  const rail = (h) => h.match(/<div class="railcell" data-state="([a-z]+)" data-lit="([01])">\s*<span class="rlab">F</)?.slice(1).join(',') ?? null;
+  eq('只剩收尾:F 的圓點是主任自己的樣子、亮', rail(html('l')), 'director,1');
+  eq('還在做(F 那一格有還差的事):F 的圓點不亮,也不借「叫了」的藍(data-state 不是 ran)', rail(html('b')), 'director,0');
   const en = withLang('en', () => board([proj([sess({ card: card({ ladder: wrapLadder() }) })])]).desk.s1?.call ?? '');
   check('英文:亮燈那一句沒有中文,講 site director', /^Now's a good time to call the site director: only wrap-up is left/.test(en) && !CJK.test(en), en);
+}
+
+section('主任條列與工地帽 AC-5:寫規格這一關還沒走完、這一輪什麼都還沒做 → F 不亮;白板對 A 講的跟 A 那一格同一句(2026-11-03 實況:規格寫到一半 F 亮「只剩收尾」)', 'P10');
+{
+  // 長得跟 2026-11-03 那一次一樣:A 叫了、還沒記結論,一個檔都還沒改(分級說沒有改動),資料夾還沒蓋過章
+  const aLine = '5 分鐘前Claude 叫了 /pipeline-monitor:spec,等你點頭開工';
+  const writing = () => [{ id: 'A', name: '寫規格', skill: 'spec', state: 'current', ranAt: '2026-11-03T08:59:00Z', doneAt: null, doneBy: null, line: aLine },
+    { id: 'B', name: '寫程式', type: 'main-conversation', state: 'main', closedBy: null, nodAt: null }];
+  const fresh = (o = {}) => sess({ stages: writing(), tier: { state: 'no-change' }, card: card({ checkpoint: null, checkpointRelation: null }), lastSaidAt: '2026-11-03T08:58:00Z', ...o });
+  const deskOf = (s) => board([proj([s])]).desk[s.id];
+  const w = deskOf(fresh());
+  eq('必抓:規格還在寫、只剩「還沒蓋過章」→ 不亮', w.call, null);
+  check('……白板列出 A 那一件,句子就是 A 那一格那一句,算等你決定、不算收尾', w.items[0]?.text === `等你決定（A 寫規格）：${aLine}` && w.items[0]?.hold === true && w.items.some((i) => i.text === '還沒蓋過章'), JSON.stringify(w.items));
+  check('……終端機的 --todo 也印這一句(跟網頁同一份)', boardText(board([proj([fresh()])])).some((l) => l.includes(`等你決定（A 寫規格）：${aLine}`)));
+  const talk = deskOf(fresh({ lastSaidAt: '2026-11-03T09:01:00Z' }));
+  check('必抓:寫到一半你插話(你在 A 被叫之後說了話)→ A 那一件照樣在、照樣不亮', talk.call === null && talk.items.some((i) => i.hold), JSON.stringify(talk.items));
+  const noLine = deskOf(fresh({ stages: writing().map((x) => (x.id === 'A' ? { ...x, line: undefined } : x)) }));
+  check('舊的資料沒帶那一句:照 lib/stageLines.mjs 同一個函式算,照樣講等你點頭開工', /等你決定（A 寫規格）：.*等你點頭開工/.test(noLine.items[0]?.text ?? ''), noLine.items[0]?.text);
+  const found = deskOf(fresh({ stages: writing().map((x) => (x.id === 'A' ? { ...x, report: { verdict: 'found' }, line: '5 分鐘前Claude 叫了 /pipeline-monitor:spec,Claude 說找到問題——還沒處理完' } : x)) }));
+  check('A 記了「找到問題」→ 那是 Claude 的事,算還差、不亮', found.call === null && found.items[0]?.kind === 'todo', JSON.stringify(found.items));
+  const blank = [{ id: 'A', name: '寫規格', skill: 'spec', state: 'none' }, { id: 'B', name: '寫程式', type: 'main-conversation', state: 'main', closedBy: null, nodAt: null }];
+  const newbie = deskOf(fresh({ stages: blank }));
+  check('必抓:新開的對話(一關都沒叫、一個檔都沒改、只剩還沒蓋過章)→ 不亮,「還沒蓋過章」照樣列', newbie.call === null && newbie.items.length === 1 && newbie.items[0].text === '還沒蓋過章', JSON.stringify(newbie));
+  // 必放過:沒有改動不等於沒有收尾——之前存的檔還沒併,照樣亮
+  const unmerged = deskOf(fresh({ stages: blank, card: card({ ladder: { steps: [step('commit', 'done', '都存好了'), step('merge', 'pending', '這條分支還多 2 個存檔沒併'), step('push', 'done', 'GitHub 上的跟 main 一樣')] }, checkpointRelation: { state: 'ok', commitsAfter: 0 } }) }));
+  check('必放過:一個檔都沒改、但之前存的還沒併 → 照樣亮(只剩章才不亮)', /^現在可以叫主任：只剩收尾，能一起做的 1 件/.test(unmerged.call ?? ''), JSON.stringify(unmerged));
+  const stamped = deskOf(fresh({ stages: blank, tier, card: card({ checkpoint: null, checkpointRelation: null }) }));
+  check('必放過:有改動(分級讀得到)、只剩還沒蓋過章 → 照樣亮(那是收尾)', /^現在可以叫主任：只剩收尾，能一起做的 1 件/.test(stamped.call ?? ''), JSON.stringify(stamped));
 }
 
 process.exit(summary());

@@ -227,6 +227,9 @@ h2.section { font-size: var(--text-subheading); letter-spacing: var(--tracking-s
 }
 .railcell[data-state="done"] .dot { background: var(--color-off-black); border-color: var(--color-off-black); }
 .railcell[data-state="ran"]  .dot { background: var(--color-lake-blue); border-color: var(--color-lake-blue); }
+/* F 工地主任那一顆(規格:主任條列與工地帽 AC-6):不借五關的樣子——實心藍是「這一輪走到這一關」,以前「還差幾件」也塗成藍的,
+   看起來兩關都在進行中。平常空心,F 那一行亮的時候才塗主任的黃(亮不亮是伺服器那一句在不在,ui/app.js 的 directorRow) */
+.railcell[data-state="director"][data-lit="1"] .dot { background: var(--color-agent-f); border-color: var(--color-agent-f); }
 /* 連到下一列的線:高度撐滿剩餘空間,所以卡片多高都連得起來 */
 /* 每格只剩「代號 + 圓點」;貫穿的長線由 .wf-line 一條畫完(見上)。
    分段畫的話,卡片高度不同就會在接縫處斷開。 */
@@ -245,15 +248,28 @@ h2.section { font-size: var(--text-subheading); letter-spacing: var(--tracking-s
 .agent[data-id="C"] { --agent: var(--color-agent-c); --ph: -2s; }
 .agent[data-id="D"] { --agent: var(--color-agent-d); --ph: -3s; }
 .agent[data-id="E"] { --agent: var(--color-agent-e); --ph: -4s; }
-/* 工地主任(還差什麼總表 AC-11):第六個角色,不是一關。正黃色(Oscar 2026-11-02 指定),跟驗收 E 的芥末黃分得開;
-   黃底白眼看不見,眼睛改深色——像工地的黃底黑字警告牌 */
+/* 工地主任(還差什麼總表 AC-11):第六個角色,不是一關。主任的黃(色票住 variables.css;2026-11-04 照校色參考圖換成金黃) */
 .agent[data-id="director"] { --agent: var(--color-agent-f); --ph: -5s; }
-.agent[data-id="director"] .ag-face { fill: var(--color-off-black); }
-.agent[data-id="director"] .ag-face .ln { stroke: var(--color-off-black); }
 .agent svg { position: relative; z-index: 1; width: 58px; height: 60px; overflow: visible; }
 .ag-body > * { fill: var(--agent); stroke: var(--agent); stroke-width: 5; stroke-linejoin: round; }
-.ag-face { fill: var(--color-paper); }
-.ag-face .ln { fill: none; stroke: var(--color-paper); stroke-width: 3; stroke-linecap: round; }
+/* 眼睛一律黑色(校色參考圖,規格:主任條列與工地帽 AC-12;以前 A–E 是白眼睛,只有黃底的主任是黑眼睛) */
+.ag-face { fill: var(--color-off-black); }
+.ag-face .ln { fill: none; stroke: var(--color-off-black); stroke-width: 3; stroke-linecap: round; }
+/* B 的身體很深,黑眼睛看不到表情:眼睛加一圈淡淡的亮邊,線畫的眼睛(笑眼、閉眼)用那個淡色——參考圖上那是黑眼睛的反光 */
+.agent[data-id="B"] .ag-face { --rim: color-mix(in srgb, var(--color-paper) 55%, var(--agent)); }
+.agent[data-id="B"] .ag-face > :not(.ln) { stroke: var(--rim); stroke-width: 2; paint-order: stroke; }
+.agent[data-id="B"] .ag-face .ln { stroke: var(--rim); }
+/* 工地帽(規格:主任條列與工地帽 AC-7、AC-8):身體的淺一號——校色參考圖上帽子跟身體同色系;帽緣深一點、頂上那一道稜亮一點。
+   顏色只跟著是哪一個角色,不跟狀態變(帽子變色會被讀成「這一關怎麼了」) */
+.ag-hat > * { fill: color-mix(in srgb, var(--agent) 70%, var(--color-paper)); }
+.ag-hat :is(.hat-dome, .hat-brim) { stroke: color-mix(in srgb, var(--agent) 78%, var(--color-off-black)); stroke-width: .5; }
+.ag-hat .hat-brim { fill: color-mix(in srgb, var(--agent) 84%, var(--color-paper)); }
+.ag-hat .hat-ridge { fill: color-mix(in srgb, var(--agent) 50%, var(--color-paper)); }
+.ag-hat .hat-shade { fill: color-mix(in srgb, var(--agent) 55%, var(--color-off-black)); opacity: .35; }
+/* 主任帽子上的 AI:參考圖是銀白色的字。底下先畫一道深一點的寬線,淺色的帽子上才讀得到 */
+.ag-hat :is(.hat-ai, .hat-ai-edge) { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.ag-hat .hat-ai-edge { stroke: color-mix(in srgb, var(--agent) 55%, var(--color-off-black)); stroke-width: 1.6; }
+.ag-hat .hat-ai { stroke: var(--color-paper); stroke-width: .8; }
 .ag-face text { font: 700 11px var(--font-body); }
 .ag-ground { fill: var(--color-off-black); opacity: .09; }
 .ag-sweat { fill: var(--color-sky-blue); }
@@ -263,6 +279,8 @@ h2.section { font-size: var(--text-subheading); letter-spacing: var(--tracking-s
 .agent[data-face="rest"] { opacity: .6; }
 /* 未建:虛線輪廓、沒有眼睛、不動 */
 .agent[data-face="blank"] .ag-body > * { fill: none; stroke: var(--color-smoke); stroke-width: 1.5; stroke-dasharray: 4 3; }
+.agent[data-face="blank"] .ag-hat > * { fill: none; stroke: var(--color-smoke); stroke-width: 1; stroke-dasharray: 3 2; }
+.agent[data-face="blank"] .ag-hat .hat-shade { display: none; }
 /* 漂浮:五顆一樣速度,只是錯開一點,不要像列隊——漂浮不跟狀態變,不代表在做事(AC-9) */
 .ag-float, .ag-ground { animation: float 4.8s ease-in-out infinite; animation-delay: calc(var(--t, 0) * -1s + var(--ph, 0s)); }
 .ag-ground { animation-name: ground; transform-box: fill-box; transform-origin: center; }
@@ -308,8 +326,9 @@ h2.section { font-size: var(--text-subheading); letter-spacing: var(--tracking-s
 .acard[data-state="notbuilt"] .astatus,
 .acard[data-state="main"] .astatus { color: var(--color-smoke); }
 .said { color: var(--color-smoke); font-size: var(--text-caption); margin-top: 4px; }
-/* F 那一格「現在可以叫主任」(主任動手收尾 AC-9):主任的黃當底,字照舊深色——黃字放在白底上看不清楚。亮＝可以叫,不是做完了,所以不用綠 */
-.said.call {
+/* F 那一格「現在可以叫主任」(主任動手收尾 AC-9):主任的黃當底,字照舊深色——黃字放在白底上看不清楚。亮＝可以叫,不是做完了,所以不用綠。
+   F 那一格改成條列之後它是最後一條(規格:主任條列與工地帽 AC-1) */
+.titems li.call[data-k] {   /* 比「只是說明」那一條(淡灰)強一級:它也是 data-k="note" */
   color: var(--color-off-black); font-weight: 600; padding: 4px 8px; border-radius: 6px;
   background: color-mix(in srgb, var(--color-agent-f) 45%, transparent); border-left: 3px solid var(--color-agent-f);
 }
@@ -607,4 +626,9 @@ a.ext { color: var(--color-lake-blue); }
 .titems { margin: 4px 0 0; padding-left: 1.1em; font-size: var(--text-caption); color: var(--color-off-black); }
 .titems li[data-k="unknown"], .titems li[data-k="note"] { color: var(--color-smoke); }
 .titems li[data-k="ask"] { font-weight: 600; }
+/* 記號預設是空心小圈(只是說明、不是還差的事:F 那一格的建議卡、叫主任,白板展開後的說明與「沒有還差的事」);
+   只有等你決定／還差／看不到才是紅藍灰的實心點——說明也畫成灰點,會被讀成「看不到」(規格:主任條列與工地帽 AC-4)。
+   「沒有還差的事」不另外點名,照舊跟說明同一個樣子(老毛病 P10) */
+.titems li { list-style-type: circle; }
+.titems li:is([data-k="ask"], [data-k="todo"], [data-k="unknown"]) { list-style-type: disc; }
 
