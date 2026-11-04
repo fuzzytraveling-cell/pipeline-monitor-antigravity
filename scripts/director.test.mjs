@@ -414,6 +414,11 @@ section('主任條列與工地帽 AC-5:寫規格這一關還沒走完、這一�
   check('必放過:一個檔都沒改、但之前存的還沒併 → 照樣亮(只剩章才不亮)', /^現在可以叫主任：只剩收尾，能一起做的 1 件/.test(unmerged.call ?? ''), JSON.stringify(unmerged));
   const stamped = deskOf(fresh({ stages: blank, tier, card: card({ checkpoint: null, checkpointRelation: null }) }));
   check('必放過:有改動(分級讀得到)、只剩還沒蓋過章 → 照樣亮(那是收尾)', /^現在可以叫主任：只剩收尾，能一起做的 1 件/.test(stamped.call ?? ''), JSON.stringify(stamped));
+  // 魔鬼教官第一輪:專案設定成不分級,分級不看改動——「只剩章就不亮」照同一個判斷問改動清單(lib/tier.mjs 的 changeKind)
+  const offOf = (health) => deskOf(fresh({ stages: blank, tier: { state: 'off' }, card: card({ checkpoint: null, checkpointRelation: null, health, base: { kind: 'checkpoint' } }) }));
+  const offFresh = offOf({ files: 0, list: [] });
+  check('必抓:設定成不分級的專案,新開的對話只剩還沒蓋過章 → 不亮', offFresh.call === null && offFresh.items.some((i) => i.text === '還沒蓋過章'), JSON.stringify(offFresh));
+  check('必放過:設定成不分級、這一輪改過檔、只剩還沒蓋過章 → 照樣亮', /^現在可以叫主任：只剩收尾，能一起做的 1 件/.test(offOf({ files: 1, list: ['a.js'] }).call ?? ''));
 }
 
 process.exit(summary());
