@@ -29,7 +29,8 @@ import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { cardFor, sessionTier } from './lib/collect.mjs';
 import { logFileOf } from './lib/events.mjs';
-import { sessionsOf, saidByHuman, promptKind, rerunLine, runMode, SKEW_MS } from './lib/rounds.mjs';
+import { sessionsOf, saidByHuman, promptKind, rerunLine, runMode, SKEW_MS, isEditEvent } from './lib/rounds.mjs';
+import { isSubagentPayload } from './lib/transcript.mjs';
 import { GATE_FILE, SENSOR_FILE } from './lib/faults.mjs';
 import { ago } from './lib/git.mjs';
 import { readTierConfig, codeFileFn, changeTimeOf, RANKS, DANGER_ASK, dangerAskLine, laterOf } from './lib/tier.mjs';
@@ -75,13 +76,24 @@ function commandFor(skill, root, mainRoot, home) {
  */
 export function decide({ payload, monitorDir = MONITOR_DIR, skillHome = undefined }) {
   if (!payload || typeof payload !== 'object') return null;
-  const again = payload.stop_hook_active === true;
-  const path = typeof payload.cwd === 'string' ? payload.cwd : null;
+  // Antigravity Stop 契約（階段 0 實測事實 #6、AC-6）：
+  // 使用者按取消、系統出錯、背景任務未結束（fullyIdle:false）、或 subagent 結束，一律立刻放行。
+  if (typeof payload.terminationReason === 'string' && payload.terminationReason && payload.terminationReason !== 'NO_TOOL_CALL') return null;
+  if (payload.error) return null;
+  if (payload.fullyIdle === false) return null;
+  if (isSubagentPayload(payload)) return null;
+  // 防迴圈：階段 0 實測確認第二次執行時 continuationActive 仍為 false，必須認 executionNum > 0。
+  const again = Number(payload.executionNum) > 0 || payload.continuationActive === true || payload.stop_hook_active === true;
+  const path = typeof payload.cwd === 'string' && payload.cwd ? payload.cwd
+    : (Array.isArray(payload.workspacePaths) && typeof payload.workspacePaths[0] === 'string' && payload.workspacePaths[0] ? payload.workspacePaths[0] : null);
   if (!path || !existsSync(path)) return null;
-  const sid = typeof payload.session_id === 'string' ? payload.session_id : null;
+  const sid = typeof payload.conversationId === 'string' && payload.conversationId ? payload.conversationId
+    : (typeof payload.session_id === 'string' && payload.session_id ? payload.session_id : null);
   if (!sid) return null;
+  const tp = typeof payload.transcriptPath === 'string' && payload.transcriptPath ? payload.transcriptPath : null;
+  const extraTranscripts = tp ? new Map([[sid, tp]]) : null;
 
-  const got = cardFor({ monitorDir, path, skillHome });
+  const got = cardFor({ monitorDir, path, skillHome, extraTranscripts, sessionId: sid });
   if (!got) return null;
   const { card, events, stages, ctx } = got;
   if (card.gone || card.notGit) return null;
@@ -93,41 +105,28 @@ export function decide({ payload, monitorDir = MONITOR_DIR, skillHome = undefine
   if (!tier || tier.state !== 'ok') return null;                  // 沒設定分級就沒有「該跑的關」;只看得到還沒存檔的而且沒有(unseen)也要不了
   const requires = tier.final?.requires ?? [];
   // 危險清單定好之後才新加、沒人判斷過的程式檔(規格:收工hook問危險清單 AC-1、AC-4):分級卡算好的那一份(buildTier 的 stale),不另算。
-  // 已經是最高那一級 → 判斷結果改不了這一輪要跑的關,不問;分不出來(unknown)時 fresh 是空的,也不問
   const top = (tier.final?.rank ?? RANKS.length - 1) >= RANKS.length - 1;
   const fresh = !top && tier.stale?.since && Array.isArray(tier.stale.fresh) ? tier.stale.fresh : [];
   if (!requires.length && !fresh.length) return null;
   const cfg = readTierConfig(ctx.root, ctx.mainRoot, monitorDir);
   if (cfg.state !== 'ok') return null;
 
-  // 這一回合從哪開始:這個對話你說的最後一句話——背景工作的通知、子 agent 的回報不算(D 多輪先問人 AC-8;規格:agent回報與故障記號 AC-1)。
-  // 沒見過的格式(同一份規格 AC-2)分不出是不是你說的,兩種讀法各算一次,任何一種要擋就擋(取會擋的那一邊):
-  //   系統的讀法 → 回合從你最後一句開始(turnStart);你說的讀法 → 回合從最後那則沒見過的開始(oddStart)。
-  //   每一種讀法自己算「擋過哪幾種」與「之後改了沒」——以前一欄取一邊(改了沒從你最後一句、擋過哪幾種從沒見過的那則),
-  //   湊出兩種讀法都不成立的第三種回合:每來一則沒見過的,就把擋過的整張清單再擋一次,連沒改程式的回合也擋(魔鬼教官第一輪,P7、P2)。
-  //   整個對話只有沒見過的 → 回合從第一則沒見過的算,不當成「沒記到你說的話」放行。
-  // 一句都沒記到 → 放行(契約 3)
-  const mine = events.filter((e) => e.session === sid);
+  const mine = events.filter((e) => !e._subagent && e.session === sid);
   const timesOf = (pick) => mine.filter(pick).map((e) => Date.parse(e.ts)).filter(Number.isFinite).sort((a, b) => a - b);
   const said = timesOf(saidByHuman), odd = timesOf((e) => promptKind(e) === 'unknown');
   const turnStart = said.at(-1) ?? odd[0] ?? null;
   if (turnStart === null) return null;
   const oddStart = Math.max(turnStart, odd.at(-1) ?? -Infinity);
-  // 這一回合已經擋過哪幾種(AC-7):同一件事不重複擋,新的種類照擋——種類是有限的幾種,不會迴圈
   const blockedFrom = (from) => new Set(mine.filter((e) => e.event === 'gate_blocked' && Date.parse(e.ts) >= from)
     .flatMap((e) => (Array.isArray(e.missing) ? e.missing : [])));
   const blocked = blockedFrom(turnStart), blockedOdd = blockedFrom(oddStart);
-  // Claude Code 說「這是擋過之後的收工」,這一回合卻找不到我們擋過的紀錄(別的 hook 擋的、或我們沒記成)——
-  // 不知道擋過什麼,照舊放行:防迴圈的底線(契約 2)。看比較晚的那個起點:兩種讀法都找得到才算擋過
   if (again && !blockedOdd.size) return null;
 
-  // 這一輪改到程式區／危險清單的檔案(git 說的,跟儀表板同一份;存檔過的也在),與它們最後一次變動的時間——存檔不是改檔,時間看檔案本身;
-  // 刪掉的檔看它所在資料夾的時間(lib/tier.mjs 的 changeTimeOf,五關的 B 與 D 也用它)。以前刪掉的就沒有時間,只刪檔的回合安靜放行
   const hits = [...(tier.machine?.hits?.danger ?? []), ...(tier.machine?.hits?.code ?? [])];
   const mtimes = hits.map((f) => changeTimeOf(ctx.root, f)).filter((t) => t !== null);
-  // 感測器記到的、落在程式區的改檔事件(這個對話)——「算不算程式檔」跟五關、分級用同一個判斷(lib/tier.mjs)
   const inArea = codeFileFn(ctx.root, cfg.config);
-  const editTs = mine.filter((e) => e.hook === 'PostToolUse' && inArea(e.file)).map((e) => Date.parse(e.ts)).filter(Number.isFinite);
+  // 用單一真相來源 isEditEvent（AC-4）：read_file / view_file 絕不當成改過程式檔
+  const editTs = mine.filter((e) => isEditEvent(e) && inArea(e.file)).map((e) => Date.parse(e.ts)).filter(Number.isFinite);
   // 第三種證據:roundView 算的「最後一次改檔」——感測器記過的程式檔現在的修改時間也在裡面,用 Bash 還原(git 說跟起點沒差)看得到。
   // 不吃它的話,儀表板說 D、E「要不要再跑／再走由你決定」,這裡卻當成這一回合沒改程式、不叫 Claude 先問(魔鬼教官第二輪,老毛病 P2)
   const viewEdit = Date.parse(mineNow.view?.lastEdit);
@@ -169,9 +168,8 @@ export function decide({ payload, monitorDir = MONITOR_DIR, skillHome = undefine
           `- Check the specs' checklists (${cl.parts.length} specs this round): ${per.join('; ')} not marked yet. At the end of every AC heading line in each spec, add ${marks()}`) });
       }
     } else if (cl.batchMissing?.length) {
-      // 這一批記的代號在檔案裡找不到了(改過號、刪了條):不是「這一批做完了」,是對不上——叫它重記(老毛病 P5,魔鬼教官 2026-09-21)
-      missing.push({ key: 'checklist', line: zhEn(`- 對規格的清單：這一批記的 ${cl.batchMissing.join('、')} 在 ${file} 裡找不到了（可能改過號）——重記一次 pipeline-status --spec ${file} <這一批的 AC 代號>`,
-        `- Check the spec's checklist: ${cl.batchMissing.join(', ')}, recorded for this batch, can't be found in ${file} any more (maybe renumbered). Record it again: pipeline-status --spec ${file} <this batch's AC IDs>`) });
+      missing.push({ key: 'checklist', line: zhEn(`- 對規格的清單：這一批記的 ${cl.batchMissing.join('、')} 在 ${file} 裡找不到了（可能改過號）——重記一次 agy-pipeline --spec ${file} <這一批的 AC 代號>`,
+        `- Check the spec's checklist: ${cl.batchMissing.join(', ')}, recorded for this batch, can't be found in ${file} any more (maybe renumbered). Record it again: agy-pipeline --spec ${file} <this batch's AC IDs>`) });
     } else if (cl.unmarked > 0) {
       missing.push({ key: 'checklist', line: zhEn(`- 對規格的清單：${few(ids(cl))} 還沒標——在 ${file} 每條 AC 的標題行末尾加${marks()}`,
         `- Check the spec's checklist: ${few(ids(cl))} not marked yet. At the end of every AC heading line in ${file}, add ${marks()}`) });
@@ -206,61 +204,52 @@ export function decide({ payload, monitorDir = MONITOR_DIR, skillHome = undefine
           `- ${name}: not walked through yet this round → run ${cmd} (look at this round's spec item by item on the screen, recording each as seen (with the original text from the screen) / not seen / can't verify; `
           + 'only the user can say "accepted"). After walking through it, don\'t walk through it again on your own; to walk through it again, ask the user first') });
       } else if (es === 'no-report') {
-        // 沒改檔的回合也要看(跟 D 同一條):交給背景跑、走完沒記結論,儀表板就永遠不知道
         missing.push({ key: `${key}:report`, anyTurn: true,
-          line: zhEn(`- ${name}：叫了，還沒記結論。還在走就照實說還在走，不准先記結論交差；走完照那支指令的收尾記：pipeline-status --report ${st.id} ok|found "…"。`
-            + `沒走完（中斷了）就再叫一次，那還算第一趟；使用者說不用走了就 pipeline-status --decide ${st.id} skip "使用者的原話"`,
-          `- ${name}: called, no conclusion recorded yet. If it's still walking through, say truthfully that it's still walking through; never record a conclusion early just to finish. When it's done, record it the way that command's ending says: pipeline-status --report ${st.id} ok|found "…". `
-            + `If it didn't finish (it was interrupted), call it again; that still counts as the first walk-through. If the user says there's no need to walk through it: pipeline-status --decide ${st.id} skip "the user's own words"`) });
+          line: zhEn(`- ${name}：叫了，還沒記結論。還在走就照實說還在走，不准先記結論交差；走完照那支指令的收尾記：agy-pipeline --report ${st.id} ok|found "…"。`
+            + `沒走完（中斷了）就再叫一次，那還算第一趟；使用者說不用走了就 agy-pipeline --decide ${st.id} skip "使用者的原話"`,
+          `- ${name}: called, no conclusion recorded yet. If it's still walking through, say truthfully that it's still walking through; never record a conclusion early just to finish. When it's done, record it the way that command's ending says: agy-pipeline --report ${st.id} ok|found "…". `
+            + `If it didn't finish (it was interrupted), call it again; that still counts as the first walk-through. If the user says there's no need to walk through it: agy-pipeline --decide ${st.id} skip "the user's own words"`) });
       } else if (es === 'ask' || es === 'accepted-stale') {
         const why = es === 'accepted-stale' ? zhEn('使用者說驗收過了之後，又改了程式檔', 'code files changed after the user said it\'s accepted') : rerunLine(st.rerun, { ago });
         missing.push({ key: `${key}:ask`, ask: true,
           line: zhEn(`- ${name}：${why}。不要自己再走——先停下來問使用者（白話＋舉例）：之後改了什麼、可能影響哪幾條、上一趟從叫到記結論花了多久`
-            + `（跑 pipeline-status --round ${st.id} 拿）、不再走的風險，最後一行給建議。使用者說走才走；說不用就 pipeline-status --decide ${st.id} skip "使用者的原話"；`
-            + `說看過了、可以（驗收現在這一版），才照他的原話 pipeline-status --clear ${st.id} "使用者的原話"——「不用再走」不是「驗收過了」，不准記成 --clear`,
+            + `（跑 agy-pipeline --round ${st.id} 拿）、不再走的風險，最後一行給建議。使用者說走才走；說不用就 agy-pipeline --decide ${st.id} skip "使用者的原話"；`
+            + `說看過了、可以（驗收現在這一版），才照他的原話 agy-pipeline --clear ${st.id} "使用者的原話"——「不用再走」不是「驗收過了」，不准記成 --clear`,
           `- ${name}: ${why}. Don't walk through it again on your own; stop and ask the user first (plain words plus examples): what changed since, which items it might affect, how long the last walk-through took from the call to the recorded conclusion `
-            + `(run pipeline-status --round ${st.id} to get it), and the risk of not walking through again; the last line gives a recommendation. Walk through it only if the user says so. If they say no need: pipeline-status --decide ${st.id} skip "the user's own words". `
-            + `Only if they say they've looked and it's fine (accepting this version): pipeline-status --clear ${st.id} "the user's own words". "No need to walk through again" isn't "accepted": never record it as --clear`) });
+            + `(run agy-pipeline --round ${st.id} to get it), and the risk of not walking through again; the last line gives a recommendation. Walk through it only if the user says so. If they say no need: agy-pipeline --decide ${st.id} skip "the user's own words". `
+            + `Only if they say they've looked and it's fine (accepting this version): agy-pipeline --clear ${st.id} "the user's own words". "No need to walk through again" isn't "accepted": never record it as --clear`) });
       }
-      continue;                                                    // 驗收過了／你說不用再走／Claude 走過(等使用者查核):這一關不用再要求
+      continue;
     }
-    // 結論會過期的關(D):讀 roundView 算好的「要不要再跑」,跟五關那一格、分級卡同一句話(D 多輪先問人 AC-9)——這裡不另外比時間
     if (st.rerunAfterChange && st.rerun) {
       const r = st.rerun;
       if (r.state === 'none') {
-        if (!cmd) continue;                                        // 指令不存在,要求了也做不到
-        // 第一次:照分級講跑法(AC-11),並預先交代修完不要自己重跑(AC-1)——煞車不能只裝在收工 hook 上,skill 那句「處理完再跑一次」就是 9/17 自己連跑三輪的原因
+        if (!cmd) continue;
         const how = runMode({ nth: 1, tierState: 'ok', levelId: tier.final.id, agents: tier.final.agents === true }).line;
         missing.push({ key, line: zhEn(`- ${name}：${rerunLine(r)} → 跑 ${cmd}（${how}）。修完不要自己再跑這一關，要再跑先問使用者`,
           `- ${name}: ${rerunLine(r)} → run ${cmd} (${how}). After fixing, don't run this stage again on your own; to run it again, ask the user first`) });
       } else if (r.state === 'no-report') {
-        // 沒改檔的回合也要看(AC-6:只限這一項)——交給背景 agent 跑、做完沒記結論,儀表板就永遠不知道
-        // 沒跑完(卡在用量上限、被中斷)再叫一次還算第一輪(跑完才算一輪);使用者說不用跑了,記下他的話就不再提醒(魔鬼教官第一輪)
         missing.push({ key: `${key}:report`, anyTurn: true,
-          line: zhEn(`- ${name}：叫了，還沒記結論。還在背景跑就照實說還在跑，不准先記 ok 交差；跑完照那支指令的收尾記：pipeline-status --report ${st.id} ok|found "…"。`
-            + `沒跑完（中斷了）就再叫一次，那還算第一輪；使用者說不用跑了就 pipeline-status --decide ${st.id} skip "使用者的原話"`,
-          `- ${name}: called, no conclusion recorded yet. If it's still running in the background, say truthfully that it's still running; never record ok early just to finish. When it's done, record it the way that command's ending says: pipeline-status --report ${st.id} ok|found "…". `
-            + `If it didn't finish (it was interrupted), call it again; that still counts as the first round. If the user says there's no need to run it: pipeline-status --decide ${st.id} skip "the user's own words"`) });
+          line: zhEn(`- ${name}：叫了，還沒記結論。還在背景跑就照實說還在跑，不准先記 ok 交差；跑完照那支指令的收尾記：agy-pipeline --report ${st.id} ok|found "…"。`
+            + `沒跑完（中斷了）就再叫一次，那還算第一輪；使用者說不用跑了就 agy-pipeline --decide ${st.id} skip "使用者的原話"`,
+          `- ${name}: called, no conclusion recorded yet. If it's still running in the background, say truthfully that it's still running; never record ok early just to finish. When it's done, record it the way that command's ending says: agy-pipeline --report ${st.id} ok|found "…". `
+            + `If it didn't finish (it was interrupted), call it again; that still counts as the first round. If the user says there's no need to run it: agy-pipeline --decide ${st.id} skip "the user's own words"`) });
       } else if (r.state === 'ask') {
         missing.push({ key: `${key}:ask`, ask: true,
           line: zhEn(`- ${name}：${rerunLine(r, { ago })}。不要自己再跑——先停下來問使用者（白話＋舉例）：第一輪之後改了什麼、每條修法標「小修」或「建議再看」、`
-            + `上一輪從叫到記結論花了多久、不跑的風險（前三件跑 pipeline-status --round ${st.id} 拿），最後一行給建議。使用者說跑才跑；說不用就 pipeline-status --decide ${st.id} skip "使用者的原話"`,
+            + `上一輪從叫到記結論花了多久、不跑的風險（前三件跑 agy-pipeline --round ${st.id} 拿），最後一行給建議。使用者說跑才跑；說不用就 agy-pipeline --decide ${st.id} skip "使用者的原話"`,
           `- ${name}: ${rerunLine(r, { ago })}. Don't run it again on your own; stop and ask the user first (plain words plus examples): what changed after the first round, each fix marked "small fix" or "worth another look", `
-            + `how long the last round took from the call to the recorded conclusion, and the risk of not running it (run pipeline-status --round ${st.id} to get the first three); the last line gives a recommendation. Run it only if the user says so. If they say no need: pipeline-status --decide ${st.id} skip "the user's own words"`) });
+            + `how long the last round took from the call to the recorded conclusion, and the risk of not running it (run agy-pipeline --round ${st.id} to get the first three); the last line gives a recommendation. Run it only if the user says so. If they say no need: agy-pipeline --decide ${st.id} skip "the user's own words"`) });
       }
-      continue;                                                    // skipped／ok／found:這一關不用再要求
+      continue;
     }
-    // 這一輪跑過就算(A、C)
     if (st.ranAt) continue;
-    if (!cmd) continue;                                            // 指令不存在,要求了也做不到
+    if (!cmd) continue;
     const why = zhEn('這一輪還沒跑', 'not run yet this round');
     if (st.id === specStage?.id) {
-      // 沒連到規格:兩條路都講(AC-7)。規格在別的對話寫好了 → 記一筆照哪份施工;真的還沒有規格 → 才跑 A。
-      // 第一句話提到一份規格的話(AC-3)附上,只是提示,不算數
-      // 第一句話被感測器截過(cut)的話,「只提到一份」證明不了——不把路徑交給 Claude(魔鬼教官 2026-09-21);Claude 自己看得到完整的第一句話
       const hint = st.hint && !st.hint.cut ? zhEn(`（從第一句話看，可能是 ${st.hint.path}）`, ` (from the first message, it might be ${st.hint.path})`) : '';
-      missing.push({ key, line: zhEn(`- ${name}：${why}。照別的對話寫好的規格施工的話跑 pipeline-status --spec <規格檔>${hint}；還沒有規格才跑 ${cmd}`,
-        `- ${name}: ${why}. If you're building from a spec another conversation wrote, run pipeline-status --spec <spec file>${hint}; run ${cmd} only if there's no spec yet`) });
+      missing.push({ key, line: zhEn(`- ${name}：${why}。照別的對話寫好的規格施工的話跑 agy-pipeline --spec <規格檔>${hint}；還沒有規格才跑 ${cmd}`,
+        `- ${name}: ${why}. If you're building from a spec another conversation wrote, run agy-pipeline --spec <spec file>${hint}; run ${cmd} only if there's no spec yet`) });
       continue;
     }
     missing.push({ key, line: zhEn(`- ${name}：${why} → 跑 ${cmd}`, `- ${name}: ${why} → run ${cmd}`) });
@@ -296,26 +285,26 @@ export function decide({ payload, monitorDir = MONITOR_DIR, skillHome = undefine
 }
 
 function main() {
+  const allow = () => { process.stdout.write('{}\n'); return 0; };
   let payload = null;
-  try { payload = JSON.parse(readFileSync(0, 'utf8') || '{}'); } catch { return 0; }
+  try { payload = JSON.parse(readFileSync(0, 'utf8') || '{}'); } catch { return allow(); }
+  const cwd = (typeof payload?.cwd === 'string' && payload.cwd) ? payload.cwd
+    : (typeof payload?.workspacePaths?.[0] === 'string' && payload.workspacePaths[0]) ? payload.workspacePaths[0] : null;
   // 心跳:每次跑都留時間(不是紀錄,是一個會被蓋掉的小檔)。沒有它,「hook 掛著但從沒被觸發」跟「一切正常」長得一模一樣(L13、老毛病 P3)
-  try { const dir = logDir(); makeDataDir(dir); writeFileSync(join(dir, GATE_FILE), JSON.stringify({ ts: new Date().toISOString(), cwd: payload?.cwd ?? null }) + '\n'); } catch { /* 留不了就算了,不影響判斷 */ }
+  try { const dir = logDir(); makeDataDir(dir); writeFileSync(join(dir, GATE_FILE), JSON.stringify({ ts: new Date().toISOString(), cwd }) + '\n'); } catch { /* 留不了就算了,不影響判斷 */ }
   let d = null;
-  // 語言只在這裡讀一次,整段話用同一種(規格:技能與寫給AI的話中英切換 AC-5)。讀不懂照舊中文(lib/lang.mjs:讀不懂先用中文)
-  try { d = withLang(readLang().lang, () => decide({ payload })); } catch (e) { noteBroken(e?.message ?? e, undefined, payload?.cwd); return 0; }
-  if (!d) return 0;
-  // 擋了就留一筆:儀表板才講得出「工頭擋過一次,缺 C、D」,驗證也靠這筆(source:gate,不是人也不是感測器)。
-  // 這一筆也是防迴圈的依據(AC-7:這一回合擋過的種類不再擋)——擋過之後的收工(stop_hook_active)卻記不了,就不擋:
-  // 記不了還擋,下一次看不到擋過什麼,會一直擋同一件事
+  try { d = withLang(readLang().lang, () => decide({ payload })); } catch (e) { noteBroken(e?.message ?? e, undefined, cwd); return allow(); }
+  if (!d) return allow();
   try {
     appendFileSync(logFileOf(d.logDir, d.project), JSON.stringify({
       ts: new Date().toISOString(), event: 'gate_blocked', session: d.session, cwd: d.cwd, level: d.level, missing: d.missing, source: 'gate',
     }) + '\n');
   } catch (e) {
-    noteBroken(`記不了 gate_blocked：${e?.message ?? e}`, d.logDir, d.cwd);   // 寫進紀錄的代號(不上畫面),照中文
-    if (d.again) return 0;
+    noteBroken(`記不了 gate_blocked：${e?.message ?? e}`, d.logDir, d.cwd);
+    if (d.again) return allow();
   }
-  process.stdout.write(JSON.stringify({ decision: 'block', reason: d.reason }) + '\n');
+  // Antigravity Stop 契約（階段 0 實測事實 #6）：擋收工回傳 {"decision":"continue","reason":"..."}
+  process.stdout.write(JSON.stringify({ decision: 'continue', reason: d.reason }) + '\n');
   return 0;
 }
 

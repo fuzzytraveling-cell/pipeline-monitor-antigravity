@@ -1,8 +1,6 @@
 ---
 name: chaos-check
-description: D 魔鬼教官這一關（產線監視器 pipeline-monitor 帶的通用版）：拿這個專案自己踩過的坑（docs/FAILURE-PATTERNS.md，沒有就用三條通用判準）逐條對照這次的改動，找出正在重蹈的已知死法。只找問題、不改任何檔案、不宣稱通過。使用者說「檢查一下有沒有踩到老毛病」「魔鬼教官」「chaos check」時用；專案自己也有 /chaos-check 時，使用者叫哪個就跑哪個，不要自作主張換。 English — the Chaos check stage (the general version that comes with Pipeline Monitor) compares this change, item by item, against the pitfalls this project has already hit (docs/FAILURE-PATTERNS.md, or the three general rules when there's none) to find known failure patterns being repeated. It only finds problems; it changes no files and never claims a pass. Use it when the user says "chaos check", "run the chaos check", "check whether this hits any known failure pattern", "look for old mistakes"; if the project has its own /chaos-check too, run whichever one the user asks for.
-argument-hint: "[git ref，預設是這一輪的改動（pipeline-status --round 給的範圍）] / [git ref, defaults to this round's changes (the scope pipeline-status --round gives)]"
-allowed-tools: Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git ls-files:*), Bash(git rev-parse:*), Bash(ls:*), Bash(pipeline-status --round:*)
+description: D 魔鬼教官這一關（產線監視器 agy-pipeline 帶的通用版）：拿這個專案自己踩過的坑（docs/FAILURE-PATTERNS.md，沒有就用三條通用判準）逐條對照這次的改動，找出正在重蹈的已知死法。只找問題、不改任何檔案、不宣稱通過。使用者說「檢查一下有沒有踩到老毛病」「魔鬼教官」「chaos check」時用；專案自己也有 chaos-check 技能時，使用者叫哪個就跑哪個，不要自作主張換。 English — the Chaos check stage (the general version that comes with Pipeline Monitor for Antigravity) compares this change, item by item, against the pitfalls this project has already hit (docs/FAILURE-PATTERNS.md, or the three general rules when there's none) to find known failure patterns being repeated. It only finds problems; it changes no files and never claims a pass. Use it when the user says "chaos check", "run the chaos check", "check whether this hits any known failure pattern", "look for old mistakes"; if the project has its own chaos-check skill too, run whichever one the user asks for.
 ---
 
 # D —— 魔鬼教官（通用版）
@@ -18,8 +16,8 @@ allowed-tools: Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git l
 
 - **用使用者講的語言回。** 講英文就用英文回、講中文就用中文回。這一支裡引號裡的中文（「看到了」「這是找過，不是通過」…）是**意思**，不是要照抄的字。
   Reply in the language the user writes in. The quoted Chinese in this skill is the meaning, not words to copy.
-- `pipeline-status` 印的字跟著它自己的語言設定（`pipeline-status --lang`），不一定是使用者講的那一種：照它印的**意思**走——下面照它的字分路的表，中英兩種都列了。
-  What `pipeline-status` prints follows its own language setting, which may differ from the user's language: go by what it means. The tables below that route on its words list both languages.
+- `agy-pipeline` 印的字跟著它自己的語言設定（`agy-pipeline --lang`），不一定是使用者講的那一種：照它印的**意思**走——下面照它的字分路的表，中英兩種都列了。
+  What `agy-pipeline` prints follows its own language setting, which may differ from the user's language: go by what it means. The tables below that route on its words list both languages.
 - 講英文的時候，紅線那幾個字照這張表講（when speaking English, say the red-line words this way）：
 
 <!-- 用語對照:跟 lib/lang.mjs 的 TERMS 逐字對(scripts/skills.test.mjs,老毛病 P2)。要改先改那裡,每一支技能一起改 -->
@@ -38,7 +36,7 @@ allowed-tools: Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git l
 | 看不全／看不到 | can't see all of it / can't see | no changes, none |
 | 檢查全綠 | all checks green | works, passed, verified, safe |
 | 先停下來問使用者 | stop and ask the user first | failed, error, blocked |
-| 使用者說／Claude 代記／分不出是誰 | the user said / Claude recorded it for them / can't tell who | a guessed subject |
+| 使用者說／AI 代記／分不出是誰 | the user said / AI recorded it for them / can't tell who | a guessed subject |
 | 可能 | might | will, is |
 | 前 N 個字 | the first N characters | words |
 
@@ -74,9 +72,9 @@ allowed-tools: Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git l
 |---|---|---|
 | 已知死法（判準清單） | `docs/FAILURE-PATTERNS.md`——有觸發表就用觸發表挑，沒有就通讀挑對得上的 | 只對下面三條通用判準，**並在結論裡明說**「這個專案沒有自己的死法清單，我只對了通用的三條」 |
 | 教訓全文 | `docs/LESSONS.md` 或 `docs/references/LESSONS.md`（按標題搜關鍵字，不要從頭讀） | 略過 |
-| 刻意的決定（看起來像 bug、其實不是） | `CLAUDE.md` 裡寫著「刻意」「不是 bug」的段落 | 沒有就沒有 |
-| 覆蓋最稀、最常出事的地方 | `FAILURE-PATTERNS.md` 或 `CLAUDE.md` 有寫才有 | 問 git：這次動到的每個檔案**有沒有對應的測試**——回報裡明講有／沒有，不要猜 |
-| 使用者是誰、症狀長什麼樣 | `README.md`、`CLAUDE.md` | 當成不是工程師來寫 |
+| 刻意的決定（看起來像 bug、其實不是） | 專案手冊（`AGENTS.md`／`GEMINI.md`／`CLAUDE.md`）裡寫著「刻意」「不是 bug」的段落 | 沒有就沒有 |
+| 覆蓋最稀、最常出事的地方 | `FAILURE-PATTERNS.md` 或專案手冊有寫才有 | 問 git：這次動到的每個檔案**有沒有對應的測試**——回報裡明講有／沒有，不要猜 |
+| 使用者是誰、症狀長什麼樣 | `README.md`、`AGENTS.md`、`GEMINI.md`、`CLAUDE.md` | 當成不是工程師來寫 |
 
 **三條通用判準**（不論改動內容一律檢查；專案有自己的紅線時兩邊都要過）：
 
@@ -87,12 +85,12 @@ allowed-tools: Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git l
 
 ## 第一步：先問這是這一輪第幾次、該怎麼跑（一定要做）
 
-跑 `pipeline-status --round D`（沒有這個指令的話：`node "<pipeline-monitor 的資料夾>/status.mjs" --round D`，
-那個資料夾就是 `~/.claude/skills/pipeline-monitor` 指向的位置）。它的「跑法」那一行怎麼說就怎麼跑：
+跑 `agy-pipeline --round D`（沒有這個指令的話：`node "<agy-pipeline 的資料夾>/status.mjs" --round D`，
+那個資料夾就是 `~/.gemini/config/plugins/agy-pipeline` 指向的位置）。它的「跑法」那一行怎麼說就怎麼跑：
 
 | 它說（中文／English） | 你怎麼跑 |
 |---|---|
-| 第一次、可以派獨立 agent（只有分級設定允許的那一級才會這樣說）／first time, tier …: you may send independent agents | 可以派 agent 多角度看，派幾個你判斷；回報第一行寫「派了 N 個 agent」（沒派就寫「沒派 agent」） |
+| 第一次、可以派獨立 agent（只有分級設定允許的那一級才會這樣說）／first time, tier …: you may send independent agents | 可以用 `invoke_subagent`（`TypeName: "research"`）派獨立 subagent 多角度看，派幾個你判斷；回報第一行寫「派了 N 個 agent」（沒派就寫「沒派 agent」） |
 | 第一次、你自己看／first time, tier …: look yourself, don't send agents | 你自己看整批改動，**不派 agent** |
 | 第一次、<原因>：照最省的方式跑／first time, <reason>: run it the cheapest way——原因是這四種之一：這個專案沒設定分級、這個專案的分級設定讀不懂、這個專案設定成不分級、這次分不了級（this project hasn't set up tiers、this project's tier setting can't be read、this project is set to not use tiers、the tier couldn't be worked out this time） | 你自己看，回報第一行照它給的那句寫：「<它講的原因>，我照最省的方式跑」——原因照它講，不准一律寫成「沒設定分級」：讀不懂、設定成不分級、這次分不了級講成沒設定，就是把「沒問到」講成「沒有」（R1）。不是當成最低那一級，是成本上取最省的那條 |
 | 第二次以上／time 2 (or later): whatever the tier, look yourself | 不論分級都你自己看，**只看它列的那幾個檔**（第一次之後改的），不派 agent；回報第一行照它給的那句寫 |
@@ -102,8 +100,8 @@ allowed-tools: Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git l
 
 第二次以上只看那幾個檔，代價是：修法跟沒重讀的那些檔之間的交互，這一次看不到——所以回報**不准**講成「全部看過」。
 
-**交給獨立 agent 跑也一樣要先在這個對話叫這一關**（儀表板只看得到這裡叫過），收尾一定由你記結論。
-派出去的 agent 把要對照的清單與改動直接交給它們，**不要叫它們再叫這一關**——那會被算成這一輪又跑了一次。
+**交給獨立 subagent 跑也一樣要先在這個對話叫這一關**（儀表板只看得到這裡叫過），收尾一定由你記結論。
+派出去的 subagent 把要對照的清單與改動直接交給它們，**不要叫它們再讀這支 SKILL.md 或再叫這一關**——那會被算成這一輪又跑了一次。
 
 ## 步驟
 
@@ -111,7 +109,7 @@ allowed-tools: Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git l
    - 第一次 → 它印的「這一輪的範圍」：`git diff <它給的版本> -- <它列的那幾個檔>`，標「新檔」的整份讀。一輪中途存過檔的也在裡面。
      它說起點找不到、只看得到還沒存檔的 → 照它說的拿，回報第一行照它給的那句寫。
    - 第二次以上 → 只拿 `--round` 列的那幾個檔：`git diff <它給的版本> -- <那幾個檔>`，新檔整份讀。基準是第一次那一刻的版本，第一輪之後存過檔的改動才看得到。
-   - 有參數 → `git diff $ARGUMENTS`
+   - 使用者若指定了 git ref → `git diff <ref>`
    - `--round` 沒給範圍（這個指令不存在、或是舊版沒有這一段）→ `git diff HEAD`；空的話 → `git diff main...HEAD`（沒有 main 就 master）。
      回報第一行寫「拿不到這一輪的範圍，這次看的是 <你實際用的那個 git 指令>」。
    - ⚠️ **`git diff` 看不到還沒被 git 追蹤的新檔案，而新檔案是 AI 最常見的產物。** 一律再跑
@@ -156,23 +154,23 @@ allowed-tools: Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git l
 
 ## 收尾（一定要做：這是這一關結案的唯一證據）
 
-把結論記給儀表板，儀表板會照實標「Claude 說」。說明第一行是結論（第一步那一行：派了幾個 agent、或第幾輪只看了哪幾個檔），之後一行一條發現（一句話就好，儀表板會一條一條列出來）：
-- 沒對到任何已知死法 → `pipeline-status --report D ok "沒對到已知死法"`（英文：`pipeline-status --report D ok "didn't match any known failure pattern"`）
-- 有發現 → `pipeline-status --report D found "找到 N 條
+把結論記給儀表板，儀表板會照實標「AI 說」。說明第一行是結論（第一步那一行：派了幾個 agent、或第幾輪只看了哪幾個檔），之後一行一條發現（一句話就好，儀表板會一條一條列出來）：
+- 沒對到任何已知死法 → `agy-pipeline --report D ok "沒對到已知死法"`（英文：`agy-pipeline --report D ok "didn't match any known failure pattern"`）
+- 有發現 → `agy-pipeline --report D found "找到 N 條
 - [判準] 一句話
 - [判準] 一句話"`（英文：`"Found N` 之後一樣一行一條 `- [criterion] one sentence`）
 
-沒有 `pipeline-status` 這個指令的話：`node "<pipeline-monitor 的資料夾>/status.mjs" --report D …`——
-那個資料夾就是 `~/.claude/skills/pipeline-monitor` 指向的位置。
+沒有 `agy-pipeline` 這個指令的話：`node "<agy-pipeline 的資料夾>/status.mjs" --report D …`——
+那個資料夾就是 `~/.gemini/config/plugins/agy-pipeline` 指向的位置。
 
-**還在背景跑（交給 agent 了、還沒回來）就照實說還在跑，不准先記 ok 交差。** 跑完才記。
+**還在背景跑（交給 subagent 了、還沒回來）就照實說還在跑，不准先記 ok 交差。** 跑完才記。
 
 **記完就停：這一關不准自己再叫第二次。** 被叫去找問題的檢查每一輪都找得到東西，自己一直重跑會沒完沒了（2026-09-17：同一件事連跑三輪，用量上限就是這樣燒掉的）。
 
 ## 修完之後：要不要再跑，先問人
 
 這一輪已經有這一關的結論、之後又改了程式檔（修了發現、或使用者又交代了別的）→ **不准自己再叫這一關**，先停下來問使用者。
-問之前跑 `pipeline-status --round D` 拿事實，然後用白話＋舉例講四件事：
+問之前跑 `agy-pipeline --round D` 拿事實，然後用白話＋舉例講四件事：
 
 1. **第一輪之後改了什麼**——它列的那幾個檔。
 2. **每條修法標「小修」或「建議再看」**：改到危險清單的檔、或改的檔比第一輪指出的位置多（修法蔓延到別處）→ 建議再看；
@@ -182,10 +180,10 @@ allowed-tools: Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git l
 
 最後一行給建議：全部小修 →「我建議不跑」；有任何一條建議再看 →「我建議跑」。
 英文：每條標 small fix 或 worth another look；最後一行是 "I recommend not running it" 或 "I recommend running it"。
-用一般的對話問，**不要用選項卡**（AskUserQuestion）——選項卡的回答感測器看不到，你記下的決定會變成「分不出是不是使用者說的」。
+用一般的對話問，**不要用選項卡**（`ask_question`）——v0.1 尚未接上選項卡回答解析，直接讓使用者在對話裡回一句，感測器與轉錄檔才能對回使用者的原話。
 **使用者的決定才算數**：
 - 使用者說跑 → 再叫這一關（照第一步：第二次以上自己看、只看那幾個檔）。
-- 使用者說不用 → `pipeline-status --decide D skip "使用者的原話"`。儀表板附的是感測器記的、使用者在這一關被叫之後說的最後一句，不是你轉述的；
+- 使用者說不用 → `agy-pipeline --decide D skip "使用者的原話"`。儀表板附的是感測器與轉錄檔記的、使用者在這一關被叫之後說的最後一句，不是你轉述的；
   畫面照實寫「你說不用再跑」，不打勾。
 
 這一輪從哪算起：到下一次寫規格（A）或蓋章為止都是同一輪——使用者回「修掉吧」之後，你修完也一樣先問，不自動再跑。
@@ -197,4 +195,4 @@ allowed-tools: Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git l
 
 ## 邊界
 
-- 專案自己也有 `/chaos-check` → 兩個並存，使用者叫哪個就跑哪個。產線監視器把兩種名字都算成 D 這一關。
+- 專案自己也有 `chaos-check` 技能 → 兩個並存，使用者叫哪個就跑哪個。產線監視器把兩種名字都算成 D 這一關。

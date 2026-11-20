@@ -110,9 +110,9 @@ section('AC-4:沒有還差的事的那一行——寫「可以按結案」,不�
   const plain = oneRow(sess({ tier: tierOk([]) }));
   check('不打勾、不講通過', !/✅|✓|通過|passed/i.test(plain?.clear ?? '✅'), plain?.clear);
   const byClaude = oneRow(sess());
-  check('必抓:分級要的 D 是 Claude 記「沒對到已知死法」→ 照寫是 Claude 說的', /D 的結論是 Claude 說的/.test(byClaude?.clear ?? ''), byClaude?.clear);
+  check('必抓:分級要的 D 是 AI 記「沒對到已知死法」→ 照寫是 AI 說的', /D 的結論是 AI 說的/.test(byClaude?.clear ?? ''), byClaude?.clear);
   const byYou = oneRow(sess({ stages: stagesOf({ D: { doneBy: 'human' } }) }));
-  check('你說處理完的 → 不寫成 Claude 說的', !/Claude/.test(byYou?.clear ?? 'Claude'), byYou?.clear);
+  check('你說處理完的 → 不寫成 AI 說的', !/AI/.test(byYou?.clear ?? 'AI'), byYou?.clear);
   const css = readFileSync(join(ROOT, 'ui', 'ui.css'), 'utf8');
   check('網頁那一行跟其他行同一個樣子:ui.css 不另外替「沒有還差的事」上顏色', !/data-k="clear"/.test(css));
 }
@@ -333,12 +333,12 @@ section('AC-8:終端機那一張跟網頁同一份——同一個函式出的字
   const lost = uiOf({ projects: [{ name: 'q' }], todo: b }).whiteboard({ name: 'q' });
   check('總表裡找不到這個案件 → 講對不上,不畫成沒事', /找不到這個案件/.test(lost) && !/wb-task/.test(lost), lost);
 
-  // 真的跑一次 pipeline-status --todo:不需要站在 git 專案裡;資料是空的、服務問不到 → 兩件都照講,不是一片空白
+  // 真的跑一次 agy-pipeline --todo:不需要站在 git 專案裡;資料是空的、服務問不到 → 兩件都照講,不是一片空白
   const home = mkdtempSync(join(tmpdir(), 'pm-home-'));
-  const env = { ...process.env, HOME: home, PIPELINE_MONITOR_HOME: join(home, 'data'), PIPELINE_MONITOR_PORT: '1' };
-  delete env.PIPELINE_MONITOR_LOG_DIR;
+  const env = { ...process.env, HOME: home, AGY_PIPELINE_HOME: join(home, 'data'), AGY_PIPELINE_PORT: '1' };
+  delete env.AGY_PIPELINE_LOG_DIR;
   const out = spawnSync(process.execPath, [join(ROOT, 'status.mjs'), '--todo'], { cwd: home, env, encoding: 'utf8' });
-  eq('pipeline-status --todo 在不是 git 專案的地方也跑得完', out.status, 0);
+  eq('agy-pipeline --todo 在不是 git 專案的地方也跑得完', out.status, 0);
   check('……講看不到任何案件', /還看不到任何案件/.test(out.stdout), out.stdout + out.stderr);
   check('……服務問不到就講問不到,不講不用重啟', out.stdout.includes(serveDownLine()), out.stdout);
   rmSync(home, { recursive: true, force: true });
@@ -451,7 +451,7 @@ section('AC-12:對話頁多一關 F 工地主任——收尾了沒、這個對�
   const two = run('s1', [card1({}), card1({ id: 'k2' })]);
   check('這個對話提的卡還沒開始 → 講幾張、在哪一區看', two.includes('建議卡：還沒開始 2 張（在案件頁）') && two.includes('「建議新增的對話」那一區'), two.slice(-900));
   check('都開始了、不做了、被取代了 → 照講(跟建議卡那一區同一個判斷)', run('s1', [card1({ startedBy: 'x' }), card1({ id: 'k2', dismissedAt: '2026-11-01T00:00:00Z' })]).includes('都開始了'));
-  check('必抓:一張都沒記到 → 講不代表沒跳過,不講沒有(P5)', run('s1').includes('不代表沒跳過'));
+  check('必抓:一張都沒記到 → 講只看得到用 --suggest 放的,不只講沒有(P5)', run('s1').includes('只看得到用 --suggest 放的'));
   check('必抓:分不出是哪個對話放的卡 → 另外講案件頁還有幾張,不算到這個對話頭上、也不因此講沒有(P7)', run('s1', [card1({ session: null }), card1({ id: 'k3', session: null })]).includes('另有 2 張建議卡分不出是哪個對話放的（在案件頁）'));
   const old = run('s1', [], { oldServer: true });
   check('舊的服務沒有 todo → F 那一行講服務還在跑舊的程式,不畫成沒事', old.includes('服務還在跑舊的程式') && /data-id="director" data-face="ask"/.test(old), old.slice(-500));
@@ -488,7 +488,7 @@ section('AC-1:真的資料夾、真的紀錄跑一次 collectAll——總表用�
     JSON.stringify({ ts: T(10), hook: 'UserPromptSubmit', session: 's1', cwd: repo.dir, prompt: '幫我加一個檔' }),
     JSON.stringify({ ts: T(9), hook: 'PostToolUse', tool: 'Write', session: 's1', cwd: repo.dir, file: join(repo.dir, 'new.txt') }),
   ].join('\n') + '\n');
-  const all = collectAll({ monitorDir, skillHome: home, appTitles: new Map() });
+  const all = collectAll({ monitorDir, skillHome: home, home });
   const s1 = all.projects[0]?.sessions?.find((s) => s.id === 's1');
   eq('真的資料的對話帶著你最後一次說話的時間', s1?.lastSaidAt, T(10));
   const row = rowsOf(todoBoard(all, { ago: AGO }))[0];
@@ -496,7 +496,7 @@ section('AC-1:真的資料夾、真的紀錄跑一次 collectAll——總表用�
   check('真的資料:沒蓋過章 → 列', has(row, '還沒蓋過章'), JSON.stringify(texts(row)));
   check('真的資料:這個專案沒設定分級 → 不知道該跑哪幾關,不是沒事', has(row, '不知道該跑哪幾關') && row.clear === null, JSON.stringify(row));
   appendFileSync(log, JSON.stringify({ ts: T(1), event: 'session_closed', session: 's1', cwd: repo.dir, source: 'human' }) + '\n');
-  const after = rowsOf(todoBoard(collectAll({ monitorDir, skillHome: home, appTitles: new Map() }), { ago: AGO }))[0];
+  const after = rowsOf(todoBoard(collectAll({ monitorDir, skillHome: home, home }), { ago: AGO }))[0];
   check('真的資料:按了結案、檔案還沒存 → 照樣出現,只講檔案的事', after?.closed === true && texts(after).join('|') === '還有 1 個檔案沒存', JSON.stringify(after));
   repo.cleanup(); rmSync(monitorDir, { recursive: true, force: true }); rmSync(home, { recursive: true, force: true });
 }

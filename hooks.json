@@ -1,0 +1,64 @@
+{
+  "agy-pipeline-remind": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "sh ./remind.sh",
+        "timeout": 10
+      }
+    ]
+  },
+  "agy-pipeline-sensor": {
+    "PostToolUse": [
+      {
+        "matcher": "write_file|edit_file|write_to_file|replace_file_content|multi_replace_file_content",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh ./hook.sh",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "read_file|view_file",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh ./hook.sh",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "run_command|ask_question|send_message",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh ./hook.sh",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "browser_.*|webview_browser|mcp__.*[Bb]rowser.*|mcp__chrome[-_]?devtools.*|invoke_subagent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh ./hook.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
+  "agy-pipeline-gate": {
+    "Stop": [
+      {
+        "type": "command",
+        "command": "sh ./gate.sh",
+        "timeout": 20
+      }
+    ]
+  }
+}

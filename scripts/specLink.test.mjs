@@ -29,7 +29,7 @@ import { specHint, batchOf, parseChecklist, locateSpec } from '../lib/checklist.
 import { specNotes, clProg, clDoneNote } from '../lib/stageLines.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const PLUGIN = JSON.parse(readFileSync(join(ROOT, '.claude-plugin', 'plugin.json'), 'utf8')).name;
+const PLUGIN = JSON.parse(readFileSync(join(ROOT, 'plugin.json'), 'utf8')).name;
 const STAGES = JSON.parse(readFileSync(join(ROOT, 'stages.json'), 'utf8')).stages;
 const MIN = 60;
 // 測試裡的「現在」只取一次(LESSONS L18)
@@ -60,8 +60,8 @@ function scene({ touch = 'src/danger.js' } = {}) {
   mkdirSync(join(monitorDir, 'logs')); mkdirSync(join(monitorDir, 'checkpoints'));
   copyFileSync(join(ROOT, 'stages.json'), join(monitorDir, 'stages.json'));
   const home = mkdtempSync(join(tmpdir(), 'pm-home-'));
-  mkdirSync(join(home, '.claude', 'skills'), { recursive: true });
-  symlinkSync(ROOT, join(home, '.claude', 'skills', PLUGIN));
+  mkdirSync(join(home, '.gemini', 'config', 'plugins'), { recursive: true });
+  symlinkSync(ROOT, join(home, '.gemini', 'config', 'plugins', PLUGIN));
   if (touch) {
     writeFileSync(join(root, touch), 'changed\n');
     const past = new Date(NOW - 4 * MIN * 1000);
@@ -73,19 +73,19 @@ function scene({ touch = 'src/danger.js' } = {}) {
   const write = (lines) => writeFileSync(log, lines.map(line).join('\n') + '\n');
   const append = (lines) => appendFileSync(log, lines.map(line).join('\n') + '\n');
   const events = () => (existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
-  // 跑真的 CLI。對話代號從環境變數給(Claude Code 給 Bash 的那一個);session=null 就拿掉,模擬拿不到代號。
+  // 跑真的 CLI。對話代號從環境變數給(Antigravity 給指令的 ANTIGRAVITY_CONVERSATION_ID);session=null 就拿掉,模擬拿不到代號。
   // ⚠️ HOME 一定要給這個假的(裝了 plugin 的那個):指令找「該跑哪個指令」會看家目錄,用真的家目錄的話,
   //    開發這台電腦裝了 plugin 就綠、GitHub 的機器沒裝就紅(2026-09-22 CI 紅過,LESSONS L24)
   const cli = (args, { session = 's1' } = {}) => {
-    const { CLAUDE_CODE_SESSION_ID: _drop, ...env } = process.env;
-    if (session) env.CLAUDE_CODE_SESSION_ID = session;
-    try { return { code: 0, out: execFileSync('node', [join(ROOT, 'status.mjs'), ...args], { cwd: root, encoding: 'utf8', env: { ...env, HOME: home, PIPELINE_MONITOR_HOME: monitorDir, PIPELINE_MONITOR_LOG_DIR: logDir } }) }; }
+    const { ANTIGRAVITY_CONVERSATION_ID: _drop, ...env } = process.env;
+    if (session) env.ANTIGRAVITY_CONVERSATION_ID = session;
+    try { return { code: 0, out: execFileSync('node', [join(ROOT, 'status.mjs'), ...args], { cwd: root, encoding: 'utf8', env: { ...env, HOME: home, AGY_PIPELINE_HOME: monitorDir, AGY_PIPELINE_LOG_DIR: logDir } }) }; }
     catch (e) { return { code: e.status ?? 1, out: String(e.stdout ?? '') + String(e.stderr ?? '') }; }
   };
-  const project = () => collectAll({ monitorDir, skillHome: home, appTitles: new Map() }).projects[0];
+  const project = () => collectAll({ monitorDir, skillHome: home, home }).projects[0];
   const sessionOf = (sid) => project()?.sessions.find((s) => s.id === sid) ?? null;
   const by = (arr) => Object.fromEntries((arr ?? []).map((s) => [s.id, s]));
-  const gate = (sid = 's1') => decide({ payload: { session_id: sid, cwd: root, hook_event_name: 'Stop', stop_hook_active: false }, monitorDir, skillHome: home });
+  const gate = (sid = 's1') => decide({ payload: { conversationId: sid, cwd: root, executionNum: 0, fullyIdle: true, terminationReason: 'NO_TOOL_CALL' }, monitorDir, skillHome: home });
   const cleanup = () => { for (const d of [monitorDir, home]) rmSync(d, { recursive: true, force: true }); r.cleanup(); };
   return { r, root, monitorDir, home, log, write, append, events, cli, project, sessionOf, by, gate, cleanup };
 }
@@ -103,19 +103,19 @@ section('AC-7:規格是別的對話寫的、Claude 記了照哪份施工 → 收
   const before = s.gate();
   const lineA = (before?.reason ?? '').split('\n').find((l) => l.startsWith('- A ')) ?? '';
   check('沒連結:還是要求寫規格那一關(這一輪沒有規格的證據)', (before?.missing ?? []).includes('A'), JSON.stringify(before?.missing));
-  check('那一行講兩條路:規格寫好了就 --spec,還沒有才跑寫規格的指令', lineA.includes('pipeline-status --spec <規格檔>') && lineA.includes(`/${PLUGIN}:spec`) && /還沒有規格才跑/.test(lineA), lineA);
+  check('那一行講兩條路:規格寫好了就 --spec,還沒有才跑寫規格的指令', lineA.includes('agy-pipeline --spec <規格檔>') && lineA.includes(`/${PLUGIN}:spec`) && /還沒有規格才跑/.test(lineA), lineA);
   check('理由裡沒有程式內部值', !/null|undefined|NaN/.test(before?.reason ?? ''), before?.reason);
 
   const rec = s.cli(['--spec', 'docs/規劃中/app建議卡.md']);
-  check('--spec 記下了,講是 Claude 說的、會畫幾條', rec.code === 0 && rec.out.includes('Claude 說的') && rec.out.includes('app建議卡') && rec.out.includes('7 條'), rec.out);
+  check('--spec 記下了,講是 AI 說的、會畫幾條', rec.code === 0 && rec.out.includes('AI 說的') && rec.out.includes('app建議卡') && rec.out.includes('7 條'), rec.out);
   const link = s.events().find((e) => e.event === 'spec_link');
-  check('紀錄:spec_link、路徑、這個對話的代號、source claude', link?.spec === 'docs/規劃中/app建議卡.md' && link?.by_session === 's1' && link?.source === 'claude', JSON.stringify(link));
+  check('紀錄:spec_link、路徑、這個對話的代號、source ai', link?.spec === 'docs/規劃中/app建議卡.md' && link?.by_session === 's1' && link?.source === 'ai', JSON.stringify(link));
   const after = s.gate();
   check('有連結:收工 hook 不再列寫規格那一關', !(after?.missing ?? []).includes('A'), JSON.stringify(after?.missing));
   check('……但改了程式、清單還沒對 → 叫它先對清單(五關 AC-6 照舊)', (after?.missing ?? []).includes('checklist') && /AC-1/.test(after?.reason ?? '') && /app建議卡\.md/.test(after?.reason ?? ''), after?.reason);
   const sess = s.sessionOf('s1');
   const reqA = sess?.tier?.requirements?.find((r) => r.key === 'A');
-  eq('分級卡:A 是「規格是別的對話寫的」,不是 ✅ 也不是「沒有紀錄」', `${reqA?.state}|${reqA?.detail}`, 'linked|規格是別的對話寫的：app建議卡（Claude 說的）');
+  eq('分級卡:A 是「規格是別的對話寫的」,不是 ✅ 也不是「沒有紀錄」', `${reqA?.state}|${reqA?.detail}`, 'linked|規格是別的對話寫的：app建議卡（AI 說的）');
   s.cleanup();
 }
 
@@ -145,8 +145,8 @@ section('AC-1:照別的對話寫的規格施工 → A 畫「已走過」加那�
   eq('全部對完 → B 劃掉,是 Claude 對完清單', `${v.B?.state === 'passed' || v.B?.state === 'done'}|${v.B?.closedBy}`, 'true|checklist');
   // 終端機跟網頁說同一句
   const term = s.cli([], { session: 's1' }).out;
-  check('終端機:A 寫「已走過：照別的對話寫的規格 app建議卡（Claude 說的）」並列清單', term.includes('已走過：照別的對話寫的規格 app建議卡（Claude 說的）') && term.includes('✅ AC-1 第 1 條'), term.split('━━ 五關')[1]?.slice(0, 600));
-  check('終端機的分級:A 那一行是 🔗 規格是別的對話寫的', /A 寫規格\s*🔗 規格是別的對話寫的：app建議卡（Claude 說的）/.test(term), term.split('━━ 分級')[1]?.slice(0, 400));
+  check('終端機:A 寫「已走過：照別的對話寫的規格 app建議卡（AI 說的）」並列清單', term.includes('已走過：照別的對話寫的規格 app建議卡（AI 說的）') && term.includes('✅ AC-1 第 1 條'), term.split('━━ 五關')[1]?.slice(0, 600));
+  check('終端機的分級:A 那一行是 🔗 規格是別的對話寫的', /A 寫規格\s*🔗 規格是別的對話寫的：app建議卡（AI 說的）/.test(term), term.split('━━ 分級')[1]?.slice(0, 400));
   s.cleanup();
 }
 
@@ -237,7 +237,7 @@ section('AC-3:第一句話提到剛好一份規格 → 只當提示(不畫清單
   check('提示不算數:收工 hook 照樣要求寫規格那一關,但把提到的那份附上', (g?.missing ?? []).includes('A') && lineA.includes('從第一句話看，可能是 docs/規劃中/app建議卡.md'), lineA);
   check('提示不會變成清單要求', !(g?.missing ?? []).includes('checklist'), g?.reason);
   const term = s.cli([], { session: 's1' }).out;
-  check('終端機:「從你第一句話看，可能是照 app建議卡 施工（Claude 還沒確認）」', term.includes('從你第一句話看，可能是照 app建議卡 施工（Claude 還沒確認）'), term.split('━━ 五關')[1]?.slice(0, 300));
+  check('終端機:「從你第一句話看，可能是照 app建議卡 施工（AI 還沒確認）」', term.includes('從你第一句話看，可能是照 app建議卡 施工（AI 還沒確認）'), term.split('━━ 五關')[1]?.slice(0, 300));
   // Claude 說不是照別人的規格 → 提示消失
   const none = s.cli(['--spec', '無']);
   check('--spec 無:記下,講提示會消失、分級要的話還是要跑寫規格', none.code === 0 && /提示會消失/.test(none.out) && /還是會要求跑/.test(none.out), none.out);
@@ -453,7 +453,7 @@ section('魔鬼教官 2026-09-21 第一輪:「這個對話自己寫的」不只�
   const again = s.cli(['--spec', 'docs/規劃中/app建議卡.md', 'AC-3', 'AC-4']);
   check('連上之後的 Write(打勾、搬家)不擋下一批', again.code === 0, again.out);
   // 從子資料夾跑也認得(照工作區的根解)
-  const sub = (() => { try { return execFileSync('node', [join(ROOT, 'status.mjs'), '--spec', 'docs/規劃中/app建議卡.md'], { cwd: join(s.root, 'src'), encoding: 'utf8', env: { ...process.env, HOME: s.home, CLAUDE_CODE_SESSION_ID: 's1', PIPELINE_MONITOR_HOME: s.monitorDir, PIPELINE_MONITOR_LOG_DIR: join(s.monitorDir, 'logs') } }); } catch (e) { return `失敗：${e.stdout}`; } })();
+  const sub = (() => { try { return execFileSync('node', [join(ROOT, 'status.mjs'), '--spec', 'docs/規劃中/app建議卡.md'], { cwd: join(s.root, 'src'), encoding: 'utf8', env: { ...process.env, HOME: s.home, ANTIGRAVITY_CONVERSATION_ID: 's1', AGY_PIPELINE_HOME: s.monitorDir, AGY_PIPELINE_LOG_DIR: join(s.monitorDir, 'logs') } }); } catch (e) { return `失敗：${e.stdout}`; } })();
   check('從子資料夾跑 --spec docs/… 也認得', /記下了/.test(sub), sub);
   s.cleanup();
 }
@@ -495,7 +495,7 @@ section('魔鬼教官 2026-09-21 第一輪:第一句話被感測器截斷時,「
 {
   // 感測器真的截在哪:讀取端知道的上限要跟 hook.sh 一樣(老毛病 P2:同一個數字住兩個地方)
   const logDir = mkdtempSync(join(tmpdir(), 'pm-cap-'));
-  execFileSync('sh', [join(ROOT, 'hook.sh')], { input: JSON.stringify({ hook_event_name: 'UserPromptSubmit', session_id: 'c1', cwd: tmpdir(), prompt: '字'.repeat(PROMPT_CAP + 50) }), env: { ...process.env, PIPELINE_MONITOR_LOG_DIR: logDir } });
+  execFileSync('sh', [join(ROOT, 'hook.sh')], { input: JSON.stringify({ conversationId: 'c1', cwd: tmpdir(), toolCall: { id: 't1', name: 'write_file', args: { Path: '/tmp/x.js' } }, lastUserInput: '字'.repeat(PROMPT_CAP + 50) }), env: { ...process.env, AGY_PIPELINE_LOG_DIR: logDir } });
   const rec = readdirSync(logDir).filter((f) => f.endsWith('.jsonl')).flatMap((f) => readFileSync(join(logDir, f), 'utf8').trim().split('\n')).map((l) => JSON.parse(l)).find((e) => e.session === 'c1');
   eq('hook.sh 截的長度 = 讀取端以為的上限', [...(rec?.prompt ?? '')].length, PROMPT_CAP);
   rmSync(logDir, { recursive: true, force: true });
@@ -513,7 +513,7 @@ section('魔鬼教官 2026-09-21 第一輪:第一句話被感測器截斷時,「
   s.write(opening(s.root, { prompt: cutAfter }));
   const g = s.gate();
   const lineA = (g?.reason ?? '').split('\n').find((l) => l.startsWith('- A ')) ?? '';
-  check('截過的第一句話:收工 hook 不把路徑交給 Claude(Claude 自己看得到完整的)', lineA.includes('pipeline-status --spec <規格檔>') && !lineA.includes('從第一句話看'), lineA);
+  check('截過的第一句話:收工 hook 不把路徑交給 AI(AI 自己看得到完整的)', lineA.includes('agy-pipeline --spec <規格檔>') && !lineA.includes('從第一句話看'), lineA);
   const term = s.cli([], { session: 's1' }).out;
   check('畫面講「感測器只記第一句話的開頭，後面有沒有提到別份看不到」', term.includes('感測器只記第一句話的開頭，後面有沒有提到別份看不到'), term.split('━━ 五關')[1]?.slice(0, 300));
   s.cleanup();
@@ -588,7 +588,7 @@ section('魔鬼教官 2026-09-21 第一輪:這一批記的代號在規格裡找�
   const v = s.by(s.sessionOf('s1')?.stages);
   eq('B 不結案,帶著對不上的代號', `${v.B?.closedBy}|${(v.B?.checklist?.batchMissing ?? []).join(',')}`, 'null|AC-3,AC-4');
   const g = s.gate();
-  check('收工 hook 叫它重記 --spec', /這一批記的 AC-3、AC-4/.test(g?.reason ?? '') && /重記一次 pipeline-status --spec/.test(g?.reason ?? ''), g?.reason);
+  check('收工 hook 叫它重記 --spec', /這一批記的 AC-3、AC-4/.test(g?.reason ?? '') && /重記一次 agy-pipeline --spec/.test(g?.reason ?? ''), g?.reason);
   const term = s.cli([], { session: 's1' }).out;
   check('終端機講「在規格裡找不到了（可能改過號）」', term.includes('在規格裡找不到了（可能改過號）'), term.split('━━ 五關')[1]?.slice(0, 700));
   s.cleanup();
@@ -602,9 +602,9 @@ section('魔鬼教官 2026-09-21 第一輪:只在主資料夾的規格,--spec �
   execFileSync('git', ['worktree', 'add', '-q', '-b', 'feature', wt], { cwd: s.root });
   mkdirSync(join(s.root, 'docs', '進行中'), { recursive: true });
   writeFileSync(join(s.root, 'docs/進行中/只在主資料夾.md'), specText('只在主資料夾', 3));   // 主資料夾還沒存,worktree 沒有
-  const { CLAUDE_CODE_SESSION_ID: _d, ...env } = process.env;
+  const { ANTIGRAVITY_CONVERSATION_ID: _d, ...env } = process.env;
   let out2 = '';
-  try { out2 = execFileSync('node', [join(ROOT, 'status.mjs'), '--spec', 'docs/進行中/只在主資料夾.md'], { cwd: wt, encoding: 'utf8', env: { ...env, HOME: s.home, CLAUDE_CODE_SESSION_ID: 's1', PIPELINE_MONITOR_HOME: s.monitorDir, PIPELINE_MONITOR_LOG_DIR: join(s.monitorDir, 'logs') } }); } catch (e) { out2 = `失敗：${e.stdout}`; }
+  try { out2 = execFileSync('node', [join(ROOT, 'status.mjs'), '--spec', 'docs/進行中/只在主資料夾.md'], { cwd: wt, encoding: 'utf8', env: { ...env, HOME: s.home, ANTIGRAVITY_CONVERSATION_ID: 's1', AGY_PIPELINE_HOME: s.monitorDir, AGY_PIPELINE_LOG_DIR: join(s.monitorDir, 'logs') } }); } catch (e) { out2 = `失敗：${e.stdout}`; }
   const firstLine = out2.split('\n')[0];
   check('收下,第一行不說「會畫出」,接著講在主資料夾、不畫、不要求打勾', /記下了/.test(firstLine) && !/會畫出/.test(out2) && /規格在主資料夾/.test(out2) && /不畫那 3 條/.test(out2), out2);
   execFileSync('git', ['worktree', 'remove', '--force', wt], { cwd: s.root });
@@ -811,7 +811,7 @@ section('規格搬家 AC-4:A 自己寫的規格——同名不只一份不猜、
     { ts: T(-290), hook: 'PostToolUse', tool: 'Write', session: 's1', cwd: wt, file: join(out, 'docs/規劃中/外面的.md'), prompt_id: 'a' },
   ], STAGES, 's1', null, wt, {}).view.stages.find((x) => x.id === 'A');
   eq('記的位置在工作區外 → 不讀那一份,照實講不在這個工作區', `${o.specPlace?.found}|${o.specPlace?.given}|${o.checklist}`, 'outside|null|null');
-  check('講「不在這個工作區，也不在主資料夾」', (webNotes?.(o) ?? []).includes('記的規格檔 外面的.md 不在這個工作區，也不在主資料夾——不會叫 Claude 去那裡打勾'), JSON.stringify(webNotes?.(o)));
+  check('講「不在這個工作區，也不在主資料夾」', (webNotes?.(o) ?? []).includes('記的規格檔 外面的.md 不在這個工作區，也不在主資料夾——不會叫 AI 去那裡打勾'), JSON.stringify(webNotes?.(o)));
   for (const d of [main, wt, out]) rmSync(d, { recursive: true, force: true });
 }
 {
@@ -885,7 +885,7 @@ section('規格搬家:魔鬼教官 2026-09-22 第一輪——記的位置有好�
     { ts: T(-290), hook: 'PostToolUse', tool: 'Write', session: 's1', cwd: wt, file: join(main, 'docs/規劃中/D多輪.md'), prompt_id: 'a' },
   ], STAGES, 's1', null, wt, { mainRoot: main }).view.stages.find((x) => x.id === 'A');
   eq('記在主資料夾 → 只在主資料夾找,不拿 worktree 裡同名的那一份(13 條的舊版)', `${a.specPlace?.found}|${a.specPlace?.recordedIn}|${a.checklist}`, 'main|main|null');
-  check('講「規格寫在主資料夾」,不講「可能還沒併進來」', (webNotes?.(a) ?? []).includes('規格寫在主資料夾（docs/規劃中/D多輪.md），不在這個工作區——不會叫 Claude 去那裡打勾'), JSON.stringify(webNotes?.(a)));
+  check('講「規格寫在主資料夾」,不講「可能還沒併進來」', (webNotes?.(a) ?? []).includes('規格寫在主資料夾（docs/規劃中/D多輪.md），不在這個工作區——不會叫 AI 去那裡打勾'), JSON.stringify(webNotes?.(a)));
   for (const d of [main, wt]) rmSync(d, { recursive: true, force: true });
 }
 {
@@ -897,7 +897,7 @@ section('規格搬家:魔鬼教官 2026-09-22 第一輪——記的位置有好�
   renameSync(join(s.root, 'docs/規劃中/新功能.md'), join(s.root, 'docs/進行中/新功能.md'));
   const a = s.sessionOf('s1')?.stages?.find((x) => x.id === 'A');
   eq('子資料夾的對話:照 git 的根找,搬到進行中也找得到', `${a?.specPlace?.found}|${a?.specPlace?.rel}|${a?.checklist?.total}`, 'here|docs/進行中/新功能.md|3');
-  const d = decide({ payload: { session_id: 's1', cwd: sub, hook_event_name: 'Stop', stop_hook_active: false }, monitorDir: s.monitorDir, skillHome: s.home });
+  const d = decide({ payload: { conversationId: 's1', cwd: sub, executionNum: 0, fullyIdle: true, terminationReason: 'NO_TOOL_CALL' }, monitorDir: s.monitorDir, skillHome: s.home });
   check('收工 hook 照樣要求對清單,指的是新位置', (d?.missing ?? []).includes('checklist') && /docs\/進行中\/新功能\.md/.test(d?.reason ?? ''), d?.reason);
   s.cleanup();
 }
@@ -1052,9 +1052,9 @@ section('多份規格 AC-5:記過的一份讀不到 → 那一份講一句、條
   writeFileSync(join(s.root, 'docs/規劃中/甲.md'), specText('甲', 3, { 1: ' ✅ 對過 2026-10-05', 2: ' ✅ 對過 2026-10-05', 3: ' ✅ 對過 2026-10-05' }));
   const st = s.sessionOf('s1')?.stages;
   const five2 = fiveOf(s.cli([], { session: 's1' }).out);
-  check('讀得到的都對完:B 講對完清單,括號講另有一份讀不到', s.by(st).B?.closedBy === 'checklist' && five2.includes('Claude 對完清單（2 份規格共 3 條；另有 1 份讀不到，條數不在裡面）'), five2.slice(0, 1200));
+  check('讀得到的都對完:B 講對完清單,括號講另有一份讀不到', s.by(st).B?.closedBy === 'checklist' && five2.includes('AI 對完清單（2 份規格共 3 條；另有 1 份讀不到，條數不在裡面）'), five2.slice(0, 1200));
   page = webWorkflow?.({ path: s.root, sensor: { state: 'ok' }, stages: st }) ?? '';
-  check('網頁:B 對完那一句也講另有一份讀不到', page.includes('Claude 對完清單（2 份規格共 3 條；另有 1 份讀不到，條數不在裡面）'), page.slice(0, 3000));
+  check('網頁:B 對完那一句也講另有一份讀不到', page.includes('AI 對完清單（2 份規格共 3 條；另有 1 份讀不到，條數不在裡面）'), page.slice(0, 3000));
   const where = webRoundWhere?.(st) ?? '';
   check('對話列與案件卡「這一輪走到…」也講(以前只寫「處理完了」)', /另有 1 份規格讀不到/.test(where), where);
   check('收工 hook 不叫 Claude 去讀不到的那份打勾', !(s.gate()?.missing ?? []).includes('checklist'), s.gate()?.reason);
@@ -1223,7 +1223,7 @@ section('魔鬼教官第一輪:分級卡的 A 那一行跟 A 那格講同一件�
     { ts: T(-4 * MIN), hook: 'PostToolUse', tool: 'Edit', file: join(s.root, 'src/danger.js'), prompt_id: 'p2' },
   ]);
   const reqA = s.sessionOf('s1')?.tier?.requirements?.find((r) => r.key === 'A');
-  eq('分級卡(T2 列了 A):講寫了 2 份規格、是哪兩份', reqA?.detail, '跑過,Claude 說寫了 2 份規格：甲、乙');
+  eq('分級卡(T2 列了 A):講寫了 2 份規格、是哪兩份', reqA?.detail, '跑過,AI 說寫了 2 份規格：甲、乙');
   check('終端機的分級那一段也是同一句', s.cli([], { session: 's1' }).out.includes('寫了 2 份規格：甲、乙'));
   s.cleanup();
 }

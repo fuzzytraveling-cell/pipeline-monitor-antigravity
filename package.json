@@ -1,11 +1,11 @@
 {
-  "name": "pipeline-monitor",
-  "version": "0.41.0",
+  "name": "agy-pipeline",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "把「我在哪、我回得去哪、這次動了多少」變成一個指令。規格見專案的 CLAUDE.md",
+  "description": "把「我在哪、我回得去哪、這次動了多少」變成一個指令（Antigravity 專用版）。規格見專案的 AGENTS.md",
   "bin": {
-    "pipeline-status": "./status.mjs"
+    "agy-pipeline": "./status.mjs"
   },
   "engines": {
     "node": ">=20"

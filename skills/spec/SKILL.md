@@ -1,8 +1,6 @@
 ---
 name: spec
-description: A 寫規格這一關（產線監視器 pipeline-monitor 帶的通用版）：把一句需求翻成一頁每條都能打勾的驗收條件，寫成 docs/規劃中/<slug>.md（專案用的是英文資料夾就是 docs/planned/）後停下來等人點頭。不寫程式、不改既有檔案、不跑測試。使用者說「幫我寫規格」「先列驗收條件」時用；專案自己也有 /spec 時，使用者叫哪個就跑哪個，不要自作主張換。 English — the Spec stage (the general version that comes with Pipeline Monitor) turns a one-sentence request into a one-page list of acceptance criteria that can each be ticked, writes it to docs/planned/<slug>.md (or the spec folder the project already uses, such as docs/規劃中/), then stops and waits for the user's go-ahead. It writes no code, changes no existing files and runs no tests. Use it when the user says "write a spec", "write a spec for …", "list the acceptance criteria first"; if the project has its own /spec too, run whichever one the user asks for.
-argument-hint: "<要做什麼，一句話就好> / <what to build, one sentence is enough>"
-allowed-tools: Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git ls-files:*), Bash(ls:*)
+description: A 寫規格這一關（產線監視器 agy-pipeline 帶的通用版）：把一句需求翻成一頁每條都能打勾的驗收條件，寫成 docs/規劃中/<slug>.md（專案用的是英文資料夾就是 docs/planned/）後停下來等人點頭。不寫程式、不改既有檔案、不跑測試。使用者說「幫我寫規格」「先列驗收條件」時用；專案自己也有 spec 技能時，使用者叫哪個就跑哪個，不要自作主張換。 English — the Spec stage (the general version that comes with Pipeline Monitor for Antigravity) turns a one-sentence request into a one-page list of acceptance criteria that can each be ticked, writes it to docs/planned/<slug>.md (or the spec folder the project already uses, such as docs/規劃中/), then stops and waits for the user's go-ahead. It writes no code, changes no existing files and runs no tests. Use it when the user says "write a spec", "write a spec for …", "list the acceptance criteria first"; if the project has its own spec skill too, run whichever one the user asks for.
 ---
 
 # A —— 寫規格（通用版）
@@ -16,8 +14,8 @@ allowed-tools: Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git l
 
 - **用使用者講的語言回。** 講英文就用英文回、講中文就用中文回。這一支裡引號裡的中文（「看到了」「這是找過，不是通過」…）是**意思**，不是要照抄的字。
   Reply in the language the user writes in. The quoted Chinese in this skill is the meaning, not words to copy.
-- `pipeline-status` 印的字跟著它自己的語言設定（`pipeline-status --lang`），不一定是使用者講的那一種：照它印的**意思**走——下面照它的字分路的表，中英兩種都列了。
-  What `pipeline-status` prints follows its own language setting, which may differ from the user's language: go by what it means. The tables below that route on its words list both languages.
+- `agy-pipeline` 印的字跟著它自己的語言設定（`agy-pipeline --lang`），不一定是使用者講的那一種：照它印的**意思**走——下面照它的字分路的表，中英兩種都列了。
+  What `agy-pipeline` prints follows its own language setting, which may differ from the user's language: go by what it means. The tables below that route on its words list both languages.
 - 講英文的時候，紅線那幾個字照這張表講（when speaking English, say the red-line words this way）：
 
 <!-- 用語對照:跟 lib/lang.mjs 的 TERMS 逐字對(scripts/skills.test.mjs,老毛病 P2)。要改先改那裡,每一支技能一起改 -->
@@ -36,7 +34,7 @@ allowed-tools: Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git l
 | 看不全／看不到 | can't see all of it / can't see | no changes, none |
 | 檢查全綠 | all checks green | works, passed, verified, safe |
 | 先停下來問使用者 | stop and ask the user first | failed, error, blocked |
-| 使用者說／Claude 代記／分不出是誰 | the user said / Claude recorded it for them / can't tell who | a guessed subject |
+| 使用者說／AI 代記／分不出是誰 | the user said / AI recorded it for them / can't tell who | a guessed subject |
 | 可能 | might | will, is |
 | 前 N 個字 | the first N characters | words |
 
@@ -61,12 +59,12 @@ allowed-tools: Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git l
 
 | 要知道的 | 去哪讀 | 沒有的話 |
 |---|---|---|
-| 這個專案給誰用、什麼叫「壞掉」 | `README.md`、`CLAUDE.md`（或 `docs/SKILL.md`） | 問使用者一句，不要猜 |
+| 這個專案給誰用、什麼叫「壞掉」 | `README.md`、`AGENTS.md`、`GEMINI.md`、`CLAUDE.md`（或 `docs/SKILL.md`） | 問使用者一句，不要猜 |
 | 已經犯過的錯（該直接變成 AC 的） | `docs/FAILURE-PATTERNS.md`；教訓全文 `docs/LESSONS.md` 或 `docs/references/LESSONS.md` | 用下面的三條通用判準 |
-| 刻意的決定（別提議去改它們） | `CLAUDE.md` 裡任何寫著「刻意」「不是 bug」「不要順手修」的段落 | 沒有就沒有 |
+| 刻意的決定（別提議去改它們） | 專案手冊（`AGENTS.md`／`GEMINI.md`／`CLAUDE.md`）裡任何寫著「刻意」「不是 bug」「不要順手修」的段落 | 沒有就沒有 |
 | 規格的格式 | `docs/SPEC-TEMPLATE.md`——有就照它，它優先於這裡的最小格式 | 用下面的最小格式 |
-| 分級（這件事要多小心） | `.claude/pipeline-stages.json` 的 `tiers`：`code` 是程式區、`danger` 是危險清單 | 寫「這個專案還沒設定分級」，**不准寫成 T0** |
-| 規格放哪、索引在哪 | **專案裡已經有哪一套就用哪一套**（步驟 1 的 `ls docs/` 看）：中文那一套 `docs/規劃中/`、`進行中/`、`升級摘要/` 任一個在 → 放 `docs/規劃中/`；英文那一套 `docs/planned/`、`in-progress/`、`done/` 任一個在 → 放 `docs/planned/`；兩套都在 → 照使用者講的語言挑。使用者講英文、專案已經是中文那一套，照舊放 `docs/規劃中/`。`CLAUDE.md`、`docs/SKILL.md`、README 有列 docs/ 底下檔案的索引就加一行 | 兩套都沒有 → 照使用者講的語言新建（中文 `docs/規劃中/`、英文 `docs/planned/`）並在回覆裡說；沒索引就明說「沒有更新索引，因為找不到」 |
+| 分級（這件事要多小心） | `.agents/pipeline-stages.json`（相容 fallback `.claude/pipeline-stages.json`）的 `tiers`：`code` 是程式區、`danger` 是危險清單 | 寫「這個專案還沒設定分級」，**不准寫成 T0** |
+| 規格放哪、索引在哪 | **專案裡已經有哪一套就用哪一套**（步驟 1 的 `ls docs/` 看）：中文那一套 `docs/規劃中/`、`進行中/`、`升級摘要/` 任一個在 → 放 `docs/規劃中/`；英文那一套 `docs/planned/`、`in-progress/`、`done/` 任一個在 → 放 `docs/planned/`；兩套都在 → 照使用者講的語言挑。使用者講英文、專案已經是中文那一套，照舊放 `docs/規劃中/`。`AGENTS.md`、`GEMINI.md`、`CLAUDE.md`、`docs/SKILL.md`、README 有列 docs/ 底下檔案的索引就加一行 | 兩套都沒有 → 照使用者講的語言新建（中文 `docs/規劃中/`、英文 `docs/planned/`）並在回覆裡說；沒索引就明說「沒有更新索引，因為找不到」 |
 
 **三條通用判準**（專案沒有自己的清單時用；有的話專案的優先，但這三條照樣要過）：
 
@@ -77,17 +75,16 @@ allowed-tools: Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git l
 ## 步驟
 
 1. **讀手冊**：上表那些檔案，存在的才讀（先 `ls`，不要假設；`ls docs/` 順便看規格放哪一套資料夾）。回覆裡要說你讀了哪幾份、哪幾份找不到。
-2. **需求**：$ARGUMENTS
-   一句話回答「這是為了解決什麼」。答不出來就先問，不要往下寫。修 bug 的話，寫「使用者會看到什麼」，不要寫「程式碼哪裡錯」。
+2. **需求**：根據使用者的需求描述，一句話回答「這是為了解決什麼」。答不出來就先問，不要往下寫。修 bug 的話，寫「使用者會看到什麼」，不要寫「程式碼哪裡錯」。
 3. **分級預測**：列出你預測會動到的檔案，對照 `tiers` 寫「預測至少 T?（因為會碰到 …）」。
    把預測寫進規格——猜錯的話，寫程式那一關開工時會發現，那正是要它浮出來的時機。沒設定分級就照實寫。
 4. **六個問題**（只寫有觸發的，不要為了湊數而寫）：網路／時間／容量／併發／權限憑證／輸入畸形。
    例子要從**這個專案自己的邊界**推：它有沒有後端？資料存在哪？靠不靠第三方服務？不要套別的專案的例子。
-5. **寫檔＋索引**：`docs/規劃中/<kebab-slug>.md`（英文那一套：`docs/planned/<kebab-slug>.md`）。檔名已存在就先讀它——可能是同一件事的舊規格，該更新不是另開。
+5. **寫檔＋索引**：用 `write_file` 寫成 `docs/規劃中/<kebab-slug>.md`（英文那一套：`docs/planned/<kebab-slug>.md`）。檔名已存在就先讀它——可能是同一件事的舊規格，該更新不是另開。
    之後搬家照同一套：點頭開工 → 進行中、結案 → 升級摘要；英文那一套是 planned → in-progress → done。
    索引那一行是唯一准改的既有檔案；除了那一行，索引檔的其他部分一個字都不動。
-6. **告訴儀表板規格在哪**：`pipeline-status --report A ok "docs/規劃中/<slug>.md"`（英文那一套就寫 `"docs/planned/<slug>.md"`；沒有這個指令的話：`node "<pipeline-monitor 的資料夾>/status.mjs" --report A ok "…"`，
-   那個資料夾就是 `~/.claude/skills/pipeline-monitor` 指向的位置）。儀表板靠這一行找到這一輪的清單；用 Bash 寫檔時感測器看不到那次寫檔，這一行就是唯一的線索。
+6. **告訴儀表板規格在哪**：跑 `agy-pipeline --report A ok "docs/規劃中/<slug>.md"`（英文那一套就寫 `"docs/planned/<slug>.md"`；沒有這個指令的話：`node "<agy-pipeline 的資料夾>/status.mjs" --report A ok "…"`，
+   那個資料夾就是 `~/.gemini/config/plugins/agy-pipeline` 指向的位置）。儀表板靠這一行找到這一輪的清單；用終端機指令寫檔時感測器看不到那次寫檔，這一行就是唯一的線索。
    **寫了幾份就記幾次**（一份一行）——儀表板、收工 hook 只認得記過的那幾份，漏記的那份清單不會被要求對。規格搬家（規劃中 → 進行中）之後再記一次新位置也可以。
 7. **回報並停下**。
 
@@ -176,5 +173,5 @@ Tier: <predicted at least T?, expected to touch: …>  or  <this project hasn't 
 ## 邊界
 
 - 資訊不足到寫不出 AC → 列出你需要知道什麼，不要用猜的填滿範本。一份猜出來的規格比沒有規格更危險——它看起來像是想清楚了。
-- 專案自己也有 `/spec`（`.claude/commands/spec.md` 或 `.claude/skills/spec/`）→ 兩個並存，使用者叫哪個就跑哪個。
+- 專案自己也有 `spec` 技能（`.agents/skills/spec/`、`.claude/skills/spec/` 或 `.claude/commands/spec.md`）→ 兩個並存，使用者叫哪個就跑哪個。
   產線監視器把兩種名字都算成 A 這一關。

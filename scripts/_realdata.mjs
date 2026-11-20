@@ -15,11 +15,13 @@ const KINDS = ['logs', 'checkpoints'];
 
 /**
  * 跑之前、跑完各拍一次。
- * @param realHome 帳號真正的家目錄底下的 .pipeline-monitor
- * @param legacy   這份程式的主資料夾(這一版以前紀錄住的地方)
+ * @param realHome   帳號真正的家目錄底下的 .pipeline-monitor-agy
+ * @param legacy     這份程式的主資料夾
+ * @param extraHomes 額外受保護的家目錄（例如原版 ~/.pipeline-monitor，確保測試絕不碰到）
  */
-export function snapshot({ realHome, legacy }) {
-  const names = new Set([realHome, legacy].flatMap((h) => KINDS.map((k) => join(h, k))).flatMap((d) => {
+export function snapshot({ realHome, legacy, extraHomes = [] }) {
+  const homes = [realHome, legacy, ...extraHomes].filter(Boolean);
+  const names = new Set(homes.flatMap((h) => KINDS.map((k) => join(h, k))).flatMap((d) => {
     try { return readdirSync(d).filter((n) => n.startsWith('pm-')).map((n) => join(d, n)); } catch { return []; }
   }));
   const shape = Object.fromEntries(KINDS.map((k) => [k, shapeOf(join(legacy, k))]));

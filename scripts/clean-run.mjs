@@ -2,7 +2,7 @@
 /**
  * clean-run.mjs —— 推上 GitHub 之前,在乾淨的副本跑一次全部測試(npm run test:clean;規格:主任動手收尾 AC-8,教訓 L24 與它的第二、三次)。
  * 本機全綠、GitHub 上紅的那幾次,都是測試偷偷用了這台電腦的環境(老毛病 P8)。所以這裡把學到的環境一次給齊:
- *   從存檔 clone 一份(不是這個資料夾本身:沒存的檔、紀錄、章都不跟過去)、空的家目錄、UTC 時區、清掉環境變數(Claude Code 的、PIPELINE_MONITOR_* 的)、
+ *   從存檔 clone 一份(不是這個資料夾本身:沒存的檔、紀錄、章都不跟過去)、空的家目錄、UTC 時區、清掉環境變數(Antigravity 的、AGY_PIPELINE_* 的)、
  *   不讀系統的 git 設定(GIT_CONFIG_NOSYSTEM:L24 第二次,預設分支在系統層)、短的暫存路徑(長路徑讓「六段同時截滿」那一條多出幾個字)。
  * 用法:npm run test:clean [-- <版本>]——不給版本就是這個資料夾現在的存檔(HEAD)。
  *   紅了:在快轉之前的 main 上再跑一次(npm run test:clean -- <那個版本>),紅的一樣(同一條、同樣的數字)是環境的事,不是這次改的。

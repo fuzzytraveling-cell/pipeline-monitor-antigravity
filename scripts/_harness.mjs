@@ -14,11 +14,9 @@ if (!process.env.GIT_CONFIG_COUNT) {
   Object.assign(process.env, { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'init.defaultBranch', GIT_CONFIG_VALUE_0: 'master' });
 }
 
-// ⚠️ 資料的家一律給假的(規格:紀錄搬到固定的家 AC-7;老毛病 P8)。家改成從家目錄算之後,忘了給的測試會把測試資料寫進這台電腦真的紀錄;
-//    更糟的是「舊的地方」就是這份程式的主資料夾——在 worktree 裡跑測試時,那裡是真的紀錄,而第一次問家在哪就會順手搬家。
-//    有指定家,lib/paths.mjs 與 hook.sh 就一律不碰舊的地方。每支測試各一個(同時跑,彼此不共用);已經有人給了就不蓋掉。
+// ⚠️ 資料的家一律給假的(老毛病 P8)。每支測試各一個(同時跑,彼此不共用);已經有人給了就不蓋掉。
 //    ⚠️ 在同一個程式裡載入 lib/cliFacts.mjs(或 import 它的 cli*.mjs)的測試,這支要排第一個 import——那幾支一載入就問家在哪。
-if (!process.env.PIPELINE_MONITOR_HOME) process.env.PIPELINE_MONITOR_HOME = mkdtempSync(join(tmpdir(), 'pm-data-'));
+if (!process.env.AGY_PIPELINE_HOME) process.env.AGY_PIPELINE_HOME = mkdtempSync(join(tmpdir(), 'pm-data-'));
 
 let failed = 0, passed = 0;
 // 這一段測試釘的是哪一個老毛病(docs/FAILURE-PATTERNS.md 的代號)。

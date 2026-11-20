@@ -25,7 +25,7 @@ import { sessionsOf, firstPromptsOf, saidByHuman, promptKind, rerunOf, rerunLine
 import { stageLine } from '../lib/stageLines.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const PLUGIN = JSON.parse(readFileSync(join(ROOT, '.claude-plugin', 'plugin.json'), 'utf8')).name;
+const PLUGIN = JSON.parse(readFileSync(join(ROOT, 'plugin.json'), 'utf8')).name;
 const MIN = 60;
 // 測試裡的「現在」只取一次(LESSONS L18)
 const NOW = Date.now();
@@ -50,8 +50,8 @@ function scene({ danger = true, tiers = undefined } = {}) {
   mkdirSync(join(monitorDir, 'logs')); mkdirSync(join(monitorDir, 'checkpoints'));
   copyFileSync(join(ROOT, 'stages.json'), join(monitorDir, 'stages.json'));
   const home = mkdtempSync(join(tmpdir(), 'pm-home-'));
-  mkdirSync(join(home, '.claude', 'skills'), { recursive: true });
-  symlinkSync(ROOT, join(home, '.claude', 'skills', PLUGIN));
+  mkdirSync(join(home, '.gemini', 'config', 'plugins'), { recursive: true });
+  symlinkSync(ROOT, join(home, '.gemini', 'config', 'plugins', PLUGIN));
   const logDir = join(monitorDir, 'logs');
   const log = join(logDir, `${safeName(basename(root))}.jsonl`);
   const head = () => out(root, 'rev-parse', '--short', 'HEAD');
@@ -63,13 +63,13 @@ function scene({ danger = true, tiers = undefined } = {}) {
   const touch = (f, sec, body = `changed ${sec}\n`) => { mkdirSync(dirname(join(root, f)), { recursive: true }); writeFileSync(join(root, f), body); utimesSync(join(root, f), at(sec), at(sec)); };
   // 跑真的 CLI。HOME 一定要給這個假的(L24);對話代號從環境變數給,session=null 就拿掉
   const cli = (args, { session = 's1', cwd = root } = {}) => {
-    const { CLAUDE_CODE_SESSION_ID: _drop, ...env } = process.env;
-    if (session) env.CLAUDE_CODE_SESSION_ID = session;
-    try { return { code: 0, out: execFileSync('node', [join(ROOT, 'status.mjs'), ...args], { cwd, encoding: 'utf8', env: { ...env, HOME: home, PIPELINE_MONITOR_HOME: monitorDir, PIPELINE_MONITOR_LOG_DIR: logDir } }) }; }
+    const { ANTIGRAVITY_CONVERSATION_ID: _drop, ...env } = process.env;
+    if (session) env.ANTIGRAVITY_CONVERSATION_ID = session;
+    try { return { code: 0, out: execFileSync('node', [join(ROOT, 'status.mjs'), ...args], { cwd, encoding: 'utf8', env: { ...env, HOME: home, AGY_PIPELINE_HOME: monitorDir, AGY_PIPELINE_LOG_DIR: logDir } }) }; }
     catch (e) { return { code: e.status ?? 1, out: String(e.stdout ?? '') + String(e.stderr ?? '') }; }
   };
-  const gate = ({ sid = 's1', again = false, cwd = root } = {}) => decide({ payload: { session_id: sid, cwd, hook_event_name: 'Stop', stop_hook_active: again }, monitorDir, skillHome: home });
-  const project = () => collectAll({ monitorDir, skillHome: home, appTitles: new Map() }).projects[0];
+  const gate = ({ sid = 's1', again = false, cwd = root } = {}) => decide({ payload: { conversationId: sid, cwd, executionNum: again ? 1 : 0, fullyIdle: true, terminationReason: 'NO_TOOL_CALL' }, monitorDir, skillHome: home });
+  const project = () => collectAll({ monitorDir, skillHome: home, home }).projects[0];
   const sessionOf = (sid = 's1') => project()?.sessions.find((s) => s.id === sid) ?? null;
   const dOf = (sid = 's1') => sessionOf(sid)?.stages?.find((x) => x.id === 'D') ?? null;
   const dRow = (sid = 's1') => sessionOf(sid)?.tier?.requirements?.find((x) => x.key === 'D') ?? null;
@@ -77,10 +77,10 @@ function scene({ danger = true, tiers = undefined } = {}) {
   return { root, monitorDir, home, log, logDir, head, write, append, events, touch, cli, gate, project, sessionOf, dOf, dRow, cleanup };
 }
 
-/** D 被叫(Claude 走 Skill 工具)那一筆:帶著那一刻的版本(感測器記的 head)。 */
-const callD = (sec, head, extra = {}) => ({ ts: T(sec), hook: 'PreToolUse', tool: 'Skill', skill: `${PLUGIN}:chaos-check`, head, ...extra });
-const report = (sec, verdict = 'found', note = '找到 1 條', extra = {}) => ({ ts: T(sec), event: 'stage_report', stage: 'D', verdict, note, source: 'claude', ...extra });
-const said = (sec, prompt, extra = {}) => ({ ts: T(sec), hook: 'UserPromptSubmit', prompt, prompt_id: `p${sec}`, ...extra });
+/** D 被叫(AI 讀 SKILL.md)那一筆:帶著那一刻的版本(感測器記的 head)。 */
+const callD = (sec, head, extra = {}) => ({ ts: T(sec), hook: 'PostToolUse', tool: 'read_file', skill: `${PLUGIN}:chaos-check`, head, ...extra });
+const report = (sec, verdict = 'found', note = '找到 1 條', extra = {}) => ({ ts: T(sec), event: 'stage_report', stage: 'D', verdict, note, source: 'ai', ...extra });
+const said = (sec, prompt, extra = {}) => ({ ts: T(sec), hook: 'UserPrompt', prompt, prompt_id: `p${sec}`, ...extra });
 
 section('AC-8:背景工作的通知不是你說的話——不重算回合、不算訊息數(9/22 07:20 那一筆的形狀)', 'P7');
 {
@@ -129,7 +129,7 @@ section('AC-9:「要不要再跑」只算一次——比的是 D 被叫的時間
   eq('對話頁的 D:Claude 說沒問題(不是要不要再跑)', s.dOf()?.rerun?.state, 'ok');
   eq('分級卡那一行:ok', s.dRow()?.state, 'ok');
   check('收工 hook:不問 D(只缺別的關也不含 D)', !(s.gate()?.missing ?? []).some((k) => k.startsWith('D')), JSON.stringify(s.gate()));
-  check('終端機的 D 那一行:Claude 說沒對到,沒有「要不要再跑」', /D 魔鬼教官.*Claude 說：沒對到已知死法/.test(s.cli([]).out) && !/要不要再跑/.test(s.cli([]).out), s.cli([]).out.split('━━ 五關')[1]?.slice(0, 600));
+  check('終端機的 D 那一行:AI 說沒對到,沒有「要不要再跑」', /D 魔鬼教官.*AI 說：沒對到已知死法/.test(s.cli([]).out) && !/要不要再跑/.test(s.cli([]).out), s.cli([]).out.split('━━ 五關')[1]?.slice(0, 600));
   s.cleanup();
 }
 
@@ -201,10 +201,10 @@ section('AC-6、AC-7:收工 hook——同一回合同一件事只擋一次,新�
   // 整條路真的跑一次:擋過之後的收工、紀錄寫不進去 → 不擋(不然下一次看不到擋過什麼,會一直擋同一件事)
   s.write([...turn, blocked(-8 * MIN, ['D']), callD(-7 * MIN, h)]);
   chmodSync(s.log, 0o444);
-  const env = { ...process.env, PIPELINE_MONITOR_HOME: s.monitorDir, PIPELINE_MONITOR_LOG_DIR: s.logDir, HOME: s.home };
+  const env = { ...process.env, AGY_PIPELINE_HOME: s.monitorDir, AGY_PIPELINE_LOG_DIR: s.logDir, HOME: s.home };
   const run = (payload) => execFileSync('sh', [join(ROOT, 'gate.sh')], { input: JSON.stringify(payload), env, encoding: 'utf8' });
-  const silent = run({ session_id: 's1', cwd: s.root, hook_event_name: 'Stop', stop_hook_active: true });
-  eq('紀錄寫不進去、又是擋過之後的收工 → 一個字都不印(放行)', silent, '');
+  const silent = run({ conversationId: 's1', cwd: s.root, executionNum: 1, fullyIdle: true, terminationReason: 'NO_TOOL_CALL' });
+  eq('紀錄寫不進去、又是擋過之後的收工 → 輸出 {}（放行）', silent.trim(), '{}');
   check('寫不進去的事實記進 _sensor.jsonl(gate_broken)', /記不了 gate_blocked/.test(existsSync(join(s.logDir, '_sensor.jsonl')) ? readFileSync(join(s.logDir, '_sensor.jsonl'), 'utf8') : ''));
   // 帶那次的資料夾:心跳只留最後一次,沒有資料夾就分不出「出錯的那個之後又跑過了」還是「只是別的資料夾跑過」(規格:agent回報與故障記號 AC-5)
   const gb = existsSync(join(s.logDir, '_sensor.jsonl')) ? readFileSync(join(s.logDir, '_sensor.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).at(-1) : null;
@@ -283,10 +283,10 @@ section('AC-4、AC-5:你說不用再跑——附你在 D 之後說的原話(感�
   const ok = s.cli(['--decide', 'D', 'skip', '不用跑了']);
   check('記下了,而且講出儀表板會附哪一句', ok.code === 0 && /不用再跑了，先這樣/.test(ok.out), ok.out);
   const ev = s.events().filter((e) => e.event === 'stage_decision').at(-1);
-  check('紀錄:stage_decision、source human、via claude、帶對話代號與 Claude 轉述的字', ev?.stage === 'D' && ev?.decision === 'skip' && ev?.source === 'human' && ev?.via === 'claude' && ev?.by_session === 's1' && ev?.quote === '不用跑了', JSON.stringify(ev));
+  check('紀錄:stage_decision、source human、via ai、帶對話代號與 AI 轉述的字', ev?.stage === 'D' && ev?.decision === 'skip' && ev?.source === 'human' && ev?.via === 'ai' && ev?.by_session === 's1' && ev?.quote === '不用跑了', JSON.stringify(ev));
   const d = s.dOf();
   eq('對話頁的 D:擱著(held)——不劃掉、不打勾', d?.state, 'held');
-  check('那一句附的是感測器記的原話與時間(講明是 D 之後你說的最後一句),不是 Claude 轉述的', /Claude 記下：你說不用再跑（D 之後你說的最後一句：「不用再跑了，先這樣」，\d+ 分鐘前）/.test(d?.rerun?.line ?? ''), d?.rerun?.line);
+  check('那一句附的是感測器記的原話與時間(講明是 D 之後你說的最後一句),不是 AI 轉述的', /AI 記下：你說不用再跑（D 之後你說的最後一句：「不用再跑了，先這樣」，\d+ 分鐘前）/.test(d?.rerun?.line ?? ''), d?.rerun?.line);
   check('分級卡那一行:⏸ 跑過、你說不用再跑——不是 ok', s.dRow()?.state === 'ran' && /你說不用再跑/.test(s.dRow()?.detail ?? ''), JSON.stringify(s.dRow()));
   check('收工 hook 不再問 D', !(s.gate()?.missing ?? []).some((k) => k.startsWith('D')), s.gate()?.reason);
 
@@ -294,7 +294,7 @@ section('AC-4、AC-5:你說不用再跑——附你在 D 之後說的原話(感�
   s.touch('src/danger.js', -1 * MIN);
   const after = s.dOf();
   check('你說之後又改了 → 又是「要不要再跑由你決定」,並講你說過什麼、那之後又改了',
-    after?.state === 'stale' && /要不要再跑由你決定（Claude 記過你說不用再跑，那時 D 之後你說的最後一句：「不用再跑了，先這樣」，\d+ 分鐘前；那之後又改了）/.test(after?.rerun?.line ?? ''), after?.rerun?.line);
+    after?.state === 'stale' && /要不要再跑由你決定（AI 記過你說不用再跑，那時 D 之後你說的最後一句：「不用再跑了，先這樣」，\d+ 分鐘前；那之後又改了）/.test(after?.rerun?.line ?? ''), after?.rerun?.line);
   check('收工 hook 又要問', (s.gate()?.missing ?? []).includes('D:ask'), s.gate()?.reason);
   s.cleanup();
 
@@ -402,7 +402,7 @@ section('第一輪的範圍跟收工 hook 同一份:中途存過檔,--round D �
   const ck = readFileSync(join(ROOT, 'skills', 'cleanup', 'SKILL.md'), 'utf8');
   check('chaos-check:第一次照 --round 印的「這一輪的範圍」拿改動', /第一次 → 它印的「這一輪的範圍」：`git diff <它給的版本> -- <它列的那幾個檔>`/.test(dk));
   check('chaos-check:沒有「沒參數 → git diff HEAD」當預設那一句', !/沒參數 → `git diff HEAD`/.test(dk));
-  check('cleanup:先跑 --round C、照它的範圍,而且准用這個指令', /先跑 `pipeline-status --round C`/.test(ck) && /allowed-tools:.*Bash\(pipeline-status --round:\*\)/.test(ck));
+  check('cleanup:先跑 --round C、照它的範圍，且不含 Claude 專有 allowed-tools', /先跑 `agy-pipeline --round C`/.test(ck) && !/^allowed-tools:/m.test(ck));
   check('cleanup:沒有「沒參數 → git diff HEAD」當預設那一句', !/沒參數 → `git diff HEAD --name-only`/.test(ck));
 }
 
@@ -450,7 +450,7 @@ section('D 那一格:擱著(held)的樣子、那一句與花了多久——句�
   const raw = (state, rerun, o = {}) => D({ state, rerun: { stage: { id: 'D', verb: '跑' }, ...rerun }, ...o });
   const heldSt = raw('held', { state: 'skipped', decision: { said: { text: '不用跑了', ts: T(-3 * MIN) } }, concluded: true, took: { latest: true, minutes: 1 } });
   const heldLine = stageLine(heldSt, { ago });
-  check('擱著那一句:附你在 D 之後說的最後一句、上一次 Claude 說了什麼、花了多久', /D 之後你說的最後一句：「不用跑了」/.test(heldLine) && /上一次 Claude 說：找到 3 條/.test(heldLine) && /上一輪從叫到記結論 1 分鐘/.test(heldLine), heldLine);
+  check('擱著那一句:附你在 D 之後說的最後一句、上一次 AI 說了什麼、花了多久', /D 之後你說的最後一句：「不用跑了」/.test(heldLine) && /上一次 AI 說：找到 3 條/.test(heldLine) && /上一輪從叫到記結論 1 分鐘/.test(heldLine), heldLine);
   const held = wf?.(card(screen(heldSt))) ?? '';
   check('擱著:data-state="held"、照印伺服器給的那一句', /data-state="held"/.test(held) && held.includes(esc(heldLine)), held);
   check('擱著的燈講「是你的決定,不是驗過了」', /是你的決定,不是驗過了/.test(held), held);
@@ -472,9 +472,9 @@ section('AC-1:skill 裡不准再叫 Claude 自己重跑——修完先問人(先
   const skill = readFileSync(join(ROOT, 'skills', 'chaos-check', 'SKILL.md'), 'utf8');
   check('SKILL.md 沒有叫 Claude 自己重跑', !selfRerun(skill));
   check('SKILL.md 第一步先跑 --round、記完不准自己再叫、修完先問、說不用就 --decide',
-    /pipeline-status --round D/.test(skill) && /不准自己再叫第二次/.test(skill) && /不准自己再叫這一關\*\*，先停下來問使用者/.test(skill) && /--decide D skip/.test(skill));
+    /agy-pipeline --round D/.test(skill) && /不准自己再叫第二次/.test(skill) && /不准自己再叫這一關\*\*，先停下來問使用者/.test(skill) && /--decide D skip/.test(skill));
   check('SKILL.md 講「還在背景跑就照實說還在跑,不准先記 ok」', /還在背景跑.*照實說還在跑，不准先記 ok 交差/.test(skill));
-  check('SKILL.md 准它跑 --round 不用每次問權限(唯讀)', /allowed-tools:.*Bash\(pipeline-status --round:\*\)/.test(skill));
+  check('SKILL.md 不含 Claude 專有 allowed-tools', !/^allowed-tools:/m.test(skill));
 }
 
 section('結論記對話代號(by_session):「叫 → 結論」配對時不把別的對話的結論配給這個對話');
@@ -572,8 +572,8 @@ section('沒見過的格式不猜成你說的,而且要講出來;收工 hook 取
   // 講出來:對話頁與終端機同一句,先講白話、附開頭、給動作
   s.write([...turn, { ts: T(-5 * MIN), hook: 'UserPromptSubmit', prompt: ODD, prompt_id: 'po4' }]);
   const note = s.sessionOf()?.unknownNote ?? '';
-  check('對話頁:講「1 則開頭是 <x> 的訊息、認不出是誰送的」、不講成「不是你打的」(可能就是你打的)、叫你給 Claude 看',
-    /1 則開頭是 <brand-new-notice> 的訊息，我認不出是誰送的/.test(note) && /也可能是你打的字/.test(note) && !/不是你打的/.test(note) && /給 Claude 看/.test(note), note);
+  check('對話頁:講「1 則開頭是 <x> 的訊息、認不出是誰送的」、不講成「不是你打的」(可能就是你打的)、叫你給 AI 看',
+    /1 則開頭是 <brand-new-notice> 的訊息，我認不出是誰送的/.test(note) && /也可能是你打的字/.test(note) && !/不是你打的/.test(note) && /給 AI 看/.test(note), note);
   eq('「N 則訊息」不數它', s.sessionOf()?.prompts, 1);
   const out = s.cli([]).out;
   check('終端機:同一句', out.includes(note), out);
@@ -631,7 +631,7 @@ section('第一輪:D 說找到問題之後,後面的關動了也不劃掉——�
   const d = s.dOf();
   eq('D 不劃掉(要處理的樣子)', d?.state, 'stale');
   const line = d?.rerun?.line ?? '';
-  eq('那一句', line, 'Claude 說找到問題：找到 2 條——還沒處理完');
+  eq('那一句', line, 'AI 說找到問題：找到 2 條——還沒處理完');
   check('分級卡那一行同一句', (s.dRow()?.detail ?? '').includes(line), s.dRow()?.detail);
   check('終端機同一句,而且不寫「已走過」', s.cli([]).out.includes(line) && !/D 魔鬼教官.*已走過/.test(s.cli([]).out), s.cli([]).out.split('━━ 五關')[1]?.slice(0, 600));
   s.cleanup();

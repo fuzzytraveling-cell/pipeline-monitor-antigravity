@@ -27,12 +27,13 @@ import { readFileSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { gitContext, withClock } from './lib/git.mjs';
-import { readEvents, RETAIN_DAYS } from './lib/events.mjs';
+import { RETAIN_DAYS } from './lib/events.mjs';
+import { loadEvents } from './lib/transcript.mjs';
 import { faultsNow } from './lib/faults.mjs';
 import { installService, uninstallService, describeService, openDashboard } from './lib/service.mjs';
 import { installPlugin, uninstallPlugin } from './lib/mount.mjs';
 import { moveState } from './lib/paths.mjs';
-import { LOG_DIR, gatherChange, stageFacts } from './lib/cliFacts.mjs';
+import { LOG_DIR, gatherChange, stageFacts, sessionFromEnv } from './lib/cliFacts.mjs';
 import { renderSensor, render } from './lib/cliView.mjs';
 import { renderStages } from './lib/cliStages.mjs';
 import { renderTier, doTierInit, doTierOff, doTierReview, doTierChecked, doTierLater, doTierSet, doTierRetract } from './lib/cliTier.mjs';
@@ -42,7 +43,7 @@ import { doRound, doDecide } from './lib/cliRerun.mjs';
 import { doMount } from './lib/cliOnOff.mjs';
 import { doTodo, doCards } from './lib/cliTodo.mjs';
 import { doWrap, restartConfirmed } from './lib/cliWrap.mjs';
-import { readLang, withLang, zhEn, langBrokenLine, doLang } from './lib/lang.mjs';
+import { readLang, withLang, zhEn, langBrokenLine, langUnreadableLine, doLang } from './lib/lang.mjs';
 
 /* ══════════════════════════ main ══════════════════════════ */
 
@@ -54,8 +55,9 @@ async function main(L = { lang: 'zh', state: 'ok' }) {
 
   // 換語言:不需要站在 git 專案裡。它自己講現在是哪一種(含讀不懂),不用再印一次下面那一句
   if (at('--lang') !== -1) return doLang(after('--lang')[0]);
-  // 語言設定讀不懂:先用中文,但最上面講一句,不默默用(AC-7)
+  // 語言設定讀不懂或沒權限讀:先用中文,但最上面講一句,不默默用(AC-7, R1)
   if (L.state === 'broken') console.log(langBrokenLine());
+  else if (L.state === 'unreadable') console.log(langUnreadableLine());
 
   // 還差什麼:所有專案一起看,不需要站在 git 專案裡(規格:還差什麼總表 AC-8)
   if (at('--todo') !== -1) return doTodo();
@@ -98,8 +100,8 @@ async function main(L = { lang: 'zh', state: 'ok' }) {
   if (at('--tier-review') !== -1) return doTierReview(ctx);
   if (at('--tier-checked') !== -1) return doTierChecked(ctx, after('--tier-checked').join(' '));
 
-  // 紀錄只讀一次:感測器那行(活著嗎)、五關那段(跑過什麼)、分級(人調的)共用同一份
-  const ev = readEvents(LOG_DIR, ctx.project);
+  // 紀錄只讀一次（合併最新 Antigravity transcript.jsonl）:感測器那行、五關那段、分級、--decide/--clear/--wrap 共用同一份
+  const ev = loadEvents(LOG_DIR, ctx.project, { sessionId: sessionFromEnv(), cwd: ctx.root });
   // 這台電腦的故障(全機一份,儀表板同一個函式):最上面那一行、感測器那一行、五關那段共用。
   // 搬家還沒搬完也算在這裡,跟故障同一個位置講(規格:紀錄搬到固定的家 AC-5)
   const faults = faultsNow(LOG_DIR, { retainDays: RETAIN_DAYS, move: moveState() });
@@ -157,5 +159,19 @@ function isMain() {
 // 語言也只讀一次(withLang)
 if (isMain()) {
   const L = readLang();
-  withLang(L.lang, () => withClock(() => main(L))).then((code) => process.exit(code));
+  withLang(L.lang, () => withClock(() => main(L)))
+    .then((code) => process.exit(code))
+    .catch((e) => {
+      if (e?.code === 'EPERM' || e?.code === 'EACCES') {
+        withLang(L.lang, () => {
+          const p = typeof e.path === 'string' ? e.path : LOG_DIR;
+          console.log(zhEn(
+            `❌ 沒有權限存取 ${p}（目前可能受沙盒或系統權限阻擋）。\n   請改在自己的終端機執行，或在 Antigravity 授權此指令存取資料夾後再試。`,
+            `❌ No permission to access ${p} (may be blocked by sandbox or OS permissions).\n   Run this command in your own terminal, or allow it outside the sandbox and try again.`,
+          ));
+        });
+        process.exit(1);
+      }
+      throw e;
+    });
 }

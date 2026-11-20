@@ -1,45 +1,66 @@
 #!/bin/sh
-# remind.sh —— 唯一會出聲的 hook。規格:分級(路徑看 CLAUDE.md 的表)
+# remind.sh —— Antigravity SessionStart 分級提醒 hook。規格:antigravity-v01-foundation（路徑看 AGENTS.md 的表）
 #
-# 對話開始(SessionStart)時看一眼:是 git 專案、有在記錄、但**還沒設定分級** → 給 Claude 一行提示,
-# 讓它回第一句話時順帶問「要不要設定分級」。就這樣,沒有第二件事。
-#
-# ⚠️ 它跟 hook.sh 的契約**相反**:hook.sh 永遠不出聲(AC-2),這支的全部意義就是出聲一次。
-#    所以刻意分成兩支檔案——放在一起,遲早有人把「不出聲」改掉。
-# ⚠️ 只在 startup／clear 出聲。resume／compact 不算新對話,再提就是狼來了。
-# ⚠️ 最多一行、永遠 exit 0、任何失敗都安靜:它是提醒,不是門。
+# 對話開始（SessionStart）時看一眼：是 git 專案、有在記錄、不是 subagent、但還沒設定分級
+# → 依 Antigravity SessionStart 契約回傳 {"injectSteps":[{"systemMessage":{"systemMessage":"..."}}]}。
+# 其餘所有情況（含失敗、缺 jq）一律回傳 {} 並 exit 0：它是提醒，不是門。
+
+done_ok() {
+  printf '{}\n'
+  exit 0
+}
 
 PAYLOAD=$(cat)
-command -v jq >/dev/null 2>&1 || exit 0
-SRC=$(printf '%s' "$PAYLOAD" | jq -r '.source // "startup"' 2>/dev/null)
-case "$SRC" in startup|clear) ;; *) exit 0 ;; esac
+command -v jq >/dev/null 2>&1 || done_ok
 
-CWD=$(printf '%s' "$PAYLOAD" | jq -r '.cwd // empty' 2>/dev/null)
+# subagent（transcript step 0 為 SYSTEM_MESSAGE 含 sender=）不打擾
+TP=$(printf '%s' "$PAYLOAD" | jq -r '.transcriptPath // empty' 2>/dev/null)
+if [ -n "$TP" ] && [ -f "$TP" ]; then
+  FIRST=$(head -n 1 "$TP" 2>/dev/null)
+  case "$FIRST" in
+    *'"SYSTEM_MESSAGE"'*'sender='*) done_ok ;;
+  esac
+fi
+
+CWD=$(printf '%s' "$PAYLOAD" | jq -r 'if (.cwd | type)=="string" and .cwd != "" then .cwd elif (.workspacePaths[0] | type)=="string" and .workspacePaths[0] != "" then .workspacePaths[0] else empty end' 2>/dev/null)
 [ -n "$CWD" ] || CWD=$(pwd)
-TOP=$(git -C "$CWD" rev-parse --show-toplevel 2>/dev/null) || exit 0
+TOP=$(git -C "$CWD" rev-parse --show-toplevel 2>/dev/null) || done_ok
 COMMON=$(git -C "$CWD" rev-parse --git-common-dir 2>/dev/null)
 case "$COMMON" in /*) MAIN=$(dirname "$COMMON") ;; *) MAIN="$TOP" ;; esac
 
-# 退出記錄的專案不提(它連記都不記了)
+# 退出記錄的專案不提（優先 .agents/，相容 .claude/）
 for d in "$CWD" "$TOP" "$MAIN"; do
-  [ -f "$d/.claude/pipeline-monitor.off" ] && exit 0
+  [ -n "$d" ] || continue
+  [ -f "$d/.agents/pipeline-monitor.off" ] && done_ok
+  [ -f "$d/.claude/pipeline-monitor.off" ] && done_ok
 done
 
-# 設定檔裡有 tiers(設好了、或明講不分級)就不提;讀不懂的檔案也不提——那是儀表板的事,不該用提醒去碰
+# 與 lib/rounds.mjs readProjectConfig 同一個停止規則（P2）：依序找到的第一份設定檔說了算；
+# 有 tiers（設好了、或明講不分級）就不提；讀不懂也不提（交給看板與終端機講）
+FOUND_CFG=""
 for d in "$TOP" "$MAIN"; do
-  f="$d/.claude/pipeline-stages.json"
-  [ -f "$f" ] || continue
-  HAS=$(jq -r 'has("tiers")' "$f" 2>/dev/null) || exit 0
-  [ "$HAS" = "true" ] && exit 0
+  [ -n "$d" ] || continue
+  for rel in ".agents/pipeline-stages.json" ".claude/pipeline-stages.json"; do
+    f="$d/$rel"
+    if [ -f "$f" ]; then
+      FOUND_CFG="$f"
+      break 2
+    fi
+  done
 done
-
-# 語言(規格:技能與寫給AI的話中英切換 AC-5):跟 lib/lang.mjs 讀同一個設定檔(資料的家底下的 lang.json,家怎麼找跟 hook.sh 同一條)。
-# 只認 "en";沒有這個檔、讀不懂、寫了別的字,一律中文——跟 lib/lang.mjs「從來沒選過＝中文、讀不懂先用中文」同一條規則。
-# 讀不懂不另外講:提醒只准一行(讀不懂那一句是儀表板與終端機的事)
-UI_LANG=$(jq -r '.lang // empty' "${PIPELINE_MONITOR_HOME:-$HOME/.pipeline-monitor}/lang.json" 2>/dev/null)
-if [ "$UI_LANG" = "en" ]; then
-  printf '%s\n' "[Pipeline Monitor] This project hasn't set up tiers yet (.claude/pipeline-stages.json has no tiers). When you reply to the user's first message, just ask about it in one sentence, without interrupting their actual question, and only this once: if they want it, they say \"set up tiers\"; if they don't need it, they say \"this project doesn't need tiers\"."
-else
-  printf '%s\n' "[產線監視器] 這個專案還沒設定分級（.claude/pipeline-stages.json 沒有 tiers）。回覆使用者的第一句話時,順帶問一句就好,不要打斷他原本的問題,而且只提這一次:要的話說「幫我設定分級」,不需要的話說「這個專案不用分級」。"
+if [ -n "$FOUND_CFG" ]; then
+  HAS=$(jq -r 'has("tiers")' "$FOUND_CFG" 2>/dev/null) || done_ok
+  [ "$HAS" = "true" ] && done_ok
 fi
+
+# 語言跟 lib/lang.mjs 讀同一個設定檔（資料的家底下的 lang.json），只認 "en"，其餘中文
+DATA_HOME="${AGY_PIPELINE_HOME:-$HOME/.pipeline-monitor-agy}"
+UI_LANG=$(jq -r '.lang // empty' "$DATA_HOME/lang.json" 2>/dev/null)
+if [ "$UI_LANG" = "en" ]; then
+  MSG='[Pipeline Monitor] This project hasn'\''t set up tiers yet (.agents/pipeline-stages.json has no tiers). When you reply to the user'\''s first message, just ask about it in one sentence, without interrupting their actual question, and only this once: if they want it, they say "set up tiers"; if they don'\''t need it, they say "this project doesn'\''t need tiers".'
+else
+  MSG='[產線監視器] 這個專案還沒設定分級（.agents/pipeline-stages.json 沒有 tiers）。回覆使用者的第一句話時，順帶問一句就好，不要打斷他原本的問題，而且只提這一次：要的話說「幫我設定分級」，不需要的話說「這個專案不用分級」。'
+fi
+
+jq -nc --arg m "$MSG" '{"injectSteps":[{"systemMessage":{"systemMessage":$m}}]}' 2>/dev/null || printf '{}\n'
 exit 0

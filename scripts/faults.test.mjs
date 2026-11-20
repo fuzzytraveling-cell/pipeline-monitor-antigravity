@@ -19,10 +19,9 @@ import { faultState, faultsNow, faultBanner, faultNotes, sensorNow, unreadableLi
 import { readEvents, safeName, RETAIN_DAYS } from '../lib/events.mjs';
 import { collectAll } from '../lib/collect.mjs';
 import { installPlugin, mountState, mountFix, mount, hookPathsIn } from '../lib/mount.mjs';
-import { sessionStartOf } from '../lib/appSessions.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const PLUGIN = JSON.parse(readFileSync(join(ROOT, '.claude-plugin', 'plugin.json'), 'utf8')).name;
+const PLUGIN = JSON.parse(readFileSync(join(ROOT, 'plugin.json'), 'utf8')).name;
 // 「現在」只取一次(L18)。時間都放在幾小時前:ago() 照小時四捨五入,終端機與伺服器各算一次也不會剛好跨過邊界
 const NOW = Date.now();
 const H = (h) => new Date(NOW - h * 3600_000).toISOString();
@@ -108,7 +107,7 @@ section('AC-4:講對是誰壞了、後果、修法;程式的錯誤原文不上�
 
   fs = state([err(3, '/w/a')], [], { ts: H(3.001), cwd: '/w/a' });   // 出錯的那一次自己的心跳在故障之前
   const t = texts(fs);
-  check('收工 hook 自己出錯、之後沒再跑 → 紅燈「可能沒檢查就放行」,叫你把這句給 Claude 看', /收工 hook 自己出錯/.test(t) && /可能沒檢查就放行/.test(t) && /給 Claude 看/.test(t), t);
+  check('收工 hook 自己出錯、之後沒再跑 → 紅燈「可能沒檢查就放行」,叫你把這句給 AI 看', /收工 hook 自己出錯/.test(t) && /可能沒檢查就放行/.test(t) && /給 AI 看/.test(t), t);
   check('錯誤原文不上畫面(CLAUDE.md:不把內部值印給使用者看)', !/TypeError|Cannot read|undefined/.test(t), t);
   fs = state([err(3, '/w/a')], [], { ts: H(1), cwd: '/w/a' });
   eq('之後在同一個資料夾跑過 → 好了,不上橫條', faultBanner(fs).length, 0);
@@ -135,34 +134,32 @@ function scene({ records = true } = {}) {
   mkdirSync(logDir); mkdirSync(join(monitorDir, 'checkpoints'));
   copyFileSync(join(ROOT, 'stages.json'), join(monitorDir, 'stages.json'));
   const home = mkdtempSync(join(tmpdir(), 'pm-fhome-'));
-  mkdirSync(join(home, '.claude', 'skills'), { recursive: true });
-  symlinkSync(ROOT, join(home, '.claude', 'skills', PLUGIN));
-  // 轉錄資料夾給一個空的:不准去讀這台電腦真的 ~/.claude/projects(P8)
-  const transcripts = mkdtempSync(join(tmpdir(), 'pm-ftr-'));
+  mkdirSync(join(home, '.gemini', 'config', 'plugins'), { recursive: true });
+  symlinkSync(ROOT, join(home, '.gemini', 'config', 'plugins', PLUGIN));
   const log = join(logDir, `${safeName(basename(root))}.jsonl`);
   /** 別的專案的感測器紀錄(只用來證明「那時候感測器記得到」) */
-  const other = (times) => writeFileSync(join(logDir, 'other.jsonl'), times.map((ts) => JSON.stringify({ ts, hook: 'UserPromptSubmit', session: 'o1', cwd: '/elsewhere', prompt: 'x' })).join('\n') + '\n');
+  const other = (times) => writeFileSync(join(logDir, 'other.jsonl'), times.map((ts) => JSON.stringify({ ts, hook: 'UserPrompt', session: 'o1', cwd: '/elsewhere', prompt: 'x' })).join('\n') + '\n');
   if (records) {
     writeFileSync(log, [
-      JSON.stringify({ ts: H(12), hook: 'UserPromptSubmit', session: 's1', cwd: root, prompt: '修一下' }),
-      JSON.stringify({ ts: H(11), hook: 'PreToolUse', tool: 'Skill', skill: `${PLUGIN}:chaos-check`, session: 's1', cwd: root }),
+      JSON.stringify({ ts: H(12), hook: 'UserPrompt', session: 's1', cwd: root, prompt: '修一下' }),
+      JSON.stringify({ ts: H(11), hook: 'PostToolUse', tool: 'read_file', skill: `${PLUGIN}:chaos-check`, session: 's1', cwd: root }),
     ].join('\n') + '\n');
   }
   const faults = (list) => writeFileSync(join(logDir, '_sensor.jsonl'), list.map((x) => JSON.stringify(x)).join('\n') + '\n');
   const append = (o) => writeFileSync(log, `${readFileSync(log, 'utf8')}${JSON.stringify(o)}\n`);
   const cli = (args = []) => {
-    const { CLAUDE_CODE_SESSION_ID: _drop, ...env } = process.env;
-    try { return { code: 0, out: execFileSync('node', [join(ROOT, 'status.mjs'), ...args], { cwd: root, encoding: 'utf8', env: { ...env, HOME: home, PIPELINE_MONITOR_HOME: monitorDir, PIPELINE_MONITOR_LOG_DIR: logDir } }) }; }
+    const { ANTIGRAVITY_CONVERSATION_ID: _drop, ...env } = process.env;
+    try { return { code: 0, out: execFileSync('node', [join(ROOT, 'status.mjs'), ...args], { cwd: root, encoding: 'utf8', env: { ...env, HOME: home, AGY_PIPELINE_HOME: monitorDir, AGY_PIPELINE_LOG_DIR: logDir } }) }; }
     catch (e) { return { code: e.status ?? 1, out: String(e.stdout ?? '') + String(e.stderr ?? '') }; }
   };
   const all = () => {
-    const keep = process.env.PIPELINE_MONITOR_LOG_DIR;
-    process.env.PIPELINE_MONITOR_LOG_DIR = logDir;
-    try { return collectAll({ monitorDir, skillHome: home, appTitles: new Map(), transcriptsDir: transcripts }); } finally {
-      if (keep === undefined) delete process.env.PIPELINE_MONITOR_LOG_DIR; else process.env.PIPELINE_MONITOR_LOG_DIR = keep;
+    const keep = process.env.AGY_PIPELINE_LOG_DIR;
+    process.env.AGY_PIPELINE_LOG_DIR = logDir;
+    try { return collectAll({ monitorDir, skillHome: home, home }); } finally {
+      if (keep === undefined) delete process.env.AGY_PIPELINE_LOG_DIR; else process.env.AGY_PIPELINE_LOG_DIR = keep;
     }
   };
-  const cleanup = () => { for (const d of [monitorDir, home, transcripts]) rmSync(d, { recursive: true, force: true }); r.cleanup(); };
+  const cleanup = () => { for (const d of [monitorDir, home]) rmSync(d, { recursive: true, force: true }); r.cleanup(); };
   return { root, monitorDir, logDir, home, log, faults, append, other, cli, all, cleanup };
 }
 
@@ -221,7 +218,7 @@ section('終端機跟儀表板同一句:橫條、這一輪碰到的那段期間�
   // 設定裡沒掛感測器(拿掉 plugin)、紀錄卻有,感測器現在又記不到:儀表板與終端機那一句是同一個函式算的,只差「見哪裡」
   // (老毛病 P2:以前兩邊各寫一份,結尾已經不一樣——C 打掃 2026-10-05 留的建議)
   const u = scene();
-  rmSync(join(u.home, '.claude', 'skills', PLUGIN), { force: true });
+  rmSync(join(u.home, '.gemini', 'config', 'plugins', PLUGIN), { force: true });
   u.faults([jq(10), jq(2)]);
   // 「掛在哪」看家目錄的設定:儀表板這邊也要給假的家目錄,不然吃到跑測試那台電腦的(這台 Mac 裝了 plugin 就是「已掛上」,老毛病 P8)
   const keepHome = process.env.HOME;
@@ -267,8 +264,8 @@ section('畫面:每一頁最上面畫伺服器給的那一句;舊的服務沒給
   check('從 ui/app.js 拿得出 sensorLine(與標粗體的小幫手)', !!sl && !!markSrc);
   const line = (c, latest = { faults: { banner: [], blind: false } }) => (sl && markSrc ? new Function('latest', 'esc', 'ago', `const zhEn = (zh) => zh; const many = (n, one, more = one + 's') => n + ' ' + (n === 1 ? one : more);\n${markSrc}\n${sl}; return sensorLine;`)(latest, esc, ago)(c) : '');
   // 伺服器做的事:已掛上、最後一筆、掛壞了、沒掛上那幾句照 lib/faults.mjs 的 sensorParts 算好放進 lines(終端機同一句;規格:終端機與網頁說同一句)
-  const linesOf = (mount, lastSeen) => sensorParts({ mount, lastSeen, gate: null, ago, notMountedHow: '。在那個資料夾跑 pipeline-status --on。' });
-  const dangling = { state: 'broken', where: 'plugin', paths: ['/h/.claude/skills/pipeline-monitor'], dangling: true };
+  const linesOf = (mount, lastSeen) => sensorParts({ mount, lastSeen, gate: null, ago, notMountedHow: '。在那個資料夾跑 agy-pipeline --on。' });
+  const dangling = { state: 'broken', where: 'plugin', paths: ['/h/.gemini/config/plugins/agy-pipeline'], dangling: true };
   const out = line({ sensor: { mount: dangling, lastSeen: H(2), fix: mountFix(dangling), lines: linesOf(dangling, H(2)) } });
   check('捷徑壞了 → 畫伺服器給的修法(跟終端機同一句),不再叫你跑 --on', out.includes('node status.mjs --install') && !out.includes('--on'), out);
   check('捷徑壞了 → 紀錄已經停了(粗體)、最後一筆之後就沒有了', out.includes('<b>紀錄已經停了,而且不會有任何徵兆</b>') && out.includes('從那之後就沒有了'), out);
@@ -296,23 +293,23 @@ section('畫面:每一頁最上面畫伺服器給的那一句;舊的服務沒給
   const okReal = line({ sensor: { mount: okMount, lastSeen: H(2), noneLine: null, lines: linesOf(okMount, H(2)) } });
   check('已掛上:跟終端機同一句(plugin 那半句、「收工 hook：」)', okReal.includes('感測器：已掛上（plugin,每個專案都會記）') && okReal.includes('收工 hook：還沒跑過（裝好 plugin 之後要開新對話'), okReal);
   const none = line({ sensor: { mount: offMount, lastSeen: null, offLine: null, lines: linesOf(offMount, null) } });
-  check('沒掛上、也沒有紀錄 → 沒掛上,叫你在那個資料夾跑 --on(終端機那一半給指令)', /感測器：沒掛上。在那個資料夾跑 <code>pipeline-status --on<\/code>。/.test(none), none);
+  check('沒掛上、也沒有紀錄 → 沒掛上,叫你在那個資料夾跑 --on(終端機那一半給指令)', /感測器：沒掛上。在那個資料夾跑 <code>agy-pipeline --on<\/code>。/.test(none), none);
 }
 
 section('AC-6:外掛的捷徑壞了——照畫面那句修法做一次就修好;--on 不准回「本來就在記錄中」', 'P3');
 {
   const home = mkdtempSync(join(tmpdir(), 'pm-fhome2-'));
-  const skills = join(home, '.claude', 'skills');
-  mkdirSync(skills, { recursive: true });
-  const link = join(skills, PLUGIN);
+  const plugins = join(home, '.gemini', 'config', 'plugins');
+  mkdirSync(plugins, { recursive: true });
+  const link = join(plugins, PLUGIN);
   symlinkSync(join(home, '搬走了'), link);   // 資料夾搬走了:捷徑還在,指向的地方不在
   const r = makeRepo({ files: { 'a.js': '1\n' } });
   const st = mountState(r.dir, null, home);
   check('捷徑壞了 → broken／plugin,標明是捷徑指空(不是裡面少了 hook.sh)', st.state === 'broken' && st.where === 'plugin' && st.dangling === true, JSON.stringify(st));
-  check('修法:在現在的資料夾跑 node status.mjs --install(pipeline-status 那個簡寫多半也指著舊位置)', /node status\.mjs --install/.test(mountFix(st) ?? ''), mountFix(st));
+  check('修法:在現在的資料夾跑 node status.mjs --install(agy-pipeline 那個簡寫多半也指著舊位置)', /node status\.mjs --install/.test(mountFix(st) ?? ''), mountFix(st));
 
   // --on:拿掉退出記號也記不到 → 講感測器是壞的,附同一句修法,不准回「本來就在記錄中」
-  const { CLAUDE_CODE_SESSION_ID: _drop, ...env } = process.env;
+  const { ANTIGRAVITY_CONVERSATION_ID: _drop, ...env } = process.env;
   let on;
   try { on = { code: 0, out: execFileSync('node', [join(ROOT, 'status.mjs'), '--on'], { cwd: r.dir, encoding: 'utf8', env: { ...env, HOME: home } }) }; }
   catch (e) { on = { code: e.status ?? 1, out: String(e.stdout ?? '') + String(e.stderr ?? '') }; }
@@ -328,10 +325,10 @@ section('AC-6:外掛的捷徑壞了——照畫面那句修法做一次就修好
   // 指向別的、還在的資料夾:不是我們能判斷的,照舊不動
   const other = mkdtempSync(join(tmpdir(), 'pm-other-'));
   const home3 = mkdtempSync(join(tmpdir(), 'pm-fhome3-'));
-  mkdirSync(join(home3, '.claude', 'skills'), { recursive: true });
-  symlinkSync(other, join(home3, '.claude', 'skills', PLUGIN));
+  mkdirSync(join(home3, '.gemini', 'config', 'plugins'), { recursive: true });
+  symlinkSync(other, join(home3, '.gemini', 'config', 'plugins', PLUGIN));
   const keep = installPlugin(home3, ROOT);
-  check('捷徑指向別的、還在的資料夾 → 不動它', !keep.ok && readlinkSync(join(home3, '.claude', 'skills', PLUGIN)) === other, keep.out.join('\n'));
+  check('捷徑指向別的、還在的資料夾 → 不動它', !keep.ok && readlinkSync(join(home3, '.gemini', 'config', 'plugins', PLUGIN)) === other, keep.out.join('\n'));
   for (const d of [home, home3, other]) rmSync(d, { recursive: true, force: true });
   r.cleanup();
 }
@@ -367,42 +364,41 @@ section('魔鬼教官第一輪:收工 hook 自己出錯那條路(專案設定寫
   writeFileSync(join(s.monitorDir, 'stages.json'), JSON.stringify({ ...JSON.parse(builtin), stages: [null] }));
   mkdirSync(join(s.root, '.claude'), { recursive: true });
   writeFileSync(join(s.root, '.claude', 'pipeline-stages.json'), JSON.stringify({ tiers: { code: ['a.js'], danger: [] } }));
-  const { CLAUDE_CODE_SESSION_ID: _drop, ...base } = process.env;
+  const { ANTIGRAVITY_CONVERSATION_ID: _drop, ...base } = process.env;
   // 收工 hook 從「程式的主資料夾」讀內建的關卡清單:指到這個假的資料夾,它才讀得到上面寫壞的那一份。
-  // (以前借 PIPELINE_MONITOR_HOME 一起指——那個變數現在只管資料的家,規格:紀錄搬到固定的家;LESSONS L17 的第二次)
-  const env = { ...base, HOME: s.home, PIPELINE_MONITOR_HOME: s.monitorDir, PIPELINE_MONITOR_LOG_DIR: s.logDir, PIPELINE_MONITOR_CODE_HOME: s.monitorDir };
-  const said = execFileSync('sh', [join(ROOT, 'gate.sh')], { input: JSON.stringify({ session_id: 's1', cwd: s.root, hook_event_name: 'Stop' }), env, encoding: 'utf8' });
-  eq('出錯 → 一個字都不印(放行)', said, '');
+  const env = { ...base, HOME: s.home, AGY_PIPELINE_HOME: s.monitorDir, AGY_PIPELINE_LOG_DIR: s.logDir, AGY_PIPELINE_CODE_HOME: s.monitorDir };
+  const said = execFileSync('sh', [join(ROOT, 'gate.sh')], { input: JSON.stringify({ conversationId: 's1', cwd: s.root, executionNum: 0, fullyIdle: true, terminationReason: 'NO_TOOL_CALL' }), env, encoding: 'utf8' });
+  eq('出錯 → 輸出 {}（放行）', said.trim(), '{}');
   const last = readFileSync(join(s.logDir, '_sensor.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).at(-1);
   check('記下一筆 gate_broken,帶著那次的資料夾', last?.event === 'gate_broken' && last?.cwd === s.root, JSON.stringify(last));
   // 改回來再看畫面
   writeFileSync(join(s.monitorDir, 'stages.json'), builtin);
   rmSync(join(s.root, '.claude', 'pipeline-stages.json'));
   const out = s.cli().out;
-  check('最上面紅燈:收工 hook 自己出錯、可能沒檢查就放行、叫你給 Claude 看', /收工 hook 自己出錯/.test(out) && /可能沒檢查就放行/.test(out) && /給 Claude 看/.test(out), out);
+  check('最上面紅燈:收工 hook 自己出錯、可能沒檢查就放行、叫你給 AI 看', /收工 hook 自己出錯/.test(out) && /可能沒檢查就放行/.test(out) && /給 AI 看/.test(out), out);
   check('錯誤原文不上畫面', !/TypeError|Cannot read|null \(reading/.test(out), out);
   s.cleanup();
 }
 
-section('魔鬼教官第一輪:捷徑指向一個還在、但不是 pipeline-monitor 的資料夾——不叫你跑 --install(它不會動);--on 不拆舊接法', 'P2');
+section('魔鬼教官第一輪:捷徑指向一個還在、但不是 agy-pipeline 的資料夾——不叫你跑 --install(它不會動);--on 不拆舊接法', 'P2');
 {
   const home = mkdtempSync(join(tmpdir(), 'pm-fhome4-'));
   const other = mkdtempSync(join(tmpdir(), 'pm-notpm-'));
-  mkdirSync(join(home, '.claude', 'skills'), { recursive: true });
-  symlinkSync(other, join(home, '.claude', 'skills', PLUGIN));
+  mkdirSync(join(home, '.gemini', 'config', 'plugins'), { recursive: true });
+  symlinkSync(other, join(home, '.gemini', 'config', 'plugins', PLUGIN));
   const r = makeRepo({ files: { 'a.js': '1\n' } });
   const st = mountState(r.dir, null, home);
   check('壞了,但不是指空 → broken、dangling 不成立', st.state === 'broken' && st.dangling === false, JSON.stringify(st));
-  check('修法不叫你跑 --install(它不會動這條捷徑),叫你給 Claude 看', !/跑 node status\.mjs --install/.test(mountFix(st)) && /給 Claude 看/.test(mountFix(st)), mountFix(st));
+  check('修法不叫你跑 --install(它不會動這條捷徑),叫你給 AI 看', !/跑 node status\.mjs --install/.test(mountFix(st)) && /給 AI 看/.test(mountFix(st)), mountFix(st));
   eq('--install 果然不動它', installPlugin(home, ROOT).ok, false);
 
   // 捷徑指空、專案設定檔裡還有舊接法(它可能是唯一還在記的那一條):--on 不准先拆掉它
   const home2 = mkdtempSync(join(tmpdir(), 'pm-fhome5-'));
-  mkdirSync(join(home2, '.claude', 'skills'), { recursive: true });
-  symlinkSync(join(home2, '搬走了'), join(home2, '.claude', 'skills', PLUGIN));
+  mkdirSync(join(home2, '.gemini', 'config', 'plugins'), { recursive: true });
+  symlinkSync(join(home2, '搬走了'), join(home2, '.gemini', 'config', 'plugins', PLUGIN));
   mount(r.dir);
   const before = hookPathsIn(r.dir).length;
-  const { CLAUDE_CODE_SESSION_ID: _drop, ...env } = process.env;
+  const { ANTIGRAVITY_CONVERSATION_ID: _drop, ...env } = process.env;
   let on;
   try { on = { code: 0, out: execFileSync('node', [join(ROOT, 'status.mjs'), '--on'], { cwd: r.dir, encoding: 'utf8', env: { ...env, HOME: home2 } }) }; }
   catch (e) { on = { code: e.status ?? 1, out: String(e.stdout ?? '') + String(e.stderr ?? '') }; }
@@ -450,6 +446,9 @@ section('魔鬼教官第二輪:收工 hook 壞過又好了——不准掛在之�
   check('起點是第一句話、對話其實 9 小時前就開始了 → 起點改成 9 小時前,是真的', early.since === H(9) && early.startKnown === true, JSON.stringify(early));
   eq('拿不到對話開始的時間 → 不知道真的起點', roundStartFor({ since: H(5), how: 'prompt', sessions: [{ id: 's1', cwd: '/w' }], bornOf: () => null }).startKnown, false);
   eq('對話開始的時間反而比第一筆紀錄晚(檔案被換過之類)→ 不採信,不知道真的起點', roundStartFor({ since: H(5), how: 'prompt', sessions: [{ id: 's1', cwd: '/w' }], bornOf: () => H(1) }).startKnown, false);
+  // Antigravity 轉錄檔 step 0 時間與 origin.at 相等（含 Z vs .000Z）→ 仍是真的起點（P3/P9）
+  const same = roundStartFor({ since: H(5), how: 'prompt', sessions: [{ id: 's1', cwd: '/w' }], bornOf: () => H(5).replace('.000Z', 'Z') });
+  eq('轉錄檔 step 0 與第一句話相等 → startKnown=true，修好後新對話不誤報舊故障', `${same.startKnown}|${faultNotes(sens, { ...same }).length}`, 'true|0');
   eq('好幾個對話、有一個拿不到 → 不知道真的起點', roundStartFor({ since: H(5), how: 'arrival', sessions: [{ id: 'a' }, { id: 'b' }], bornOf: (x) => (x.id === 'a' ? H(9) : null) }).startKnown, false);
 
   // 終端機與對話頁同一個算法:收工 hook 幾天前壞過、好了,這個對話之後才開始 → 兩邊都不講

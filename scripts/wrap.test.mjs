@@ -20,16 +20,16 @@ import { withLang } from '../lib/lang.mjs';
 import { CJK } from './_zhscan.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const PLUGIN = JSON.parse(readFileSync(join(ROOT, '.claude-plugin', 'plugin.json'), 'utf8')).name;
+const PLUGIN = JSON.parse(readFileSync(join(ROOT, 'plugin.json'), 'utf8')).name;
 const out = (dir, ...a) => execFileSync('git', a, { cwd: dir, encoding: 'utf8' }).trim();
 const NOW = Date.now();                                   // 「現在」只取一次(L18)
 const T = (sec) => new Date(NOW + sec * 1000).toISOString();
 const MIN = 60;
 
-const said = (sec, prompt, o = {}) => ({ ts: T(sec), hook: 'UserPromptSubmit', prompt, prompt_id: `p${sec}`, ...o });
-const callDirector = (sec) => ({ ts: T(sec), hook: 'PreToolUse', tool: 'Skill', skill: `${PLUGIN}:director` });
-const callD = (sec, head) => ({ ts: T(sec), hook: 'PreToolUse', tool: 'Skill', skill: `${PLUGIN}:chaos-check`, head });
-const reportD = (sec) => ({ ts: T(sec), event: 'stage_report', stage: 'D', verdict: 'ok', note: '沒對到已知死法', source: 'claude' });
+const said = (sec, prompt, o = {}) => ({ ts: T(sec), hook: 'UserPrompt', prompt, prompt_id: `p${sec}`, ...o });
+const callDirector = (sec) => ({ ts: T(sec), hook: 'PostToolUse', tool: 'read_file', skill: `${PLUGIN}:director` });
+const callD = (sec, head) => ({ ts: T(sec), hook: 'PostToolUse', tool: 'read_file', skill: `${PLUGIN}:chaos-check`, head });
+const reportD = (sec) => ({ ts: T(sec), event: 'stage_report', stage: 'D', verdict: 'ok', note: '沒對到已知死法', source: 'ai' });
 
 /**
  * 一個專案:主資料夾(master,上游是一個本機的 bare repo)+ 這個對話的 worktree(work 分支)+ 假的紀錄的家。
@@ -59,15 +59,15 @@ function world({ tiers = true, scripts = { test: 'node -e ""' } } = {}) {
   mkdirSync(logDir); mkdirSync(join(monitorDir, 'checkpoints'));
   copyFileSync(join(ROOT, 'stages.json'), join(monitorDir, 'stages.json'));
   const home = mkdtempSync(join(tmpdir(), 'pm-wrap-home-'));
-  mkdirSync(join(home, '.claude', 'skills'), { recursive: true });
-  symlinkSync(ROOT, join(home, '.claude', 'skills', PLUGIN));
+  mkdirSync(join(home, '.gemini', 'config', 'plugins'), { recursive: true });
+  symlinkSync(ROOT, join(home, '.gemini', 'config', 'plugins', PLUGIN));
   const log = join(logDir, `${safeName(basename(r.dir))}.jsonl`);
   const line = (o) => JSON.stringify({ session: 's1', cwd: wt, ...o });
   const write = (lines) => writeFileSync(log, lines.map(line).join('\n') + '\n');
   const add = (lines) => appendFileSync(log, lines.map(line).join('\n') + '\n');
   const cli = (args, { sid = 's1' } = {}) => {
-    const { CLAUDE_CODE_SESSION_ID: _drop, ...rest } = process.env;
-    const e = { ...rest, HOME: home, PIPELINE_MONITOR_HOME: monitorDir, PIPELINE_MONITOR_LOG_DIR: logDir, ...(sid ? { CLAUDE_CODE_SESSION_ID: sid } : {}) };
+    const { ANTIGRAVITY_CONVERSATION_ID: _drop, ...rest } = process.env;
+    const e = { ...rest, HOME: home, AGY_PIPELINE_HOME: monitorDir, AGY_PIPELINE_LOG_DIR: logDir, ...(sid ? { ANTIGRAVITY_CONVERSATION_ID: sid } : {}) };
     try { return { code: 0, text: execFileSync('node', [join(ROOT, 'status.mjs'), ...args], { cwd: wt, encoding: 'utf8', env: e }) }; }
     catch (x) { return { code: typeof x.status === 'number' ? x.status : 1, text: String(x.stdout ?? '') + String(x.stderr ?? '') }; }
   };
@@ -320,7 +320,7 @@ section('AC-8:推之前在乾淨副本跑一次測試——環境照 L24 給齊,
   eq('PATH 第一個是 node 所在的資料夾(npm 跟它放一起)', env.PATH.split(':')[0], '/opt/node/bin');
   const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
   eq('npm run test:clean 指到這一支', pkg.scripts?.['test:clean'], 'node scripts/clean-run.mjs');
-  check('手冊(CLAUDE.md)寫了推上 GitHub 之前跑它', /推上 GitHub 之前[\s\S]{0,40}npm run test:clean/.test(readFileSync(join(ROOT, 'CLAUDE.md'), 'utf8')));
+  check('手冊(AGENTS.md)寫了推上 GitHub 之前跑它', /推上 GitHub 之前[\s\S]{0,40}npm run test:clean/.test(readFileSync(join(ROOT, 'AGENTS.md'), 'utf8')));
   check('主任技能:手冊寫「推之前」要做的,排在推的前一步', readFileSync(join(ROOT, 'skills', 'director', 'SKILL.md'), 'utf8').includes('手冊寫「推之前」要做的'));
 }
 

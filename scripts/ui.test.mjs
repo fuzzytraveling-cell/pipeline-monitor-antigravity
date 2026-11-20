@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { describeFreshness, STALE_AFTER_SECONDS } from '../lib/freshness.mjs';
 import { createApp } from '../server.mjs';
-import { SUGGEST_TOOL, sessionView } from '../lib/rounds.mjs';
+import { sessionView } from '../lib/rounds.mjs';
 import { changeScope, stampHelp, greenIsNotCorrect } from '../lib/scope.mjs';
 const STAMP_HELP = stampHelp(), GREEN_IS_NOT_CORRECT = greenIsNotCorrect();   // 中文那一份(測試沒設語言)
 import { tierLines } from '../lib/tier.mjs';
@@ -182,11 +182,11 @@ section('退出按鈕只准對儀表板列得出來的專案動手（root 是瀏
     { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   const stranger = mkdtempSync(join(tmpdir(), 'pm-stranger-'));
   eq('不認識的資料夾 → 400,不寫檔', (await post({ root: stranger })).status, 400);
-  check('陌生資料夾裡真的沒被放東西', !existsSync(join(stranger, '.claude')));
+  check('陌生資料夾裡真的沒被放東西', !existsSync(join(stranger, '.agents')) && !existsSync(join(stranger, '.claude')));
   eq('認識的專案 → 200', (await post({ root })).status, 200);
-  check('記號檔真的放了', existsSync(join(root, '.claude', 'pipeline-monitor.off')));
+  check('記號檔真的放了', existsSync(join(root, '.agents', 'pipeline-monitor.off')));
   eq('重新加入 → 200', (await post({ root, undo: true })).status, 200);
-  check('記號檔拿掉了', !existsSync(join(root, '.claude', 'pipeline-monitor.off')));
+  check('記號檔拿掉了', !existsSync(join(root, '.agents', 'pipeline-monitor.off')));
   server.close();
   for (const d of [monitorDir, stranger]) rmSync(d, { recursive: true, force: true });
   r.cleanup();
@@ -244,11 +244,10 @@ section('「你說驗收過了」按鈕:只准認識的工作區、只准驗收�
   copyFileSync(join(ROOT, 'stages.json'), join(monitorDir, 'stages.json'));
   const ts = new Date().toISOString();
   writeFileSync(join(monitorDir, 'logs', `${name}.jsonl`), [
-    JSON.stringify({ ts, hook: 'PreToolUse', tool: 'Skill', skill: 'chaos-check', session: 's1', cwd: root }),
-    JSON.stringify({ ts, hook: 'PreToolUse', tool: 'mcp__Claude_Browser__navigate', session: 's1', cwd: root }),
-    JSON.stringify({ ts, event: 'suggestion', id: 'sg-9', title: 't', prompt: 'p', cwd: root, source: 'claude' }),
-    // app 對話裡叫出來的建議卡(感測器記的 PreToolUse):代號是 use_id,「不做了」也要收得掉它
-    JSON.stringify({ ts, hook: 'PreToolUse', tool: SUGGEST_TOOL, use_id: 'toolu_9', session: 's1', cwd: root, in_title: 'app 的卡', in_tldr: '說明', in_prompt: '要貼的話' }),
+    JSON.stringify({ ts, hook: 'PostToolUse', tool: 'read_file', skill: 'chaos-check', session: 's1', cwd: root }),
+    JSON.stringify({ ts, hook: 'PostToolUse', tool: 'browser_navigate', session: 's1', cwd: root }),
+    JSON.stringify({ ts, event: 'suggestion', id: 'sg-9', title: 't', prompt: 'p', cwd: root, source: 'ai' }),
+    JSON.stringify({ ts, event: 'suggestion', id: 'sg-10', title: '另一張建議卡', tldr: '說明', prompt: '要貼的話', cwd: root, by_session: 's1', source: 'ai' }),
   ].join('\n') + '\n');
   const server = createApp({ monitorDir });
   await new Promise((res) => server.listen(0, '127.0.0.1', res));
@@ -265,10 +264,10 @@ section('「你說驗收過了」按鈕:只准認識的工作區、只准驗收�
   const sgs = async () => Object.fromEntries((await (await fetch(`http://127.0.0.1:${port}/api/status`)).json()).projects.find((x) => x.name === name).suggestions.map((s) => [s.id, s]));
   let sg = await sgs();
   check('建議標成不做了', !!sg['sg-9']?.dismissedAt);
-  check('app 的建議卡也在清單上,而且還沒被收(在 app 按取消不會傳到這裡,只有這個按鈕會收)', sg.toolu_9?.source === 'app' && sg.toolu_9?.dismissedAt === null, JSON.stringify(sg.toolu_9));
-  eq('app 的建議卡用 use_id 按「不做了」→ 200', (await post('/api/suggest-dismiss', { project: name, id: 'toolu_9' })).status, 200);
+  check('另一張建議卡也在清單上且尚未收起', sg['sg-10']?.source === 'ai' && sg['sg-10']?.dismissedAt === null, JSON.stringify(sg['sg-10']));
+  eq('另一張建議卡按「不做了」→ 200', (await post('/api/suggest-dismiss', { project: name, id: 'sg-10' })).status, 200);
   sg = await sgs();
-  check('app 的建議卡標成不做了,而且還在清單上(收起來不是刪掉)', !!sg.toolu_9?.dismissedAt);
+  check('另一張建議卡標成不做了,而且還在清單上(收起來不是刪掉)', !!sg['sg-10']?.dismissedAt);
   server.close();
   rmSync(monitorDir, { recursive: true, force: true }); r.cleanup();
 }
@@ -379,163 +378,53 @@ function loadSuggestionsBlock(latest) {
   return new Function('esc', 'ago', 'clock', 'foldOpen', 'latest', `const zhEn = (zh) => zh; const many = (n, one, more = one + 's') => n + ' ' + (n === 1 ? one : more);\n${cf[0]}\n${m[0]}; return suggestionsBlock;`)(esc, ago, clock, () => false, latest);
 }
 const TS = '2026-09-17T04:00:00Z';
-const sgCard = (o) => ({ id: 'toolu_1', ts: TS, source: 'app', title: '修徽章', tldr: '一句說明', prompt: '要貼的話', cwd: '/x', session: 's1', target: null, cut: [],
-  dismissedAt: null, startedBy: null, startedIn: null, openIn: null, startedTitle: null, startedProject: null, fromTitle: '提建議的對話', ...o });
+const sgCard = (o) => ({ id: 'sg_1', ts: TS, source: 'ai', title: '修徽章', tldr: '一句說明', prompt: '要貼的話', cwd: '/x', session: 's1', target: null, cut: [],
+  dismissedAt: null, startedBy: null, startedIn: null, openIn: null, startedTitle: null, startedProject: null, fromTitle: '提建議的對話', supersededAt: null, ...o });
 
-section('建議新增的對話:一張卡都沒有也要畫這一區;伺服器沒回答不准講成「沒有」;要開在這裡的卡掛在別頁要指路（真的跑 ui/app.js 的 suggestionsBlock）', 'P5');
+section('建議新增的對話:一張卡都沒有也要畫這一區;說明只看得到 --suggest 放的與保留天數;要開在這裡的卡掛在別頁要指路;收起來的數字要自洽（真的跑 ui/app.js 的 suggestionsBlock）', 'P5');
 {
   const block = loadSuggestionsBlock({ retainDays: 90 });
   check('從 ui/app.js 拿得出 suggestionsBlock(拿不出來這一段就什麼都沒測到)', typeof block === 'function');
   if (typeof block === 'function') {
-    const empty = block({ name: 'x', suggestions: [], appCardsSince: null, incomingSuggestions: [] });
+    const empty = block({ name: 'x', suggestions: [], incomingSuggestions: [] });
     check('一張都沒有也畫這一區(沒有卡跟根本沒在記長得一樣,不准整區不見)', empty.includes('建議新增的對話'), empty.slice(0, 80));
-    check('而且講「不代表沒跳過」,三種可能都講(含保留期限,天數是伺服器給的)', empty.includes('不代表沒跳過') && empty.includes('還沒重開的對話') && empty.includes('90 天'), empty);
-    // 常駐服務跑的是它啟動那一刻的程式:更新後沒重啟,這支新畫面配到的是不認得 app 建議卡的舊資料(沒有 appCardsSince 這個欄位)
-    const stale = loadSuggestionsBlock({})({ name: 'x', suggestions: [] });
-    check('伺服器沒回答這一題(舊程式)→ 講真正的原因與下一步(--serve-restart)', stale.includes('--serve-restart'), stale);
-    check('而且不准講成「紀錄裡沒有…不代表沒跳過」那三個理由——那三個都不是原因', !stale.includes('不代表沒跳過'), stale);
-    const some = block({ name: 'x', suggestions: [sgCard()], appCardsSince: TS, incomingSuggestions: [] });
-    check('有紀錄之後也要帶「還沒重開的對話裡跳的看不到」那半句', some.includes('開始有紀錄') && some.includes('還沒重開的對話'), some);
-    const pointed = block({ name: 'x', suggestions: [], appCardsSince: null, incomingSuggestions: [{ project: 'other_repo', name: 'other repo', count: 2 }] });
+    check('講明只看得到用 --suggest 放的，且超過保留期限(90 天)會清掉', empty.includes('只看得到用 --suggest 放的') && empty.includes('90 天') && empty.includes('agy-pipeline --suggest'), empty);
+    const pointed = block({ name: 'x', suggestions: [], incomingSuggestions: [{ project: 'other_repo', name: 'other repo', count: 2 }] });
     check('別的專案掛著 2 張要開在這裡的卡 → 這一頁指路過去', pointed.includes('2 張要開在這裡') && pointed.includes('#/p/other_repo'), pointed);
-    // 程式的內部值漏到畫面上等於沒有畫面:缺欄位、怪欄位都餵一次
-    const odd = [
-      { name: 'x' }, { name: 'x', suggestions: null, appCardsSince: null },
-      { name: 'x', suggestions: [{ id: 'a' }], appCardsSince: null },
-      { name: 'x', suggestions: [sgCard({ title: undefined, tldr: null, prompt: '', ts: undefined, fromTitle: null, session: null })], appCardsSince: '壞掉的時間' },
-      { name: 'x', suggestions: [sgCard({ cut: ['title', 'tldr', 'prompt', 'cwd'], openIn: { project: null, name: null } }), sgCard({ id: 'b', source: 'claude', tldr: null, session: null, fromTitle: null })], appCardsSince: TS },
-      { name: 'x', suggestions: [sgCard({ startedBy: 's9', startedTitle: null })], appCardsSince: TS, incomingSuggestions: [{ project: 'o', name: null, count: 1 }] },
-      { name: 'x', suggestions: [sgCard({ withdrawals: [{}, { ts: null, reason: undefined }] }), sgCard({ id: 'w2', withdrawals: null })], appCardsSince: TS },
-    ];
-    const leaks = odd.map((o) => block(o)).filter((html) => /undefined|NaN|\bnull\b|\[object/.test(html));
-    check('缺欄位、怪欄位都不會把 undefined／NaN／null 印到畫面上', leaks.length === 0, leaks.map((h) => h.match(/.{30}(undefined|NaN|null|\[object).{30}/s)?.[0]).join('\n      '));
-  }
-}
 
-section('建議新增的對話:app 換過做卡的工具、記到認不得的工具,畫面照紀錄裡的時間講;服務沒回答不准講成沒換過(規格:app建議卡換工具 AC-4、AC-5、AC-8)', 'P5');
-{
-  const OLD = '2026-10-13T00:00:00Z', NEW = '2026-10-26T00:00:00Z';
-  const page = (tools, o = {}) => loadSuggestionsBlock({ retainDays: 90, appCardTools: tools })({ name: 'x', suggestions: [sgCard()], appCardsSince: TS, incomingSuggestions: [], ...o });
-  const both = page({ oldLast: OLD, newFirst: NEW, unknown: [] });
-  check('舊的、新的都記到過 → 講中間那段可能沒記到', both.includes('最後一次記到舊的是') && both.includes('第一次記到新的是') && both.includes('中間跳的卡可能沒記到'), both);
-  const onlyOld = page({ oldLast: OLD, newFirst: null, unknown: [] });
-  check('還沒記到新的 → 講「感測器還沒記到新的那一種」,不講成沒有新卡', onlyOld.includes('感測器還沒記到新的那一種') && onlyOld.includes('之後跳的卡可能都沒記到'), onlyOld);
-  const never = page({ oldLast: null, newFirst: NEW, unknown: [] });
-  check('從來沒用過舊工具的電腦 → 不講換工具', !never.includes('換過做建議卡的工具'), never);
-  const empty = loadSuggestionsBlock({ retainDays: 90, appCardTools: { oldLast: null, newFirst: null, unknown: [] } })({ name: 'x', suggestions: [], appCardsSince: null, incomingSuggestions: [] });
-  check('一張都沒有:「不代表沒跳過」多一個原因——app 換了做卡的工具、感測器還沒接上', empty.includes('不代表沒跳過') && empty.includes('app 換了做卡的工具而感測器還沒接上時跳的'), empty);
-  const odd = page({ oldLast: null, newFirst: NEW, unknown: [{ tool: 'mcp__ccd_session__<b>propose</b>', first: NEW, count: 3 }] });
-  check('記到認不得的工具 → 講名字、第一次的時間、可能是又換了工具', odd.includes('認不得的工具') && odd.includes('propose') && odd.includes('可能是 app 又換了做建議卡的工具'), odd);
-  check('工具名是紀錄裡的字:一律跳脫', !odd.includes('<b>propose</b>'), odd);
-  // 常駐的服務跑的是舊程式(有 appCardsSince、沒有 appCardTools):講服務的事,不准什麼都不說(看起來像沒換過工具)
-  const stale = page(undefined);
-  check('服務沒給這一欄 → 講服務還在跑舊的程式、講修法', stale.includes('服務還在跑舊的程式') && stale.includes('--serve-restart') && !stale.includes('換過做建議卡的工具：'), stale);
-  // AC-4:照你的話開了先前提的某一張 → 卡上一行,不收卡
-  const opened = page({ oldLast: null, newFirst: NEW, unknown: [] }, { suggestions: [sgCard({ opens: [{ ts: NEW }] })] });
-  const line = opened.match(/<span class="smeta">⚠️[^<]*<\/span>/)?.[0] ?? '';
-  check('卡上講「照你的話叫過 1 次開…」——分不出是不是這一張、看不到有沒有開成;不准寫成「開過」(記到的只是叫了,R2)', line.includes('照你的話叫過 1 次開') && line.includes('分不出要開的是不是這一張') && line.includes('看不到有沒有開成') && !line.includes('開過'), line || opened);
-  check('卡照樣掛著、「不做了」還在,還掛著的才叫人按', opened.includes('data-dismiss=') && line.includes('按「不做了」'), line);
-  const startedOpen = page({ oldLast: null, newFirst: NEW, unknown: [] }, { suggestions: [sgCard({ startedBy: 's9', startedTitle: '新對話', opens: [{ ts: NEW }] })] });
-  const sLine = startedOpen.match(/<span class="smeta">⚠️[^<]*<\/span>/)?.[0] ?? '';
-  check('已經收起來的卡:卡上不叫人去按一顆不存在的「不做了」', sLine.includes('照你的話叫過') && !sLine.includes('不做了'), sLine || startedOpen);
-  const leaks = [page({}), page({ oldLast: '壞掉', newFirst: undefined, unknown: null }), page({ oldLast: null, newFirst: null, unknown: [{}] }), page(null, { suggestions: [sgCard({ opens: null })] })]
-    .filter((html) => /undefined|NaN|\bnull\b|\[object/.test(html));
-  check('缺欄位、怪欄位都不會把 undefined／NaN／null 印到畫面上', leaks.length === 0, leaks.map((h) => h.match(/.{30}(undefined|NaN|null|\[object).{30}/s)?.[0]).join('\n      '));
-}
-
-section('建議新增的對話:這一區看不到的那幾條路,畫面要明講;收起來的數字要自洽（真的跑 ui/app.js 的 suggestionsBlock）', 'P6');
-{
-  const block = loadSuggestionsBlock({ retainDays: 90 });
-  check('從 ui/app.js 拿得出 suggestionsBlock', typeof block === 'function');
-  if (typeof block === 'function') {
-    const html = block({ name: 'x', appCardsSince: TS, incomingSuggestions: [], suggestions: [
+    const html = block({ name: 'x', incomingSuggestions: [], suggestions: [
       sgCard({ id: 'open1' }),
       sgCard({ id: 'both', startedBy: 's9', startedTitle: '照著開的對話', dismissedAt: TS }),   // 既已開始、又按過不做了:只能算一次
       sgCard({ id: 'gone', dismissedAt: TS }),
     ] });
-    check('講得出「卡在 app 裡怎麼不見的(你按掉、被新卡擠掉),這裡看不到」', html.includes('你按掉、或被後來的新卡擠掉'), html.slice(0, 400));
-    check('講得出「Claude 叫了收回會標在卡上,但分不出是哪一張」', html.includes('分不出是哪一張'), html.slice(0, 600));
-    check('卡上不寫「你已取消」(AC-2:感測器看不到 app 的叉叉,那句話沒有任何證據)', !html.includes('取消'));
     check('收起來的 2 張 = 已開始 1 ＋ 你說不做了 1(同一張卡不算兩次)', html.includes('收起來的 2 張（已開始 1、你說不做了 1）'), html.match(/收起來的[^<]*/)?.[0]);
     check('還沒處理的那張有「不做了」按鈕,收起來的沒有', (html.match(/data-dismiss=/g) ?? []).length === 1);
-    check('兩種來源各有一小行(AC-5)', block({ name: 'x', appCardsSince: TS, suggestions: [sgCard(), sgCard({ id: 'c', source: 'claude' })] }).includes('Claude 在對話裡提的建議卡')
-      && block({ name: 'x', appCardsSince: TS, suggestions: [sgCard({ id: 'c', source: 'claude' })] }).includes('Claude 用 --suggest 放的'));
-    check('被截短的卡標「已截短」,而且講完整的在哪(AC-4)', block({ name: 'x', appCardsSince: TS, suggestions: [sgCard({ cut: ['prompt'] })] }).includes('已截短'));
-    // AC-7:Claude 叫過收回 → 卡上一行,附理由,不收卡、不說「已收回」「已取消」(記到的只是叫了收回)
-    const wdHtml = block({ name: 'x', appCardsSince: TS, suggestions: [sgCard({ withdrawals: [{ ts: TS, reason: '已經在<b>這裡</b>做完', cut: true }, { ts: TS, reason: null, cut: false }] })] });
-    check('卡上講「Claude 後來在這個對話裡叫過 2 次收回」', wdHtml.includes('叫過 2 次收回'), wdHtml);
-    check('附 Claude 說的理由(被截的加…、沒寫的講沒寫)', wdHtml.includes('已經在&lt;b&gt;這裡&lt;/b&gt;做完…') && wdHtml.includes('（沒寫理由）'), wdHtml);
-    check('理由是 Claude 寫的字:一律跳脫,不准變成網頁上的標籤', !wdHtml.includes('<b>這裡</b>'));
-    check('講「分不出收回的是不是這一張」,不講「已收回」「已取消」', wdHtml.includes('分不出收回的是不是這一張') && !wdHtml.includes('已收回') && !wdHtml.includes('已取消'), wdHtml);
-    check('卡照樣掛著、「不做了」還在(收回不會替你收)', wdHtml.includes('data-dismiss=') && !wdHtml.includes('收起來的'));
-    const startedWd = block({ name: 'x', appCardsSince: TS, suggestions: [sgCard({ startedBy: 's9', startedTitle: '照著開的對話', withdrawals: [{ ts: TS, reason: '做完了', cut: false }] })] });
-    // 只看卡上那一行(區塊上方的說明文字本來就講「按不做了」,那是給還掛著的卡看的)
-    const wdLine = startedWd.match(/<span class="smeta">⚠️[^<]*<\/span>/)?.[0] ?? '';
-    check('已經收起來的卡也標收回,但卡上不叫人去按一顆不存在的「不做了」', wdLine.includes('叫過 1 次收回') && !wdLine.includes('不做了') && !startedWd.includes('data-dismiss='), wdLine || startedWd);
-    const openLine = wdHtml.match(/<span class="smeta">⚠️[^<]*<\/span>/)?.[0] ?? '';
-    check('還掛著的卡,卡上那一行才叫人按「不做了」', openLine.includes('按「不做了」'), openLine);
-    const many = block({ name: 'x', appCardsSince: TS, suggestions: [sgCard({ withdrawals: [1, 2, 3, 4, 5].map((n) => ({ ts: TS, reason: `理由${n}`, cut: false })) })] });
-    check('收回很多次:只列前 3 個理由,講共幾次', many.includes('叫過 5 次收回') && many.includes('理由3') && !many.includes('理由4') && many.includes('等 5 次'), many);
-    const dismissedWd = block({ name: 'x', appCardsSince: TS, suggestions: [sgCard({ dismissedAt: TS, withdrawals: [{ ts: TS, reason: '做完了', cut: false }] })] });
-    const dismissedLine = dismissedWd.match(/<span class="smeta">⚠️[^<]*<\/span>/)?.[0] ?? '';
-    check('你按過「不做了」的卡也一樣:卡上不叫你再去按一次', dismissedLine.includes('叫過 1 次收回') && !dismissedLine.includes('不做了'), dismissedLine || dismissedWd);
-    check('空的卡講「這張卡沒有內容」,不是不畫(混沌推導:輸入畸形)', block({ name: 'x', appCardsSince: TS, suggestions: [sgCard({ tldr: null, prompt: '' })] }).includes('這張卡沒有內容'));
-  }
-}
+    check('標明來源為 AI 用 --suggest 放的', html.includes('AI 用 --suggest 放的'), html);
+    check('被截短的卡標「已截短」', block({ name: 'x', suggestions: [sgCard({ cut: ['prompt'] })] }).includes('已截短'));
+    check('空的卡講「這張卡沒有內容」,不是不畫(混沌推導:輸入畸形)', block({ name: 'x', suggestions: [sgCard({ tldr: null, prompt: '' })] }).includes('這張卡沒有內容'));
 
-section('當場問的卡(規格:當場問的卡也收進來 AC-1、AC-2、AC-4、AC-5、AC-6):卡上的字只講看得到的——不寫「問過你」、看不到你按了哪個鈕就講看不到、湊的那段不寫成 Claude 寫的;收起來的數字自洽（真的跑 ui/app.js 的 suggestionsBlock）', 'P10');
-{
-  const block = loadSuggestionsBlock({ retainDays: 90, appCardTools: { oldLast: '2026-10-13T00:00:00Z', newFirst: '2026-10-25T00:00:00Z', unknown: [] } });
-  check('從 ui/app.js 拿得出 suggestionsBlock', typeof block === 'function');
-  if (typeof block === 'function') {
-    const SAID = { ts: TS, text: 'JPG 報告卡那一條\n幫我開一張建議卡', cut: false };
-    const COMPOSED = '學生頁：JPG 報告卡還在傳\n\n這件事原本在「提建議的對話」那個對話裡提過。\n你那時說：「JPG 報告卡那一條 幫我開一張建議卡」';
-    const offer = (o = {}) => sgCard({ id: 'toolu_offer', ask: 'offer', title: '學生頁：JPG 報告卡還在傳', tldr: null, prompt: COMPOSED, said: SAID, brief: null, workedAfter: null, supersededAt: null, ...o });
-    const one = (o) => block({ name: 'x', appCardsSince: TS, incomingSuggestions: [], suggestions: [offer(o)] });
-    const bare = one();
-    check('卡上寫「Claude 叫了當場問你要不要開的卡」,不寫「問過你」(app 可能根本沒跳出來,R2)', bare.includes('Claude 叫了當場問你要不要開的卡') && !bare.includes('問過你'), bare);
-    check('看不到你按了哪個鈕 → 講看不到;不寫「你沒回答」「你取消了」', bare.includes('看不到你按了哪個鈕') && !bare.includes('你沒回答') && !bare.includes('取消'), bare);
-    check('…也講看不到卡有沒有真的跳出來(app 可能拒絕,D 第一輪,R2)', bare.includes('也看不到卡有沒有真的跳出來'), bare);
-    check('附你那時說的話(換行壓成空白)', bare.includes('你那時說：「JPG 報告卡那一條 幫我開一張建議卡」'), bare);
-    check('湊的那段講明是監視器湊的,不是 Claude 寫的說明;不冒充「要貼的話」', bare.includes('監視器照標題湊的，不是 Claude 寫的說明') && !bare.includes('要貼的話：'), bare);
-    check('複製拿到的就是伺服器湊的那段(畫面不自己湊)', bare.includes(`data-copy="${COMPOSED}"`) && bare.includes('複製監視器湊的話'), bare);
-    check('還掛著:有「不做了」', bare.includes('data-dismiss='));
-    const cut = one({ said: { ts: TS, text: '字'.repeat(200), cut: true } });
-    check('你那時說的話被截過 → 加…', cut.includes('…」'), cut);
-    const noSaid = one({ said: null });
-    check('紀錄裡看不到你那時說的話 → 講看不到,不印空的引號', noSaid.includes('紀錄裡看不到你在那之前說的話') && !noSaid.includes('「」'), noSaid);
-    // AC-2:有下文、找不到照它開的對話
-    const follow = one({ brief: { ts: TS, via: 'followup' }, tldr: '背景說明', prompt: '補說明要貼的話' });
-    check('補了說明、找不到照它開的對話 → 照實講,卡照樣掛著', follow.includes('Claude 補了開新對話的說明，但找不到照它開的對話') && follow.includes('data-dismiss='), follow);
-    check('…有下文就不講湊的那段,要貼的話照補說明', !follow.includes('監視器照標題湊的') && follow.includes('要貼的話：補說明要貼的話') && follow.includes('複製說明'), follow);
-    const same = one({ brief: { ts: TS, via: 'same-title' }, tldr: '背景說明', prompt: '直接開的要貼的話' });
-    check('後來同名直接開、找不到照它開的對話 → 照實講', same.includes('Claude 後來叫了同名的卡、直接開對話，但找不到照它開的對話'), same);
-    const started = one({ brief: { ts: TS, via: 'followup' }, tldr: '背景說明', prompt: '補說明要貼的話', startedBy: 's9', startedTitle: '照卡開的對話' });
-    check('認得出已開始 → 收起來,不講「找不到」', started.includes('已開始：') && !started.includes('找不到照它開的對話') && !started.includes('data-dismiss='), started);
-    // AC-5:接著動工只是提示
-    const worked = one({ workedAfter: TS });
-    check('Claude 接著動了工 → 講「可能是你選了在這裡做」,卡照樣掛著', worked.includes('可能是你選了在這裡做') && worked.includes('data-dismiss='), worked);
-    check('…收起來的卡不講這一句', !one({ workedAfter: TS, dismissedAt: TS }).includes('可能是你選了在這裡做'));
-    // 收起來的數字:每張只算一種(已開始 → 後來又提了同名的卡 → 你說不做了)
-    const html = block({ name: 'x', appCardsSince: TS, incomingSuggestions: [], suggestions: [
-      offer({ id: 'o1' }),
-      offer({ id: 'o2', supersededAt: TS }),
-      offer({ id: 'o3', supersededAt: TS, dismissedAt: TS }),   // 後來同名、又按過不做了:只算一次
-      offer({ id: 'o4', startedBy: 's9', startedTitle: '照卡開的對話', supersededAt: TS }),
+    // 收起來的數字含同名取代:每張只算一種(已開始 → 後來又提了同名的卡 → 你說不做了)
+    const html2 = block({ name: 'x', incomingSuggestions: [], suggestions: [
+      sgCard({ id: 'o1' }),
+      sgCard({ id: 'o2', supersededAt: TS }),
+      sgCard({ id: 'o3', supersededAt: TS, dismissedAt: TS }),
+      sgCard({ id: 'o4', startedBy: 's9', startedTitle: '照卡開的對話', supersededAt: TS }),
       sgCard({ id: 'g1', dismissedAt: TS }),
     ] });
-    check('收起來的 4 張 = 已開始 1 ＋ 後來又提了同名的卡 2 ＋ 你說不做了 1', html.includes('收起來的 4 張（已開始 1、後來又提了同名的卡 2、你說不做了 1）'), html.match(/收起來的[^<]*/)?.[0]);
-    check('後來同名的那張:卡上講看那一張,沒有「不做了」按鈕', html.includes('後來同一個對話又提了一張同名的卡') && (html.match(/data-dismiss=/g) ?? []).length === 1, html.match(/data-dismiss="[^"]*"/g)?.join(','));
-    check('沒有同名的時候,摘要不多一個 0', !block({ name: 'x', appCardsSince: TS, suggestions: [sgCard({ dismissedAt: TS })] }).includes('後來又提了同名的卡'));
-    // AC-6:卡區的說明
-    check('「這一區看不到的」講當場問的卡也在這裡、看不到你按了哪個鈕、選了在這裡做要自己按不做了', html.includes('當場問你要不要開的卡也在這裡，但看不到你按了哪個鈕；選了在這裡做的，要自己按<b>不做了</b>'), html);
-    check('換過工具那一句補半句:那時已經開著、之後沒重開的對話裡跳的也可能沒記到', html.includes('那時已經開著、之後沒重開的對話裡跳的，也可能沒記到'), html);
-    // 怪的值(舊的服務、壞掉的欄位):不准印出內部值;沒有湊好的那段就不提「複製」
-    const odd = [offer({ said: {} }), offer({ said: { text: 42 } }), offer({ brief: {} }), offer({ said: undefined, brief: undefined, workedAfter: undefined, supersededAt: undefined }), offer({ prompt: undefined })];
-    const leaks = odd.map((o) => block({ name: 'x', appCardsSince: TS, suggestions: [o] })).filter((h) => /undefined|NaN|\bnull\b|\[object/.test(h));
+    check('收起來的 4 張 = 已開始 1 ＋ 後來又提了同名的卡 2 ＋ 你說不做了 1', html2.includes('收起來的 4 張（已開始 1、後來又提了同名的卡 2、你說不做了 1）'), html2.match(/收起來的[^<]*/)?.[0]);
+    check('後來同名的那張:卡上講看那一張,沒有「不做了」按鈕', html2.includes('後來同一個對話又提了一張同名的卡') && (html2.match(/data-dismiss=/g) ?? []).length === 1);
+    check('沒有同名的時候,摘要不多一個 0', !block({ name: 'x', suggestions: [sgCard({ dismissedAt: TS })] }).includes('後來又提了同名的卡'));
+
+    // 程式的內部值漏到畫面上等於沒有畫面:缺欄位、怪欄位都餵一次
+    const odd = [
+      { name: 'x' }, { name: 'x', suggestions: null },
+      { name: 'x', suggestions: [{ id: 'a' }] },
+      { name: 'x', suggestions: [sgCard({ title: undefined, tldr: null, prompt: '', ts: undefined, fromTitle: null, session: null })] },
+      { name: 'x', suggestions: [sgCard({ cut: ['title', 'tldr', 'prompt', 'cwd'], openIn: { project: null, name: null } }), sgCard({ id: 'b', source: 'ai', tldr: null, session: null, fromTitle: null })] },
+      { name: 'x', suggestions: [sgCard({ startedBy: 's9', startedTitle: null })], incomingSuggestions: [{ project: 'o', name: null, count: 1 }] },
+    ];
+    const leaks = odd.map((o) => block(o)).filter((h) => /undefined|NaN|\bnull\b|\[object/.test(h));
     check('缺欄位、怪欄位都不會把 undefined／NaN／null 印到畫面上', leaks.length === 0, leaks.map((h) => h.match(/.{30}(undefined|NaN|null|\[object).{30}/s)?.[0]).join('\n      '));
-    const noPrompt = block({ name: 'x', appCardsSince: TS, suggestions: [offer({ prompt: '' })] });
-    check('沒有湊好的那段(舊的服務)→ 沒有複製鈕,也不講「複製拿到的…」', !noPrompt.includes('data-copy=') && !noPrompt.includes('「複製」拿到'), noPrompt);
   }
 }
 
@@ -643,7 +532,7 @@ section('存檔與蓋章卡:先講 commit 了沒,都 commit 了才講還沒蓋�
   // 第二張截圖那一刻:都 commit 了,蓋章之後改過 23 個
   const p2 = card(stamped, fl({ total: 23, unsaved: { count: 0, groups: [] }, saved: { count: 23, groups: [g('docs', ...many(23))] } }), 0);
   check('AC-4:都 commit 了 → 大字「23 個檔案還沒蓋章」,底下講是蓋章之後改的、在那個資料夾跑哪個指令',
-    /<span class="num">23<\/span><span class="unit">個檔案還沒蓋章<\/span>/.test(p2) && /都 commit 了，這些是蓋章之後改的。要蓋章：在那個資料夾跑 <code>pipeline-status --checkpoint<\/code>/.test(p2), p2);
+    /<span class="num">23<\/span><span class="unit">個檔案還沒蓋章<\/span>/.test(p2) && /都 commit 了，這些是蓋章之後改的。要蓋章：在那個資料夾跑 <code>agy-pipeline --checkpoint<\/code>/.test(p2), p2);
   check('AC-4:清單照舊只露前 5 個,其餘收進「還有 18 個檔案」', /<summary>還有 18 個檔案<\/summary>/.test(p2) && p2.includes('f4.md'), p2);
   const again = card(stamped, fl({ total: 0, unsaved: { count: 0, groups: [] }, saved: { count: 0, groups: [] } }), 0);
   check('AC-4:重新蓋章之後照舊「沒有改動」「現在的檔案跟蓋章時一模一樣」', /<div class="big">沒有改動<\/div>/.test(again) && /現在的檔案跟蓋章時一模一樣/.test(again), again);
@@ -671,7 +560,7 @@ section('存檔與蓋章卡:先講 commit 了沒,都 commit 了才講還沒蓋�
   const help = p1.match(/<details class="why" data-fold="why\|\/x\|changes">[\s\S]*?<\/details>/)?.[0] ?? '';
   check('AC-8:「commit 跟蓋章差在哪？」預設收著,三句說明照伺服器給的印,蓋章的指令標成指令、接著講全綠不等於功能正確',
     /<summary>commit 跟蓋章差在哪？<\/summary>/.test(help) && help.includes(STAMP_HELP.commit) && help.includes(STAMP_HELP.order)
-      && help.includes('蓋章（<code>pipeline-status --checkpoint</code>）') && help.includes(GREEN_IS_NOT_CORRECT), help || p1);
+      && help.includes('蓋章（<code>agy-pipeline --checkpoint</code>）') && help.includes(GREEN_IS_NOT_CORRECT), help || p1);
   check('AC-8:全部改了幾個收在裡面(蓋章之後的改動:23 個)', help.includes('蓋章之後的改動：23 個檔案。'), help);
   const leaks = [p1, only, p2, again, o1, o2, b1, n1, unk].filter((h) => /undefined|NaN|\bnull\b|\[object/.test(h));
   check('每一種都不把 undefined／null／NaN 印到畫面上', leaks.length === 0, leaks.join('\n---\n'));
@@ -794,23 +683,23 @@ section('誰說處理完了只算一次(lib/rounds.mjs 的 doneBy):那一格的�
 
   const c = screenOf(claudeSaid), cA = c.find((s) => s.id === 'A'), cHtml = paint(c);
   check('必須抓到的那個樣子:A 是這一輪最新的那一步(done),憑什麼劃掉被蓋成點頭開工(nod)', cA?.state === 'done' && cA?.closedBy === 'nod', JSON.stringify({ state: cA?.state, closedBy: cA?.closedBy }));
-  check('必須抓到:那一句寫 Claude 說(帶它記的那一句),不寫「你說處理完了」', /Claude 說：docs\/升級摘要\/y\.md/.test(cA?.line ?? '') && !/你說/.test(cA?.line ?? ''), cA?.line);
+  check('必須抓到:那一句寫 AI 說(帶它記的那一句),不寫「你說處理完了」', /AI 說：docs\/升級摘要\/y\.md/.test(cA?.line ?? '') && !/你說/.test(cA?.line ?? ''), cA?.line);
   eq('必須抓到:工班睜著眼,不是笑眼', faceOf(cHtml, 'A'), 'open');
   check('網頁照印伺服器給的那一句', cHtml.includes(esc(cA?.line)), cHtml.slice(0, 300));
 
   // 舊的臉在這裡也錯(睜著眼)——字跟臉各猜一個,錯在相反的兩邊
   const y = screenOf(youSaid), yA = y.find((s) => s.id === 'A'), yHtml = paint(y);
-  check('必須放過:真的是你說的(舊紀錄),A 一樣被蓋成點頭開工 → 那一句照舊寫「你說處理完了」', yA?.state === 'done' && yA?.closedBy === 'nod' && /你說處理完了/.test(yA?.line ?? '') && !/Claude 說/.test(yA?.line ?? ''), yA?.line);
+  check('必須放過:真的是你說的(舊紀錄),A 一樣被蓋成點頭開工 → 那一句照舊寫「你說處理完了」', yA?.state === 'done' && yA?.closedBy === 'nod' && /你說處理完了/.test(yA?.line ?? '') && !/AI 說/.test(yA?.line ?? ''), yA?.line);
   eq('必須放過:工班笑眼', faceOf(yHtml, 'A'), 'happy');
 
   // 字跟臉是同一個事實:這一輪每一格處理完了的,笑眼 ⇔ 那一句寫你說
   const pairs = [[c, cHtml], [y, yHtml]].flatMap(([screen, html]) => screen.filter((s) => s.state === 'done').map((s) => ({ id: s.id, line: s.line, face: faceOf(html, s.id) })));
   check('處理完了的每一格:笑眼的才寫你說、寫你說的才笑眼', pairs.length === 2 && pairs.every((p) => (p.face === 'happy') === /你說/.test(p.line)), JSON.stringify(pairs));
 
-  // 分不出是誰說的(誰說的那一欄沒有):不替你說、也不替 Claude 說(R1);臉也不笑
+  // 分不出是誰說的(誰說的那一欄沒有):不替你說、也不替 AI 說(R1);臉也不笑
   const unknown = { ...cA, doneBy: undefined };
   const uLine = stageLine(unknown, { ago: () => '3 天前' });
-  check('分不出是誰說的:不寫你說、也不寫 Claude 說,照講分不出', !/你說|Claude 說/.test(uLine) && /分不出是誰說的/.test(uLine), uLine);
+  check('分不出是誰說的:不寫你說、也不寫 AI 說,照講分不出', !/你說|AI 說/.test(uLine) && /分不出是誰說的/.test(uLine), uLine);
   eq('分不出是誰說的:工班不笑', faceOf(paint(c.map((s) => (s.id === 'A' ? { ...unknown, line: uLine } : s))), 'A'), 'open');
   // 網頁不自己從 closedBy 猜:舊的服務(合併之後還沒 --serve-restart)只給 closedBy:human、沒給 doneBy,也不笑——笑不笑只看伺服器算好的那一個
   eq('舊的服務只給 closedBy:human、沒給 doneBy → 不笑(網頁不自己猜)', faceOf(paint(y.map((s) => (s.id === 'A' ? { ...s, closedBy: 'human', doneBy: undefined } : s))), 'A'), 'open');

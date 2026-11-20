@@ -18,9 +18,9 @@ import process from 'node:process';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 // 程式自己會寫出來的東西(資料夾以 / 結尾)。**新增任何會寫檔的功能時,要同步加進這個清單。**
 const MUST_NEVER_BE_TRACKED = [
-  'logs/', 'checkpoints/', '.claude/settings.local.json', '.claude/pipeline-monitor.off',
-  'logs', 'checkpoints',   // 搬過家的電腦,舊的位置是一個指向新家的捷徑(不是資料夾):也要擋(規格:紀錄搬到固定的家)
-  '.claude/settings.local.json.bak-*',   // --on/--off 留的備份;2026-09-11 它讓主資料夾又蓋不了章
+  'logs/', 'checkpoints/', 'logs', 'checkpoints',
+  '.agents/hooks.json', '.agents/hooks.json.bak-*', '.agents/pipeline-monitor.off',
+  '.claude/settings.local.json', '.claude/settings.local.json.bak-*', '.claude/pipeline-monitor.off',
 ];
 
 /**

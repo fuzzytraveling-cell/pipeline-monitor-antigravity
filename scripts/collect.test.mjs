@@ -14,11 +14,10 @@ import process from 'node:process';
 import { collectAll, ladderSteps } from '../lib/collect.mjs';
 import { unquotePath } from '../lib/git.mjs';
 import { codeHome, dataHome } from '../lib/paths.mjs';
-import { readAppTitles, deletedAt, transcriptDirName } from '../lib/appSessions.mjs';
+import { sessionStartOf } from '../lib/transcript.mjs';
 import { safeName } from '../lib/events.mjs';
 import { stagesBrokenLine } from '../lib/rounds.mjs';
 import { decide } from '../gate.mjs';
-import { SUGGEST_TOOL } from '../lib/rounds.mjs';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -219,20 +218,20 @@ section('L17：程式從哪個資料夾跑,資料都是同一個家', 'P11');
   eq('不在 git 裡的資料夾 → 自己', codeHome(plain), plain);
 
   // 這支程式自己的資料夾(正式的呼叫都給它)不是資料的家:家是指定的那一個(測試共用的那支給的假家)
-  eq('程式自己的資料夾 → 資料的家是指定的那一個', dataHome(ROOT), process.env.PIPELINE_MONITOR_HOME);
+  eq('程式自己的資料夾 → 資料的家是指定的那一個', dataHome(ROOT), process.env.AGY_PIPELINE_HOME);
   eq('呼叫端給的資料夾(測試的暫存資料夾)照用', dataHome(plain), plain);
 
   // 家裡放一份章,用程式自己的資料夾跑 collectAll(儀表板的預設)要看得到
   const target = makeRepo({ files: { 'b.js': '1\n' } });
   const troot = out(target.dir, 'rev-parse', '--show-toplevel');
-  const cpDir = join(process.env.PIPELINE_MONITOR_HOME, 'checkpoints');
+  const cpDir = join(process.env.AGY_PIPELINE_HOME, 'checkpoints');
   mkdirSync(cpDir, { recursive: true });
   const tbranch = out(target.dir, 'rev-parse', '--abbrev-ref', 'HEAD');   // 照真的分支名寫,不寫死 main(見 monitorWith)
   const cpFile = join(cpDir, `${basename(troot)}__${tbranch}.json`);
   writeFileSync(cpFile, JSON.stringify({
     commit: out(target.dir, 'rev-parse', 'HEAD'), branch: tbranch, worktree: troot, at: new Date().toISOString(), checks: ['test'],
   }));
-  const seen = collectAll({ monitorDir: ROOT, appTitles: new Map() }).projects.map((p) => p.name);
+  const seen = collectAll({ monitorDir: ROOT }).projects.map((p) => p.name);
   check('用程式自己的資料夾跑,看得到家裡的案件', seen.includes(basename(troot)), JSON.stringify(seen));
   rmSync(cpFile, { force: true });
   execFileSync('git', ['worktree', 'remove', '--force', wt], { cwd: repo.dir, stdio: 'ignore' });
@@ -240,49 +239,44 @@ section('L17：程式從哪個資料夾跑,資料都是同一個家', 'P11');
   repo.cleanup(); target.cleanup();
 }
 
-section('對話標題從 app 的索引來;在 app 裡刪掉的對話不准畫成「進行中」');
+section('對話標題從第一句人話與轉錄檔來;subagent 不會被當成獨立的人類對話');
 {
-  // 假的 app 索引:<a>/<b>/local_*.json,只認 title + cliSessionId;壞檔跳過;沒有 title 的不算
-  const idx = mkdtempSync(join(tmpdir(), 'pm-appidx-'));
-  mkdirSync(join(idx, 'w1', 's1'), { recursive: true });
-  writeFileSync(join(idx, 'w1', 's1', 'local_a.json'), JSON.stringify({ cliSessionId: 'sess-1', title: '履歷轉換系統重構', model: 'x', permissionMode: 'y' }));
-  writeFileSync(join(idx, 'w1', 's1', 'local_b.json'), '{ 壞掉的');
-  writeFileSync(join(idx, 'w1', 's1', 'local_c.json'), JSON.stringify({ cliSessionId: 'sess-3', title: '   ' }));
-  const titles = readAppTitles(idx);
-  eq('讀到標題', titles.get('sess-1'), '履歷轉換系統重構');
-  eq('壞檔跳過、空標題不算 → 只有 1 筆', titles.size, 1);
-  eq('索引資料夾不存在 → 空的,不當機', readAppTitles(join(idx, '沒有')).size, 0);
-
-  eq('轉錄資料夾命名:非英數全換成 -', transcriptDirName('/Users/x/Desktop/Forma Pro/.claude'), '-Users-x-Desktop-Forma-Pro--claude');
-  const tr = mkdtempSync(join(tmpdir(), 'pm-tr-'));
-  const cwd = '/Users/x/Desktop/Forma Pro';
-  mkdirSync(join(tr, transcriptDirName(cwd)));
-  writeFileSync(join(tr, transcriptDirName(cwd), 'sess-1.desktop-released.json'), JSON.stringify({ v: 1, releasedAt: '2026-09-15T01:34:40Z', reason: 'delete' }));
-  writeFileSync(join(tr, transcriptDirName(cwd), 'sess-2.desktop-released.json'), JSON.stringify({ v: 1, releasedAt: '2026-09-15T01:34:40Z', reason: 'other' }));
-  eq('reason=delete → 刪除時間', deletedAt('sess-1', cwd, tr), '2026-09-15T01:34:40Z');
-  eq('別的 reason → null', deletedAt('sess-2', cwd, tr), null);
-  eq('沒有檔 → null', deletedAt('sess-9', cwd, tr), null);
-
-  // 整條走一次:紀錄裡兩個對話,一個在 app 裡刪了 → 標題對上、刪掉的算結案且標 deletedAt
   const r = makeRepo({ files: { 'a.js': '1\n' } });
   const root = out(r.dir, 'rev-parse', '--show-toplevel');
   const monitorDir = mkdtempSync(join(tmpdir(), 'pm-monitor-'));
+  const home = mkdtempSync(join(tmpdir(), 'pm-trhome-'));
   mkdirSync(join(monitorDir, 'logs'));
   copyFileSync(join(ROOT, 'stages.json'), join(monitorDir, 'stages.json'));
-  const ts = new Date().toISOString();
-  writeFileSync(join(monitorDir, 'logs', `${basename(root)}.jsonl`), [
-    JSON.stringify({ ts, hook: 'UserPromptSubmit', session: 'sess-1', cwd: root, prompt: 'hi' }),
-    JSON.stringify({ ts, hook: 'UserPromptSubmit', session: 'sess-2', cwd: root, prompt: 'yo', title: '感測器記的' }),
+  const ts0 = new Date(Date.now() - 120_000).toISOString();
+  const ts1 = new Date(Date.now() - 60_000).toISOString();
+  // 在假 home 裡放一份 Antigravity 轉錄檔
+  const trDir = join(home, '.gemini', 'antigravity', 'brain', 'sess-1', '.system_generated', 'logs');
+  mkdirSync(trDir, { recursive: true });
+  const trPath = join(trDir, 'transcript.jsonl');
+  writeFileSync(trPath, [
+    JSON.stringify({ step_index: 0, source: 'USER_EXPLICIT', type: 'USER_INPUT', created_at: ts0, content: '履歷轉換系統重構' }),
+    '{ 壞掉的一行',
   ].join('\n') + '\n');
-  mkdirSync(join(tr, transcriptDirName(root)), { recursive: true });
-  writeFileSync(join(tr, transcriptDirName(root), 'sess-1.desktop-released.json'), JSON.stringify({ releasedAt: ts, reason: 'delete' }));
-  const p = collectAll({ monitorDir, appTitles: titles, transcriptsDir: tr }).projects[0];
-  const s1 = p.sessions.find((s) => s.id === 'sess-1'), s2 = p.sessions.find((s) => s.id === 'sess-2');
-  eq('app 的標題接上了', s1?.title, '履歷轉換系統重構');
-  eq('app 沒有的退回感測器記的', s2?.title, '感測器記的');
-  check('在 app 裡刪掉的 → 算結案,而且標明 deletedAt', !!s1?.closedAt && s1?.deletedAt === ts, JSON.stringify(s1));
-  check('沒刪的還是進行中', !s2?.closedAt);
-  for (const d of [idx, tr, monitorDir]) rmSync(d, { recursive: true, force: true });
+  // subagent 轉錄檔（step 0 是 SYSTEM_MESSAGE 帶 sender=）
+  const subDir = join(home, '.gemini', 'antigravity', 'brain', 'sub-1', '.system_generated', 'logs');
+  mkdirSync(subDir, { recursive: true });
+  const subPath = join(subDir, 'transcript.jsonl');
+  writeFileSync(subPath, JSON.stringify({ step_index: 0, source: 'SYSTEM', type: 'SYSTEM_MESSAGE', created_at: ts1, content: 'sender=sess-1\n幫我查一下' }) + '\n');
+
+  eq('sessionStartOf 讀出轉錄檔第一筆時間', sessionStartOf('sess-1', [], { home }), ts0);
+  eq('不存在的對話 → null，不當機', sessionStartOf('sess-9', [], { home }), null);
+
+  writeFileSync(join(monitorDir, 'logs', `${basename(root)}.jsonl`), [
+    JSON.stringify({ ts: ts1, hook: 'PostToolUse', tool: 'write_file', session: 'sess-1', cwd: root, file: join(root, 'a.js'), transcript: trPath }),
+    JSON.stringify({ ts: ts1, hook: 'PostToolUse', tool: 'read_file', session: 'sub-1', cwd: root, file: join(root, 'a.js'), subagent: true, transcript: subPath }),
+    JSON.stringify({ ts: ts1, hook: 'UserPrompt', session: 'sess-2', cwd: root, prompt: 'yo', title: '感測器記的' }),
+  ].join('\n') + '\n');
+  const p = collectAll({ monitorDir, home }).projects[0];
+  const s1 = p.sessions.find((s) => s.id === 'sess-1'), s2 = p.sessions.find((s) => s.id === 'sess-2'), sub = p.sessions.find((s) => s.id === 'sub-1');
+  eq('轉錄檔的第一句話補上了對話標題', s1?.title, '履歷轉換系統重構');
+  eq('已有顯式 title 的照用', s2?.title, '感測器記的');
+  eq('subagent 不會冒充成獨立的人類對話', sub, undefined);
+  for (const d of [home, monitorDir]) rmSync(d, { recursive: true, force: true });
   r.cleanup();
 }
 
@@ -395,9 +389,9 @@ section('存檔(commit)之後 B 的證據不能消失:這一輪開始之後的 c
   rmSync(monitorDir, { recursive: true, force: true }); r.cleanup();
 }
 
-section('app 建議卡:要開在別的專案的卡,那邊的對話開始了也認得出來(不然永遠說「還沒開始」);要開在哪、誰提的、從什麼時候開始有紀錄都講得出來');
+section('建議卡(--suggest):要開在別的專案的卡,那邊的對話開始了也認得出來(不然永遠說「還沒開始」);要開在哪、誰提的都講得出來');
 {
-  // 真的卡有一半是「在甲專案的對話裡提、要開在乙專案」:新對話記在乙的紀錄檔裡,只看甲那一份永遠對不到
+  // 跨專案的卡:「在甲專案的對話裡提、要開在乙專案」:新對話記在乙的紀錄檔裡,只看甲那一份永遠對不到
   const a = makeRepo({ files: { 'a.js': '1\n' } }), b = makeRepo({ files: { 'b.js': '1\n' } });
   const rootA = out(a.dir, 'rev-parse', '--show-toplevel'), rootB = out(b.dir, 'rev-parse', '--show-toplevel');
   const monitorDir = mkdtempSync(join(tmpdir(), 'pm-monitor-'));
@@ -406,36 +400,34 @@ section('app 建議卡:要開在別的專案的卡,那邊的對話開始了也�
   // 時間用「現在往回算」,而且「現在」只取一次(L18):collectAll 會把超過保留期限的事件丟掉,日期寫死的話這一段過幾個月會無故變紅
   const base = Date.now();
   const T = (h) => new Date(base - (10 - h) * 3600_000).toISOString();
-  const PROMPT = '到那個專案把三支指令改成薄殼:先讀它的 CLAUDE.md,只改 .claude/commands/ 底下的檔案,改完跑它自己的測試,其他一律不動。';
-  const card = (o) => JSON.stringify({ ts: T(2), hook: 'PreToolUse', tool: SUGGEST_TOOL, session: 'src', cwd: rootA, in_title: '標題', in_tldr: '說明', ...o });
+  const PROMPT = '到那個專案把三支指令改成薄殼:先讀它的 AGENTS.md,只改 .agents/skills/ 底下的檔案,改完跑它自己的測試,其他一律不動。';
+  const card = (o) => JSON.stringify({ ts: T(2), event: 'suggestion', source: 'ai', by_session: 'src', cwd: rootA, title: '標題', tldr: '說明', ...o });
   writeFileSync(join(monitorDir, 'logs', `${basename(rootA)}.jsonl`), [
-    JSON.stringify({ ts: T(1), hook: 'UserPromptSubmit', session: 'src', cwd: rootA, prompt: '原本在聊別的', title: '提建議的那個對話' }),
-    card({ use_id: 'toolu_far', in_prompt: PROMPT, in_cwd: rootB }),
-    card({ use_id: 'toolu_far2', in_prompt: '另一張也要開在那個專案、但還沒有人照著開的卡。說明要夠長才比得出開頭,所以多寫幾個字湊滿六十個字以上。', in_cwd: rootB }),
-    card({ use_id: 'toolu_here', in_prompt: '這一張就開在這個專案,沒有指定資料夾,而且還沒有人照著開。說明要夠長才比得出開頭。' }),
-    card({ use_id: 'toolu_lost', in_prompt: '這一張要開在儀表板不認得的資料夾。說明要夠長才比得出開頭,所以多寫幾個字。', in_cwd: '/somewhere/unknown-repo' }),
-    card({ use_id: 'toolu_cutpath', in_prompt: '這一張的路徑太長被截過。說明要夠長才比得出開頭,所以多寫幾個字湊滿。', in_cwd: '/somewhere/half-a-na', in_cut: ['cwd'] }),
+    JSON.stringify({ ts: T(1), hook: 'UserPrompt', session: 'src', cwd: rootA, prompt: '原本在聊別的', title: '提建議的那個對話' }),
+    card({ id: 'sg_far', prompt: PROMPT, target: rootB }),
+    card({ id: 'sg_far2', prompt: '另一張也要開在那個專案、但還沒有人照著開的卡。說明要夠長才比得出開頭,所以多寫幾個字湊滿六十個字以上。', target: rootB }),
+    card({ id: 'sg_here', prompt: '這一張就開在這個專案,沒有指定資料夾,而且還沒有人照著開。說明要夠長才比得出開頭。' }),
+    card({ id: 'sg_lost', prompt: '這一張要開在儀表板不認得的資料夾。說明要夠長才比得出開頭,所以多寫幾個字。', target: '/somewhere/unknown-repo' }),
+    card({ id: 'sg_cutpath', prompt: '這一張的路徑太長被截過。說明要夠長才比得出開頭,所以多寫幾個字湊滿。', target: '/somewhere/half-a-na', cut: ['cwd'] }),
   ].join('\n') + '\n');
   writeFileSync(join(monitorDir, 'logs', `${basename(rootB)}.jsonl`),
-    JSON.stringify({ ts: T(3), hook: 'UserPromptSubmit', session: 'started', cwd: rootB, prompt: PROMPT.slice(0, 200), title: '照著卡開的新對話' }) + '\n');
-  const ps = collectAll({ monitorDir, appTitles: new Map() }).projects;
+    JSON.stringify({ ts: T(3), hook: 'UserPrompt', session: 'started', cwd: rootB, prompt: PROMPT.slice(0, 200), title: '照著卡開的新對話' }) + '\n');
+  const ps = collectAll({ monitorDir }).projects;
   const pA = ps.find((p) => p.name === safeName(basename(rootA))), pB = ps.find((p) => p.name === safeName(basename(rootB)));
   const sg = Object.fromEntries((pA?.suggestions ?? []).map((s) => [s.id, s]));
   eq('五張卡都在提建議的那個專案底下', Object.keys(sg).length, 5);
-  eq('別的專案裡有對話照著開了 → 已開始', sg.toolu_far?.startedBy, 'started');
-  eq('說得出是哪個對話、在哪個專案(連結才連得過去)', `${sg.toolu_far?.startedTitle}/${sg.toolu_far?.startedProject?.project}`, `照著卡開的新對話/${pB?.name}`);
-  eq('要開在哪:儀表板認得的專案', `${sg.toolu_far?.openIn?.project}/${sg.toolu_far?.openIn?.name}`, `${pB?.name}/${pB?.displayName}`);
-  eq('知道是哪個對話提的(說明被截短時,完整的只有那裡有)', sg.toolu_far?.fromTitle, '提建議的那個對話');
-  eq('沒指定資料夾的卡:不講要開在哪', sg.toolu_here?.openIn, null);
-  eq('沒有人照著開 → 還沒開始', sg.toolu_here?.startedBy, null);
-  eq('儀表板不認得的資料夾:只給資料夾名,不給連結', `${sg.toolu_lost?.openIn?.project}/${sg.toolu_lost?.openIn?.name}`, 'null/unknown-repo');
-  eq('路徑被截過:不拿半截路徑的最後一段當名字', `${sg.toolu_cutpath?.openIn?.project}/${sg.toolu_cutpath?.openIn?.name}`, 'null/null');
+  eq('別的專案裡有對話照著開了 → 已開始', sg.sg_far?.startedBy, 'started');
+  eq('說得出是哪個對話、在哪個專案(連結才連得過去)', `${sg.sg_far?.startedTitle}/${sg.sg_far?.startedProject?.project}`, `照著卡開的新對話/${pB?.name}`);
+  eq('要開在哪:儀表板認得的專案', `${sg.sg_far?.openIn?.project}/${sg.sg_far?.openIn?.name}`, `${pB?.name}/${pB?.displayName}`);
+  eq('知道是哪個對話提的(說明被截短時,完整的只有那裡有)', sg.sg_far?.fromTitle, '提建議的那個對話');
+  eq('沒指定資料夾的卡:不講要開在哪', sg.sg_here?.openIn, null);
+  eq('沒有人照著開 → 還沒開始', sg.sg_here?.startedBy, null);
+  eq('儀表板不認得的資料夾:只給資料夾名,不給連結', `${sg.sg_lost?.openIn?.project}/${sg.sg_lost?.openIn?.name}`, 'null/unknown-repo');
+  eq('路徑被截過:不拿半截路徑的最後一段當名字', `${sg.sg_cutpath?.openIn?.project}/${sg.sg_cutpath?.openIn?.name}`, 'null/null');
   eq('乙專案那一頁不重複出現這張卡', (pB?.suggestions ?? []).length, 0);
   // …但乙那一頁不能只說「一張都沒有」:要開在乙、還沒處理的卡掛在甲那一頁,要指路過去(已開始的那張不算,它處理完了)
   eq('乙那一頁知道別頁有幾張要開在這裡、還沒處理的卡(1 張:另一張已開始,不算)', JSON.stringify(pB?.incomingSuggestions), JSON.stringify([{ project: pA?.name, name: pA?.displayName, count: 1 }]));
   eq('甲那一頁沒有別人要開在這裡的卡', JSON.stringify(pA?.incomingSuggestions), JSON.stringify([]));
-  eq('app 的建議卡從什麼時候開始有紀錄(L3)', pA?.appCardsSince, T(2));
-  eq('一張都沒記到過的專案 → null(畫面要說「不代表沒跳過」)', pB?.appCardsSince, null);
   rmSync(monitorDir, { recursive: true, force: true }); a.cleanup(); b.cleanup();
 }
 
@@ -572,12 +564,12 @@ section('專案自己寫的關卡讀不懂:不准讓整頁儀表板不見、不�
   const mk = (stages) => {
     const r = makeRepo({ files: { 'a.js': '1\n' } });
     const root = out(r.dir, 'rev-parse', '--show-toplevel');
-    mkdirSync(join(root, '.claude'), { recursive: true });
-    if (stages !== undefined) writeFileSync(join(root, '.claude', 'pipeline-stages.json'), JSON.stringify({ stages }));
+    mkdirSync(join(root, '.agents'), { recursive: true });
+    if (stages !== undefined) writeFileSync(join(root, '.agents', 'pipeline-stages.json'), JSON.stringify({ stages }));
     writeFileSync(join(monitorDir, 'logs', `${basename(root)}.jsonl`), JSON.stringify({ ts: now, hook: 'UserPromptSubmit', prompt: 'hi', session: 's1', cwd: root }) + '\n');
     return { r, root };
   };
-  const env = { ...process.env, HOME: home, PIPELINE_MONITOR_HOME: monitorDir, PIPELINE_MONITOR_LOG_DIR: join(monitorDir, 'logs') };
+  const env = { ...process.env, HOME: home, AGY_PIPELINE_HOME: monitorDir, AGY_PIPELINE_LOG_DIR: join(monitorDir, 'logs') };
   const good = mk(undefined);                                // 沒覆寫:照內建的,不講任何一句
   const cases = [
     [[null], '第 1 個不是一關'],
@@ -602,7 +594,7 @@ section('專案自己寫的關卡讀不懂:不准讓整頁儀表板不見、不�
     catch (e) { term = `${e.stdout ?? ''}${e.stderr ?? ''}`; }
     check(`${label}:終端機不印程式的錯誤,五關照畫、上面講同一句`, !/TypeError|SyntaxError|at file:|Error:/.test(term) && term.includes(stagesBrokenLine(why)) && term.includes('━━ 五關 ━━'), term.slice(0, 400));
     let threw = null;
-    try { decide({ payload: { session_id: 's1', cwd: bad.root, hook_event_name: 'Stop', stop_hook_active: false }, monitorDir, skillHome: home }); } catch (e) { threw = e; }
+    try { decide({ payload: { conversationId: 's1', cwd: bad.root, executionNum: 0, fullyIdle: true, terminationReason: 'NO_TOOL_CALL' }, monitorDir, skillHome: home }); } catch (e) { threw = e; }
     check(`${label}:收工 hook 也不出錯`, !threw, String(threw?.message ?? ''));
     bad.r.cleanup();
   }

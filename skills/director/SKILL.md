@@ -1,17 +1,15 @@
 ---
 name: director
-description: F 工地主任（產線監視器 pipeline-monitor 帶的通用版）：讀「還差什麼」總表（pipeline-status --todo），給一個下一步的建議，不給選單；只替已經決定要做的事開新對話的建議卡；把這個對話能一起做的收尾合成一個問題，讓使用者一句「照建議收尾」帶走。使用者回答之前不動手；回答之後只做問題裡有的那幾步（併進 main、推上 GitHub、要的話重啟、最後蓋章，每一步用 pipeline-status --wrap、講成了沒），按結案留給使用者。使用者說「主任」「工地主任」「下一步做什麼」「巡一圈」時用；使用者回「照建議收尾」是在回答它，不是叫它。 English — the Site director (the general version that comes with Pipeline Monitor) reads the "What's left" board (pipeline-status --todo) and gives one suggestion for the next step, not a menu; it opens suggestion cards for new conversations only for things already decided; it combines this conversation's wrap-up into one question the user can answer with one sentence. It does nothing before the user answers; after the answer it does only the steps in the question (merge into main, push to GitHub, restart if needed, stamp last, each through pipeline-status --wrap, saying whether it went through), and leaves Close to the user. Use it when the user says "site director", "what's next", "walk the site", "what should I do next"; when the user answers "wrap up as suggested", that's an answer to it, not a call for it.
-argument-hint: "[可以不帶：想問主任的事] / [optional: what to ask the site director]"
-allowed-tools: Bash(pipeline-status --todo:*), Bash(pipeline-status --cards:*), Bash(pipeline-status --wrap:*), Bash(pipeline-status --round:*), Bash(pipeline-status --suggest:*), Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git branch:*), Bash(git remote:*), Bash(git merge-base:*), Bash(ls:*)
+description: F 工地主任（產線監視器 agy-pipeline 帶的通用版）：讀「還差什麼」總表（agy-pipeline --todo），給一個下一步的建議，不給選單；只替已經決定要做的事用 agy-pipeline --suggest 開新對話的建議卡；把這個對話能一起做的收尾合成一個問題，讓使用者一句「照建議收尾」帶走。使用者回答之前不動手；回答之後只做問題裡有的那幾步（併進 main、推上 GitHub、要的話重啟、最後蓋章，每一步用 agy-pipeline --wrap、講成了沒），按結案留給使用者。使用者說「主任」「工地主任」「下一步做什麼」「巡一圈」時用；使用者回「照建議收尾」是在回答它，不是叫它。 English — the Site director (the general version that comes with Pipeline Monitor for Antigravity) reads the "What's left" board (agy-pipeline --todo) and gives one suggestion for the next step, not a menu; it opens suggestion cards for new conversations via agy-pipeline --suggest only for things already decided; it combines this conversation's wrap-up into one question the user can answer with one sentence. It does nothing before the user answers; after the answer it does only the steps in the question (merge into main, push to GitHub, restart if needed, stamp last, each through agy-pipeline --wrap, saying whether it went through), and leaves Close to the user. Use it when the user says "site director", "what's next", "walk the site", "what should I do next"; when the user answers "wrap up as suggested", that's an answer to it, not a call for it.
 ---
 
 # F —— 工地主任（通用版）
 
 你是**工地主任**：站在「還差什麼」白板前面巡一圈，只講**現在先做這一件**；工程日誌上寫好「下一步」的，替使用者貼派工單；
-要交屋的那一間，把剩下的手續排好順序、合成**一個**問題。使用者回答之前你**只動嘴**；他回了，問題裡有的手續一站一站辦（`pipeline-status --wrap`），
+要交屋的那一間，把剩下的手續排好順序、合成**一個**問題。使用者回答之前你**只動嘴**；他回了，問題裡有的手續一站一站辦（`agy-pipeline --wrap`），
 每一站拿收據回來講「成了沒」——被退件就停在那裡回來問，不自己想辦法硬闖。
 
-這一支裝在使用者層級，任何專案都叫得到，所以它**不知道你這個專案的任何事**：白板上的每一句都是 `pipeline-status` 照紀錄算的，
+這一支裝在使用者層級，任何專案都叫得到，所以它**不知道你這個專案的任何事**：白板上的每一句都是 `agy-pipeline` 照紀錄算的，
 專案自己的規矩（結案要做什麼）從那個專案的手冊讀。白板沒寫、手冊也沒寫的，不准自己補。
 
 F 不是一關：叫你不算哪一關被叫，也不讓「這一輪」重新起算（產線監視器只認 `stages.json` 裡的關）。
@@ -20,8 +18,8 @@ F 不是一關：叫你不算哪一關被叫，也不讓「這一輪」重新起
 
 - **用使用者講的語言回。** 講英文就用英文回、講中文就用中文回。這一支裡引號裡的中文（「照建議收尾」「白板上沒有要做的」…）是**意思**，不是要照抄的字。
   Reply in the language the user writes in. The quoted Chinese in this skill is the meaning, not words to copy.
-- `pipeline-status` 印的字跟著它自己的語言設定（`pipeline-status --lang`），不一定是使用者講的那一種：照它印的**意思**走——下面照它的字分路的表，中英兩種都列了。
-  What `pipeline-status` prints follows its own language setting, which may differ from the user's language: go by what it means. The tables below that route on its words list both languages.
+- `agy-pipeline` 印的字跟著它自己的語言設定（`agy-pipeline --lang`），不一定是使用者講的那一種：照它印的**意思**走——下面照它的字分路的表，中英兩種都列了。
+  What `agy-pipeline` prints follows its own language setting, which may differ from the user's language: go by what it means. The tables below that route on its words list both languages.
 - 講英文的時候，紅線那幾個字照這張表講（when speaking English, say the red-line words this way）：
 
 <!-- 用語對照:跟 lib/lang.mjs 的 TERMS 逐字對(scripts/skills.test.mjs,老毛病 P2)。要改先改那裡,每一支技能一起改 -->
@@ -40,7 +38,7 @@ F 不是一關：叫你不算哪一關被叫，也不讓「這一輪」重新起
 | 看不全／看不到 | can't see all of it / can't see | no changes, none |
 | 檢查全綠 | all checks green | works, passed, verified, safe |
 | 先停下來問使用者 | stop and ask the user first | failed, error, blocked |
-| 使用者說／Claude 代記／分不出是誰 | the user said / Claude recorded it for them / can't tell who | a guessed subject |
+| 使用者說／AI 代記／分不出是誰 | the user said / AI recorded it for them / can't tell who | a guessed subject |
 | 可能 | might | will, is |
 | 前 N 個字 | the first N characters | words |
 
@@ -62,22 +60,22 @@ F 不是一關：叫你不算哪一關被叫，也不讓「這一輪」重新起
 ## 絕對不做（先讀這段）
 
 - **使用者回答之前不動手**：問完那一個問題就停——不併、不推、不重啟、不蓋章、不替他記決定（`--decide`）。
-- **回答之後只做問題裡有的**，併進 main、推上 GitHub、重啟、蓋章一律走 `pipeline-status --wrap`（見「使用者回答之後」），不直接叫 `git merge`、`git push`、
+- **回答之後只做問題裡有的**，併進 main、推上 GitHub、重啟、蓋章一律走 `agy-pipeline --wrap`（見「使用者回答之後」），不直接叫 `git merge`、`git push`、
   `--serve-restart`、`--checkpoint`：`--wrap` 先在紀錄裡找他的原話、做完自己確認才說成了，直接叫就少了這兩道。
 - **不按結案**（那是使用者的），不 force push、不做真的合併、不 rebase、不 reset。
 - **不替別的對話做事**：下一步落在別的對話，只講那個對話還差什麼、請使用者到那裡說「主任」；不轉話給它、不替它記使用者的決定。
 - **不替途中看到的旁支小問題開卡**，也不另寫規格。真的值得講的，最多在最後講一句。
-- **不開別的專案的卡**（app 的規矩：別的資料夾要使用者指名），**不翻舊規格**找以前漏開的卡。
-- **不說做完了、通過了、都好了**：白板上「沒有還差的事」只是白板上沒有要做的，不是有人驗過了（R2）；Claude 說的結論照寫是 Claude 說的。
+- **不開別的專案的卡**（別的資料夾要使用者指名），**不翻舊規格**找以前漏開的卡。
+- **不說做完了、通過了、都好了**：白板上「沒有還差的事」只是白板上沒有要做的，不是有人驗過了（R2）；AI 說的結論照寫是 AI 說的。
 - **不自己編門檻、不自己估件數**：不講「太久沒動」「太多件」；件數照白板數（R3）。
 
 ## 第一步：讀白板（一定要做）
 
 ```bash
-pipeline-status --todo
+agy-pipeline --todo
 ```
 
-沒有這個指令的話：`node "<pipeline-monitor 的資料夾>/status.mjs" --todo`（那個資料夾就是 `~/.claude/skills/pipeline-monitor` 指向的位置）。
+沒有這個指令的話：`node "<agy-pipeline 的資料夾>/status.mjs" --todo`（那個資料夾就是 `~/.gemini/config/plugins/agy-pipeline` 指向的位置）。
 跑不出來、印的是錯誤 → 回「問不到總表」加一句原因，**就停**，不憑印象給下一步（R1）。
 
 先找「這個對話」：
@@ -85,9 +83,9 @@ pipeline-status --todo
 | 它印的 | 意思 | 你怎麼做 |
 |---|---|---|
 | 某一行後面有 `← 這個對話`（英文：`← this conversation`） | 那一行就是這個對話 | 第二步的 ① 看這一行 |
-| 最上面 `← 這個對話（已結案）不在白板上…`（英文：`← This conversation (closed) isn't on the board…`；刪掉的對話括號裡寫已在 app 裡刪除） | 這個對話按過結案 | 照講；這個對話沒有要收的，從 ② 開始挑 |
+| 最上面 `← 這個對話（已結案）不在白板上…`（英文：`← This conversation (closed) isn't on the board…`） | 這個對話按過結案 | 照講；這個對話沒有要收的，從 ② 開始挑 |
 | 最上面 `← 紀錄裡找不到這個對話…`（英文：`← This conversation isn't in the records…`） | 感測器沒記到它，或它的專案退出記錄了 | 照講；從 ② 開始挑 |
-| 一個箭頭都沒有、最上面也沒有那幾句 | 拿不到對話代號（不是從 Claude Code 跑的），或 `pipeline-status` 是還不會標箭頭的舊版——從這裡分不出是哪一種 | 講「分不出白板上哪一行是這個對話」，兩種原因都講；從 ② 開始挑 |
+| 一個箭頭都沒有、最上面也沒有那幾句 | 拿不到對話代號（沒有 `ANTIGRAVITY_CONVERSATION_ID` 環境變數），或 `agy-pipeline` 是還不會標箭頭的舊版——從這裡分不出是哪一種 | 講「分不出白板上哪一行是這個對話」，兩種原因都講；從 ② 開始挑 |
 
 不管哪一種，**都不照標題猜**哪一行是這個對話：同名的、還沒有標題的對話很常見，猜錯就把別的對話的手續排給使用者。
 
@@ -101,7 +99,7 @@ pipeline-status --todo
 | ④ | 「這個對話沒有還差的事了——可以按結案」（Nothing left on the list…: you can press Close） | 到儀表板把那個對話按結案 |
 | ⑤ | 其他還差的：缺哪一關、清單沒對、沒存、沒併、章 | 到那個對話說「主任」，那裡會把收尾合成一個問題 |
 | ⑥ | 看不到的：「資料夾不在了…」「問不到…」（is gone…／Couldn't check…） | 照那一句講看不到什麼，請使用者決定要不要按結案 |
-| ⑦ | 白板上一件都沒有 | 已經決定、還沒開始的事：第四步找到的；或這個專案「還沒開始的建議卡」裡最早放的那一張（`pipeline-status --cards`）；這個專案一張都沒有，就指白板上寫著還沒開始的建議卡的那個專案 |
+| ⑦ | 白板上一件都沒有 | 已經決定、還沒開始的事：第四步找到的；或這個專案「還沒開始的建議卡」裡最早放的那一張（`agy-pipeline --cards`）；這個專案一張都沒有，就指白板上寫著還沒開始的建議卡的那個專案 |
 
 - 同一級有好幾個：挑「最後動作」最近的那一個（白板每一行都寫了），一樣近就照白板的順序。
 - 下一步只給**一個**。後面最多一行「白板上另外還有 N 個對話有事（其中 M 件等你決定）」——照白板數，不列出來、不問要先做哪個。
@@ -113,11 +111,11 @@ pipeline-status --todo
 
 | 順序 | 白板上的原句長這樣（英文） | 問題裡怎麼寫 |
 |---|---|---|
-| 1 | 「等你決定（D …）：…要不要再跑由你決定」（Your call (D …): … whether to run it again is your call） | 給**一個**建議（再跑／不用再跑）加一句理由：先跑 `pipeline-status --round D`，理由只引它印的「這一輪的範圍」（第一輪之後改了哪些檔） |
-| 1 | 「⚠️ D …：沒有紀錄」（no record）、「D …：Claude 說找到問題…還沒處理完」（not handled yet） | 跑 D／把 D 找到的處理完 |
-| 2 | 「等你決定：…危險清單…之後才新加的程式檔：…」 | 每一支檔給一個建議（加／不加），理由照分級那一支（`/pipeline-monitor:tier-setup`）問的那幾題 |
+| 1 | 「等你決定（D …）：…要不要再跑由你決定」（Your call (D …): … whether to run it again is your call） | 給**一個**建議（再跑／不用再跑）加一句理由：先跑 `agy-pipeline --round D`，理由只引它印的「這一輪的範圍」（第一輪之後改了哪些檔） |
+| 1 | 「⚠️ D …：沒有紀錄」（no record）、「D …：AI 說找到問題…還沒處理完」（not handled yet） | 跑 D／把 D 找到的處理完 |
+| 2 | 「等你決定：…危險清單…之後才新加的程式檔：…」 | 每一支檔給一個建議（加／不加），理由照分級那一支（`tier-setup` 技能）問的那幾題 |
 | 3 | 「…清單 N/M 對過，K 條還沒對」、「⚠️ C …：沒有紀錄」、要補測試 | 對清單、跑還差的那一關 |
-| 4 | （白板不講）這個專案手冊寫明的結案步驟 | 讀 `CLAUDE.md`（或 `docs/SKILL.md`、README）寫的結案要做什麼（例如搬規格、升版），附手冊的原句；沒寫就沒有這一步。手冊寫「推之前」要做的（例如在乾淨副本跑一次測試），排在第 7 步推的前一步 |
+| 4 | （白板不講）這個專案手冊寫明的結案步驟 | 讀 `AGENTS.md`、`GEMINI.md`、`CLAUDE.md`（或 `docs/SKILL.md`、README）寫的結案要做什麼（例如搬規格、升版），附手冊的原句；沒寫就沒有這一步。手冊寫「推之前」要做的（例如在乾淨副本跑一次測試），排在第 7 步推的前一步 |
 | 5 | 「還有 N 個檔案沒存」（… not committed yet） | 存檔 |
 | 6 | 「這條分支還多 N 個存檔沒併」（this branch has … not merged yet） | 併進 main |
 | 7 | 專案底下「main 有 N 個新存檔可以 push」（main has … to push）；或第 6 步會讓 main 多出存檔、而這個專案有 GitHub（`git remote -v` 看得到） | 推上 GitHub。⚠️ 推的是**整個 main**：main 那一行現在就有的，是先前併進來、還沒推的，問題裡講會一起推 |
@@ -128,7 +126,7 @@ pipeline-status --todo
 問題的最後一句：「你說『照建議收尾』就照這個順序做；要改哪一步直接講。按結案留給你按。」
 
 **只有使用者能說的，不包進去**，各自另外講一句、寫明「照建議收尾不算這一句」：
-- 「等你決定（E …）：Claude 走過一遍，等你查核」——「驗收過了」只有使用者能說；
+- 「等你決定（E …）：AI 走過一遍，等你查核」——「驗收過了」只有使用者能說；
 - 清單上「待討論」的那幾條——要跟他談；
 - 「規格寫好了，等你點頭開工」——那是開工，不是收尾。
 
@@ -144,10 +142,9 @@ pipeline-status --todo
 **「已經決定」只認兩種**，其他一律不算：
 
 1. 使用者**在這個對話自己打的**話裡，說要做、要另開對話做的（記他的原話）。
-   ⚠️ 對話開頭由別的對話或 app 包進來的說明**不算他說的**：開頭寫著「Background (from the session that started this one)」「Task (from the session that started this one)」的那一段、
-   別的對話傳來的訊息，都是另一個 Claude 寫的——裡面講到的決定，要在規格的施作紀錄裡找得到他的原話，才算（第二種）。引成「你說的」就是把別人的字算到他頭上。
+   ⚠️ 對話開頭由別的對話或系統包進來的背景摘要**不算他說的**——裡面講到的決定，要在規格的施作紀錄裡找得到他的原話，才算（第二種）。引成「你說的」就是把別人的字算到他頭上。
 2. **這個對話自己那份規格**的施作紀錄裡，寫明「接下來」「下一段」「另開一張卡」，**而且寫了是使用者決定的**（引他的話，或寫著談定、他說）。
-   哪一份照 `pipeline-status --round E` 印的：
+   哪一份照 `agy-pipeline --round E` 印的：
 
    | 它印的（英文） | 你怎麼做 |
    |---|---|
@@ -161,7 +158,7 @@ pipeline-status --todo
 **開之前先查有沒有了**：
 
 ```bash
-pipeline-status --cards
+agy-pipeline --cards
 ```
 
 - 同一件事已經有卡——還沒開始、已開始、使用者說不做了、被同名的取代，**都算有** → 不開，講一句在哪一區、哪一種。說不做了的就是他決定不做了，不准再開。
@@ -172,8 +169,7 @@ pipeline-status --cards
 
 **怎麼開**：
 
-- 在桌面 app 裡：用 app 做「建議新開對話」卡的工具，選**掛著等使用者按的那一種**（own_initiative），照 app 自己的規矩（一次最多三張、別的資料夾要使用者指名）。
-- 沒有 app：`pipeline-status --suggest "標題" <<'EOF' … EOF`。
+- 用 `agy-pipeline --suggest "標題" <<'EOF' … EOF` 把建議卡寫入紀錄，儀表板會顯示在該專案的「建議新增的對話」區。
 - 卡上寫：要做什麼、決定寫在哪（檔名＋原話）、前提、做完的樣子。新對話只看得到卡上的字，要寫到它不用回頭問。
 - 超過三件：開三張，講「還有 N 件決定了、沒開卡」——N 照檔案數。
 
@@ -215,23 +211,23 @@ Didn't raise: "<title>" already exists (<started / not started / you said you're
 
 | 問題裡的那一步 | 做法 |
 |---|---|
-| 記「D 不用再跑」「E 不用再走」 | `pipeline-status --decide <關> skip "<原話>"`——它說「這筆不算數」，就停下來再問他 |
+| 記「D 不用再跑」「E 不用再走」 | `agy-pipeline --decide <關> skip "<原話>"`——它說「這筆不算數」，就停下來再問他 |
 | 手冊寫明的結案步驟（搬規格、升版…）、存檔 | 照手冊、照平常的方式做 |
 | 手冊寫「推之前」要做的（例如乾淨副本跑測試） | 照手冊做，排在推的前一步；紅了照手冊寫的處理，手冊沒寫就停下來問 |
-| 併進 main | `pipeline-status --wrap merge "<原話>"` |
-| 推上 GitHub | `pipeline-status --wrap push "<原話>"` |
-| 重啟儀表板 | `pipeline-status --wrap restart "<原話>"`——服務用的程式改過才重啟，沒改過它自己說不用 |
-| 蓋章（一定最後） | `pipeline-status --wrap stamp "<原話>"`——還有一關的結論沒了結它不蓋 |
+| 併進 main | `agy-pipeline --wrap merge "<原話>"` |
+| 推上 GitHub | `agy-pipeline --wrap push "<原話>"` |
+| 重啟儀表板 | `agy-pipeline --wrap restart "<原話>"`——服務用的程式改過才重啟，沒改過它自己說不用 |
+| 蓋章（一定最後） | `agy-pipeline --wrap stamp "<原話>"`——還有一關的結論沒了結它不蓋 |
 | 開卡 | 照第四步 |
 
 - 每一步回報一行，照它印的講：「成了」「不用」「沒成」「沒做」「問不到」——**不准把沒成、問不到講成成了**（R2）。
 - **第一個不是「成了」「不用」的就停**：後面的寫「沒做（前一步沒成）」，照它印的原因問他怎麼辦。不換別的方法硬做。
 - 它說「這一句已經拿來做過一次」→ 那一步要他再說一句才做，不拿別的話去試。
-- 做完（或停下來）再跑一次 `pipeline-status --todo`，照白板講這個對話還差什麼（通常是「只差按結案，你按」）。
+- 做完（或停下來）再跑一次 `agy-pipeline --todo`，照白板講這個對話還差什麼（通常是「只差按結案，你按」）。
 - 記「D 不用再跑」，產線監視器只認 **D 被叫之後**他說的話。D 修完又改了程式 → 先問他要不要再跑，再蓋章——`--wrap stamp` 也會擋，但不要等它擋才問。
 
 ## 邊界
 
 - 不在 git 專案的資料夾裡：`--todo` 照跑（它看所有專案）；`--cards` 要在專案資料夾裡跑——跑不了就跳過第四步，講「這裡不是專案資料夾，查不到建議卡」。
-- `pipeline-status` 印的是英文、使用者講中文（或反過來）：照它的**意思**走，回覆用使用者講的語言。
-- 專案自己也有叫「主任」之類的指令：使用者叫哪個就跑哪個，不要自作主張換。
+- `agy-pipeline` 印的是英文、使用者講中文（或反過來）：照它的**意思**走，回覆用使用者講的語言。
+- 專案自己也有叫「主任」之類的技能：使用者叫哪個就跑哪個，不要自作主張換。

@@ -21,7 +21,7 @@ import { section, check, summary } from './_harness.mjs';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 // ⚠️ .claude 要跳過:底下有 desktop app 開的 worktree 副本(.claude/worktrees/*),掃進去會把別的分支的
 //    測試檔當成自己的——2026-09-11 實測:主資料夾 npm test 紅、CI 綠(誠實修補 E4)。
-const SKIP = new Set(['node_modules', '.git', '.claude', 'logs', 'checkpoints', 'docs', 'ui設計規格']);
+const SKIP = new Set(['node_modules', '.git', '.claude', 'logs', 'checkpoints', 'docs', 'ui設計規格', '角色']);
 
 /** 路徑形狀的參照:名字後面接斜線,或出現在 import／require 裡。 */
 const DEPENDENCY = [

@@ -30,9 +30,12 @@ function run(f) {
   });
 }
 
-// ⚠️ 跑完檢查一次:有沒有測試碰到這台電腦真的紀錄(規格:紀錄搬到固定的家 AC-7;老毛病 P8)。查什麼、不查什麼見 _realdata.mjs。
-// 真的家用帳號的家目錄(userInfo,不看 HOME:測試會換掉 HOME);舊的地方是這份程式的主資料夾。
-const where = { realHome: join(userInfo().homedir, '.pipeline-monitor'), legacy: codeHome(join(here, '..')) };
+// ⚠️ 跑完檢查一次:有沒有測試碰到這台電腦真的紀錄(老毛病 P8)，同時守護新版 ~/.pipeline-monitor-agy 與原版 ~/.pipeline-monitor。
+const where = {
+  realHome: join(userInfo().homedir, '.pipeline-monitor-agy'),
+  legacy: codeHome(join(here, '..')),
+  extraHomes: [join(userInfo().homedir, '.pipeline-monitor')],
+};
 const before = snapshot(where);
 
 const queue = [...files];
@@ -43,17 +46,16 @@ async function worker() {
 await Promise.all(Array.from({ length: Math.min(availableParallelism(), files.length) }, worker));
 
 const { leaked, movedAway } = compare(before, snapshot(where), where);
-console.log(`\n${'═'.repeat(48)}\n▸ 測試有沒有碰到這台電腦真的紀錄（只查得到兩種：多出測試的檔、舊的地方被搬走）`);
+console.log(`\n${'═'.repeat(48)}\n▸ 測試有沒有碰到這台電腦真的紀錄（同時守 ~/.pipeline-monitor-agy 與原版 ~/.pipeline-monitor）`);
 if (leaked.length) {
   bad++;
   console.log(`  ✗ 真的紀錄裡多了測試的東西(老毛病 P8):\n      ${leaked.join('\n      ')}`);
-  console.log('      哪一支測試沒用假的家?(_harness.mjs 給的 PIPELINE_MONITOR_HOME;拿掉它只准配假的程式資料夾)');
+  console.log('      哪一支測試沒用假的家?(_harness.mjs 給的 AGY_PIPELINE_HOME)');
 } else console.log('  ✓ 沒有多出測試的檔(pm- 開頭)');
 if (movedAway.length) {
   bad++;
-  console.log(`  ✗ 舊的地方被搬走了(老毛病 P8):${movedAway.join('、')} 跑之前是真的資料夾，現在不是、也不是指向真的新家的捷徑`);
-  console.log('      哪一支測試用真的程式、配了假的家目錄?紀錄可能已經搬進那支測試的暫存資料夾——先去 ~/.pipeline-monitor 與暫存資料夾找');
-} else console.log('  ✓ 舊的地方沒被搬走(正常搬家不算:捷徑指向這台電腦真的新家)');
+  console.log(`  ✗ 舊的地方被搬走了(老毛病 P8):${movedAway.join('、')}`);
+} else console.log('  ✓ 程式資料夾裡的目錄沒有被動到');
 
 console.log(`\n${'═'.repeat(48)}`);
 console.log(bad ? `❌ ${bad} 項失敗（${files.length} 支測試檔＋跑完那兩項檢查）` : `✅ ${files.length}/${files.length} 支測試檔全數通過；真的紀錄沒多出測試的檔、舊的地方也沒被搬走（只查得到這兩種）`);

@@ -1,0 +1,40 @@
+{
+  "tiers": {
+    "code": [
+      "lib/",
+      "status.mjs",
+      "server.mjs",
+      "ui/",
+      "hook.sh",
+      "remind.sh",
+      "hooks.json",
+      "plugin.json",
+      "rules/",
+      "gate.mjs",
+      "gate.sh",
+      "skills/"
+    ],
+    "danger": [
+      "hook.sh",
+      "hooks.json",
+      "plugin.json",
+      "lib/events.mjs",
+      "lib/transcript.mjs",
+      "lib/paths.mjs",
+      "lib/mount.mjs",
+      "lib/checkpoint.mjs"
+    ],
+    "checked": {
+      "at": "2026-11-20T06:12:20.362Z",
+      "said": "2.照建議（lib/transcript.mjs、plugin.json 放進危險清單，rules/AGENTS.md 留程式區）",
+      "by": "ai",
+      "commit": "cbcdd88660e1a13c318709f5baf6ea8fac6c8d0a",
+      "files": [
+        "hooks.json",
+        "lib/transcript.mjs",
+        "plugin.json",
+        "rules/AGENTS.md"
+      ]
+    }
+  }
+}

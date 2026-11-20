@@ -23,7 +23,7 @@ import { collectAll } from '../lib/collect.mjs';
 import { optOut, mountFix } from '../lib/mount.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const PLUGIN = JSON.parse(readFileSync(join(ROOT, '.claude-plugin', 'plugin.json'), 'utf8')).name;
+const PLUGIN = JSON.parse(readFileSync(join(ROOT, 'plugin.json'), 'utf8')).name;
 // 「現在」只取一次(L18)
 const NOW = Date.now();
 const D = (days) => new Date(NOW - days * 86400_000).toISOString();
@@ -45,17 +45,15 @@ function scene({ records = 'expired', stamp = true, plugin = 'ok' } = {}) {
   mkdirSync(logDir); mkdirSync(join(monitorDir, 'checkpoints'));
   copyFileSync(join(ROOT, 'stages.json'), join(monitorDir, 'stages.json'));
   const home = mkdtempSync(join(tmpdir(), 'pm-xhome-'));
-  mkdirSync(join(home, '.claude', 'skills'), { recursive: true });
-  if (plugin !== 'none') symlinkSync(plugin === 'dangling' ? join(home, '搬走了') : ROOT, join(home, '.claude', 'skills', PLUGIN));
-  // 轉錄資料夾給一個空的:不准去讀這台電腦真的 ~/.claude/projects(P8)
-  const transcripts = mkdtempSync(join(tmpdir(), 'pm-xtr-'));
+  mkdirSync(join(home, '.gemini', 'config', 'plugins'), { recursive: true });
+  if (plugin !== 'none') symlinkSync(plugin === 'dangling' ? join(home, '搬走了') : ROOT, join(home, '.gemini', 'config', 'plugins', PLUGIN));
   const name = safeName(basename(root));
   const log = join(logDir, `${name}.jsonl`);
   const lines = (list) => list.map((x) => `${JSON.stringify(x)}\n`).join('');
   // 一個對話:叫了 D、你按了結案。days = 結案是幾天前
   const convo = (days) => [
-    { ts: D(days + 1), hook: 'UserPromptSubmit', session: 's1', cwd: root, prompt: '修一下', title: '修首頁' },
-    { ts: D(days + 1), hook: 'PreToolUse', tool: 'Skill', skill: `${PLUGIN}:chaos-check`, session: 's1', cwd: root },
+    { ts: D(days + 1), hook: 'UserPrompt', session: 's1', cwd: root, prompt: '修一下', title: '修首頁' },
+    { ts: D(days + 1), hook: 'PostToolUse', tool: 'read_file', skill: `${PLUGIN}:chaos-check`, session: 's1', cwd: root },
     { ts: D(days), event: 'session_closed', session: 's1', cwd: root, source: 'human' },
   ];
   if (records === 'expired') writeFileSync(log, lines(convo(RETAIN_DAYS + 1)));
@@ -70,20 +68,20 @@ function scene({ records = 'expired', stamp = true, plugin = 'ok' } = {}) {
   const append = (list) => appendFileSync(log, lines(list));
   const faults = (list) => writeFileSync(join(logDir, '_sensor.jsonl'), lines(list));
   const cli = () => {
-    const { CLAUDE_CODE_SESSION_ID: _drop, ...env } = process.env;
+    const { ANTIGRAVITY_CONVERSATION_ID: _drop, ...env } = process.env;
     return execFileSync('node', [join(ROOT, 'status.mjs')], { cwd: root, encoding: 'utf8',
-      env: { ...env, HOME: home, PIPELINE_MONITOR_HOME: monitorDir, PIPELINE_MONITOR_LOG_DIR: logDir } });
+      env: { ...env, HOME: home, AGY_PIPELINE_HOME: monitorDir, AGY_PIPELINE_LOG_DIR: logDir } });
   };
-  // 儀表板的資料。HOME 換成假的:感測器掛在哪看 ~/.claude,不能讓這台電腦裝的 plugin 影響結果(P8)
+  // 儀表板的資料。HOME 換成假的:感測器掛在哪看 ~/.gemini/config/plugins,不能讓這台電腦裝的 plugin 影響結果(P8)
   const all = () => {
-    const keep = { PIPELINE_MONITOR_LOG_DIR: process.env.PIPELINE_MONITOR_LOG_DIR, HOME: process.env.HOME };
-    Object.assign(process.env, { PIPELINE_MONITOR_LOG_DIR: logDir, HOME: home });
-    try { return collectAll({ monitorDir, skillHome: home, appTitles: new Map(), transcriptsDir: transcripts }); } finally {
+    const keep = { AGY_PIPELINE_LOG_DIR: process.env.AGY_PIPELINE_LOG_DIR, HOME: process.env.HOME };
+    Object.assign(process.env, { AGY_PIPELINE_LOG_DIR: logDir, HOME: home });
+    try { return collectAll({ monitorDir, skillHome: home, home }); } finally {
       for (const [k, v] of Object.entries(keep)) if (v === undefined) delete process.env[k]; else process.env[k] = v;
     }
   };
   const project = (a) => a.projects.find((x) => x.name === name) ?? null;
-  const cleanup = () => { for (const d of [monitorDir, home, transcripts]) rmSync(d, { recursive: true, force: true }); r.cleanup(); };
+  const cleanup = () => { for (const d of [monitorDir, home]) rmSync(d, { recursive: true, force: true }); r.cleanup(); };
   return { root, name, logDir, log, append, faults, cli, all, project, cleanup };
 }
 
@@ -211,7 +209,7 @@ section('魔鬼教官第二輪:感測器根本沒掛上(plugin 拆掉了)又過�
   const out = s.cli();
   check('終端機:感測器那一行說沒掛上', out.includes('感測器：沒掛上'), out);
   const line = noRecordLine({ here: TERM, mount: 'off' });
-  check('五關:那一句講沒掛上、記不到、怎麼掛,不講「沒事」', out.includes(line) && line.includes('感測器沒掛上') && line.includes('pipeline-status --on') && !line.includes('沒事'), out);
+  check('五關:那一句講沒掛上、記不到、怎麼掛,不講「沒事」', out.includes(line) && line.includes('感測器沒掛上') && line.includes('agy-pipeline --on') && !line.includes('沒事'), out);
   const a = s.all(), p = s.project(a);
   eq('儀表板:對話那一區同一句(卡上的感測器是沒掛上)', p?.emptyLine, noRecordLine({ here: WEB, mount: 'off' }));
   check('畫面:那一句照印', uiOf(a).projectPage(s.name).includes(noRecordLine({ here: WEB, mount: 'off' })));
@@ -222,14 +220,14 @@ section('魔鬼教官第二輪:感測器根本沒掛上(plugin 拆掉了)又過�
   s.cleanup();
 }
 
-section('你退出記錄的專案:不叫你去問 Claude(之後的對話本來就不記);不准一直說「之前的紀錄還在」——舊的照樣滿 90 天清掉');
+section('你退出記錄的專案:不叫你去問 AI(之後的對話本來就不記);不准一直說「之前的紀錄還在」——舊的照樣滿 90 天清掉');
 {
   const s = scene();
   optOut(s.root, 'test');   // 跟 --off、儀表板的按鈕同一個做法
   const line = noRecordLine({ here: TERM, optedOut: true });
   const out = s.cli();
-  check('五關:講「你退出了記錄，之後的對話本來就不記」,不叫你把這句給 Claude 看',
-    out.includes(line) && line.includes('你退出了記錄，之後的對話本來就不記') && !line.includes('把這句給 Claude 看'), out);
+  check('五關:講「你退出了記錄，之後的對話本來就不記」,不叫你把這句給 AI 看',
+    out.includes(line) && line.includes('你退出了記錄，之後的對話本來就不記') && !line.includes('把這句給 AI 看'), out);
   check(`感測器那一行:不說「之前的紀錄還在」,說「之前記的照樣留到滿 ${RETAIN_DAYS} 天」`,
     !out.includes('之前的紀錄還在') && out.includes(`之前記的照樣留到滿 ${RETAIN_DAYS} 天`), out);
   const a = s.all(), p = s.project(a);
@@ -274,7 +272,7 @@ section('對照組:從來沒有紀錄檔(只有章)的照舊講「還沒有」�
   const a = none.all(), p = none.project(a);
   check('儀表板:沒有紀錄檔 → 那一欄給 null(不是沒給)、不算「90 天內一筆都沒有」', !!p && 'emptyLine' in p && p.emptyLine === null && p.noRecords === false, JSON.stringify({ e: p?.emptyLine, n: p?.noRecords }));
   const html = uiOf(a).projectPage(none.name);
-  check('畫面:照舊叫你掛感測器(真的從來沒記過)', html.includes('還沒有任何對話紀錄') && html.includes('pipeline-status --on'), text(html));
+  check('畫面:照舊叫你掛感測器(真的從來沒記過)', html.includes('還沒有任何對話紀錄') && html.includes('agy-pipeline --on'), text(html));
   none.cleanup();
 
   const fresh = scene({ records: 'fresh' });

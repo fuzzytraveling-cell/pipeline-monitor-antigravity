@@ -437,4 +437,37 @@ section('「這一輪中間動過」從真的紀錄算:沒有 reflog 的資料�
   r.cleanup();
 }
 
+section('Antigravity subagent 不算新接手對話：切分支後若只有 subagent 動過，不准誤判為換人（P6）', 'P6');
+{
+  const rl = [{ sha: '1'.repeat(40), sec: Math.floor((NOW - 10 * MIN * 1000) / 1000), gs: 'checkout: moving from work to work2' }];
+  const took = takeoverOf({ reflog: rl, cwd: '/w', events: [
+    { ts: T(-20 * MIN), hook: 'UserPrompt', session: 's1', cwd: '/w' },
+    { ts: T(-5 * MIN), hook: 'PostToolUse', session: 'sub-1', cwd: '/w', _subagent: true },
+  ] });
+  eq('切分支後只有 subagent 動過 → 不誤判換人（none）', took.state, 'none');
+}
+
+section('魔鬼教官第一輪回歸：無初始 reflog 的 Antigravity 工作區，最早事件是無 head 的轉錄檔 UserPrompt → 承接最早感測器 head，存檔後改動不消失（L31）', 'P1');
+{
+  const r = makeRepo({ files: { 'src/a.js': '1\n' }, at: T(-60 * MIN) });
+  const init = out(r.dir, 'rev-parse', 'HEAD');
+  const wt = appWorktree(r, 'agy-noreflog');
+  const monitorDir = mkdtempSync(join(tmpdir(), 'pm-origin-agy-'));
+  mkdirSync(join(monitorDir, 'logs')); mkdirSync(join(monitorDir, 'checkpoints'));
+  writeFileSync(join(monitorDir, 'stages.json'), readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'stages.json')));
+  const tp = join(monitorDir, 'tr.jsonl');
+  writeFileSync(tp, `${JSON.stringify({ step_index: 0, source: 'USER_EXPLICIT', type: 'USER_INPUT', created_at: T(-10 * MIN), content: '<USER_REQUEST>\n改一下 a.js\n</USER_REQUEST>' })}\n`);
+  const log = join(monitorDir, 'logs', `${safeName(basename(r.dir))}.jsonl`);
+  writeFileSync(log, `${JSON.stringify({ ts: T(-8 * MIN), hook: 'PostToolUse', session: 's-agy', cwd: wt, tool: 'edit_file', file: join(wt, 'src/a.js'), head: init.slice(0, 7), transcript: tp })}\n`);
+  // 中途存檔：reflog 只有存檔那一筆（比起點晚）
+  writeFileSync(join(wt, 'src/a.js'), '2\n');
+  commitAt(wt, T(-5 * MIN), '收工前存檔');
+  const card = cardFor({ monitorDir, path: wt })?.card;
+  eq('承接第一個感測器事件的 head → 存檔後基準仍是 origin（不是退回 head/not-found）', `${card?.base?.kind}|${card?.base?.moved}`, 'origin|true');
+  check('存檔過的 src/a.js 仍在改動清單裡', (card?.health?.list ?? []).includes('src/a.js'), JSON.stringify(card?.health));
+  execFileSync('git', ['worktree', 'remove', '--force', wt], { cwd: r.dir, stdio: 'ignore' });
+  rmSync(monitorDir, { recursive: true, force: true });
+  r.cleanup();
+}
+
 process.exit(summary());

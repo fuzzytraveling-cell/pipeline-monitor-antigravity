@@ -1,27 +1,20 @@
-# ⚠️ 這裡列的每一個,都是**程式自己會寫出來的資料夾**。
+# ⚠️ 這裡列的每一個,都是**程式自己會寫出來的資料夾或本機設定**。
 #    寫出資料的程式碼、跟這一行 gitignore,是同一個決定的兩半——
-#    只做前一半,私人資料就會跟著 commit 上去(2026-09-10 真的發生過,見 LESSONS L12)。
+#    只做前一半,私人資料就會跟著 commit 上去(見 LESSONS L12)。
 #    scripts/privacy.test.mjs 會擋住這件事再發生。
 
-# 感測器紀錄:裡面有使用者打的字、對話標題、專案路徑。純本機資料。
-# 2026-10-28 起紀錄住在 ~/.pipeline-monitor(規格:紀錄搬到固定的家);搬過家的電腦,這裡會留一個指向新家的捷徑——
-# 捷徑不是資料夾,寫成 logs/(只認資料夾)擋不住它,它就會變成一個「還沒 commit 的檔案」害主資料夾蓋不了章。所以後面不加斜線;
-# 前面加斜線:只認最上層這一個,repo 裡以後任何叫 logs 的子資料夾不會被無聲忽略、改動也不會少算。
-# (退回這次以前的版本時,那時候的 .gitignore 擋不住捷徑——搬家時另外寫進這台電腦的 .git/info/exclude,lib/paths.mjs)
+# 感測器紀錄與還原點(Antigravity 版預設住 ~/.pipeline-monitor-agy;留作防線以免本機誤建)
 /logs
-
-# 還原點:記的是「這台電腦上跑過檢查」,換一台機器那句話就不成立。搬家之後同上:留下的是捷徑。
 /checkpoints
 
-# 感測器掛載點:`--on` 會把這台電腦的絕對路徑寫進去,Claude Code 自己也會往裡面寫權限設定。
-# 純本機資料。漏了它,主資料夾就永遠有一個「還沒 commit 的檔案」而蓋不了章——
-# 而蓋章被擋時建議的 `git add -A` 會把它存進去(2026-09-11 實測,見 誠實修補 E6,路徑看 CLAUDE.md 的表)。
-.claude/settings.local.json
-
-# 退出記號:「這個專案不要記」是這台電腦上的決定,換一台就不成立。儀表板的按鈕會放這個檔。
+# 退出記號:「這個專案不要記」是這台電腦上的決定,換一台就不成立。儀表板的按鈕與 --off 會放這個檔。
+.agents/pipeline-monitor.off
 .claude/pipeline-monitor.off
 
-# --on/--off 動設定檔之前留的備份。它是退路,不是程式;留著但不進版控。
+# 專案級掛載(--on/--off)寫進的本機設定與備份，以及舊版殘檔。
+.agents/hooks.json
+.agents/hooks.json.bak-*
+.claude/settings.local.json
 .claude/settings.local.json.bak-*
 
 node_modules/

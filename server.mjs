@@ -19,13 +19,13 @@ import { collectAll } from './lib/collect.mjs';
 import { logFileOf } from './lib/events.mjs';
 import { optIn, optOut } from './lib/mount.mjs';
 import { dataDir, makeDataDir } from './lib/paths.mjs';
-import { readLang, writeLang, withLang, zhEn, LANGS, langBrokenLine } from './lib/lang.mjs';
+import { readLang, writeLang, withLang, zhEn, LANGS, langBrokenLine, langUnreadableLine } from './lib/lang.mjs';
 import { todoBoard, programChanges, restartLine } from './lib/todo.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const HOST = '127.0.0.1';          // ⚠️ 不要參數化。見上面。
-// PORT 是給開發工具用的通用慣例(預覽伺服器會派一個空的埠);PIPELINE_MONITOR_PORT 優先。
-const PORT = Number(process.env.PIPELINE_MONITOR_PORT ?? process.env.PORT ?? 4319);
+// PORT 是給開發工具用的通用慣例;AGY_PIPELINE_PORT 優先。預設 4320，與原版 Claude 版 4319 並行不衝突。
+const PORT = Number(process.env.AGY_PIPELINE_PORT ?? process.env.PORT ?? 4320);
 
 const TYPES = { '.svg': 'image/svg+xml; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8',
                 '.js': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8' };
@@ -132,8 +132,8 @@ export function createApp({ monitorDir = HERE, statusShareMs = STATUS_SHARE_MS, 
 
     if (url.pathname === '/api/status') {
       // 共用的那份也要是同一種語言:切了之後還拿舊的那份,開著的分頁會看到舊的語言(而且會以為還沒切)
-      // 讀不懂也算進去:那一份帶著「語言設定讀不懂」那一句,剛壞掉的那一刻不能還拿沒有那一句的
-      const key = `${L.lang}|${L.state === 'broken'}`;
+      // 讀不懂或沒權限讀也算進去:那一份帶著語言設定提醒,剛出狀況的那一刻不能還拿沒有那一句的(R1/P2)
+      const key = `${L.lang}|${L.state === 'broken' || L.state === 'unreadable' ? L.state : 'ok'}`;
       if (shared && shared.key === key && Date.now() - shared.at < statusShareMs) {
         res.writeHead(200, { 'content-type': TYPES['.json'], 'cache-control': 'no-store' });
         return res.end(shared.body);
@@ -142,11 +142,12 @@ export function createApp({ monitorDir = HERE, statusShareMs = STATUS_SHARE_MS, 
       try {
         // appVersion:畫面程式(ui/app.js、ui.css)的版本。開著的分頁發現它變了就自己重新載入——
         // 不然合併之後重啟服務,分頁跑的還是舊畫面,每幾秒拿新資料用舊的畫法畫,會把新欄位畫錯(魔鬼教官 2026-09-21,L20 的形狀)
-        // lang:這份資料是哪一種(AC-7)——畫面照它,不照按鈕記的;舊的服務沒有這一欄,畫面當成中文。langNote:設定檔讀不懂的那一句
+        // lang:這份資料是哪一種(AC-7)——畫面照它,不照按鈕記的;舊的服務沒有這一欄,畫面當成中文。langNote:設定檔讀不懂或沒權限讀的那一句
         // todo:首頁最上面那一張總表(規格:還差什麼總表)。只從這一次算好的資料組,不另問 git;要不要重啟是服務自己講的
         const all = collectAll({ monitorDir });
+        const langNote = L.state === 'broken' ? langBrokenLine() : L.state === 'unreadable' ? langUnreadableLine() : null;
         body = JSON.stringify({ ...all, todo: todoBoard(all, { restart: restartLine(serveState()) }),
-                                appVersion: appVersion(), lang: L.lang, langNote: L.state === 'broken' ? langBrokenLine() : null });
+                                appVersion: appVersion(), lang: L.lang, langNote });
       } catch (e) {
         // ⚠️ 一個專案讀不到,不該害整頁掛掉。照實回報,讓畫面說「讀不到」。
         return json(500, { error: String(e?.message ?? e), generatedAt: Date.now() });   // 讀不到的不共用:下一次重算
@@ -312,8 +313,8 @@ if (isMain()) {
   // 這兩句是事後才印的(不在任何一個回覆裡),各自讀一次語言設定
   app.on('error', (e) => {
     if (e?.code === 'EADDRINUSE') {
-      withLang(readLang().lang, () => console.error(zhEn(`${PORT} 已經有人在用（你自己 npm start 開的、或背景服務已經在跑）。先關掉那一個,或用 PIPELINE_MONITOR_PORT 換一個埠。`,
-        `Port ${PORT} is already taken (by an npm start you ran yourself, or the background service is already running). Close that one, or pick another port with PIPELINE_MONITOR_PORT.`)));
+      withLang(readLang().lang, () => console.error(zhEn(`${PORT} 已經有人在用（你自己 npm start 開的、或背景服務已經在跑）。先關掉那一個,或用 AGY_PIPELINE_PORT 換一個埠。`,
+        `Port ${PORT} is already taken (by an npm start you ran yourself, or the background service is already running). Close that one, or pick another port with AGY_PIPELINE_PORT.`)));
       process.exit(1);
     }
     throw e;

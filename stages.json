@@ -1,8 +1,8 @@
 {
   "_說明": "關卡定義的唯一一份(規格 AC-6)。感測器不讀這個檔——它什麼都記;",
   "_說明2": "只有讀取端拿這裡判斷哪些呼叫算關卡。要加第六關,只改這裡。",
-  "_說明3": "type=browser + tools(正則,比工具名):認的是「開了瀏覽器做動作」,永遠不是「驗收通過」。E 另有 skill(verify):Claude 照這一輪的規格在畫面上走一遍,每條記看到了／沒看到／驗不了——那是「走過一遍」,也不是驗收通過;驗收過了只有人能說(規格:E 自動驗收,路徑看 CLAUDE.md 的表)。",
-  "_覆寫": "專案可放 .claude/pipeline-stages.json 覆寫,格式相同。",
+  "_說明3": "type=browser + tools(正則,比工具名) + subagentTypes(比 invoke_subagent 的 TypeName):認的是「開了瀏覽器做動作」,永遠不是「驗收通過」。E 另有 skill(verify):AI 照這一輪的規格在畫面上走一遍,每條記看到了／沒看到／驗不了——那是「走過一遍」,也不是驗收通過;驗收過了只有人能說(規格:E 自動驗收,路徑看 AGENTS.md 的表)。",
+  "_覆寫": "專案可放 .agents/pipeline-stages.json（相容 .claude/pipeline-stages.json）覆寫,格式相同。",
   "_英文名": "nameEn:英文的時候印這個名字(規格:儀表板與終端機中英切換;Oscar 2026-10-29 點頭定了這五個)。專案自己覆寫的關卡沒寫就照 name 印——那是資料,不替它翻。",
   "stages": [
     {
@@ -35,12 +35,15 @@
       "name": "驗收",
       "nameEn": "Acceptance",
       "type": "browser",
-      "tools": "^mcp__(Claude_Browser|claude-in-chrome)__",
+      "tools": "^(?:browser_|webview_browser$|mcp__(?:chrome[-_]?devtools|.*[Bb]rowser.*))",
+      "subagentTypes": [
+        "browser"
+      ],
       "skill": "verify",
       "rerunAfterChange": true
     }
   ],
-  "_說明4": "分級(tiers)的三級預設值住在 tierLevels:none=沒碰到程式區、code=碰到程式區、danger=碰到危險清單。requires 是這一級「會跑哪幾關」(收工 hook 會擋著要求跑;規格:五關自動結案,路徑看 CLAUDE.md 的表),關卡代號或 tests(這次必須有新增或修改的測試檔)。T1 只要 D:D 的價值跟改動大小無關,一行改錯就能讓畫面說謊;C 的價值跟改動大小成正比,碰到危險清單(T2)才要求(Oscar 2026-09-16:調一個標籤對齊就跑 C 是純成本)。預設三級都不放 E(Oscar 2026-09-23:先看兩三次 Claude 真的走一遍再說);專案的 tiers.levels 放了 E,收工 hook 要的是「Claude 照規格走過一遍」,不是要人按——驗收過了永遠只有人能說。專案的 .claude/pipeline-stages.json 可用 tiers.levels 覆寫。",
+  "_說明4": "分級(tiers)的三級預設值住在 tierLevels:none=沒碰到程式區、code=碰到程式區、danger=碰到危險清單。requires 是這一級「會跑哪幾關」(收工 hook 會擋著要求跑;規格:五關自動結案,路徑看 AGENTS.md 的表),關卡代號或 tests(這次必須有新增或修改的測試檔)。T1 只要 D:D 的價值跟改動大小無關,一行改錯就能讓畫面說謊;C 的價值跟改動大小成正比,碰到危險清單(T2)才要求。預設三級都不放 E;專案的 tiers.levels 放了 E,收工 hook 要的是「AI 照規格走過一遍」,不是要人按——驗收過了永遠只有人能說。專案的 .agents/pipeline-stages.json 可用 tiers.levels 覆寫。",
   "tierLevels": {
     "none": {
       "id": "T0",
@@ -63,6 +66,6 @@
       "agentsOnFirstRound": true
     }
   },
-  "_說明5": "rerunAfterChange:這一關的結論會因為之後又改了程式檔而過期(D 魔鬼教官;E 驗收也是——走過一遍、或你說驗收過了之後又改了程式,要不要再走由你決定)。這一輪第一次照分級自動要求;之後又改了程式檔,儀表板標「要不要再跑由你決定」、收工 hook 叫 Claude 先停下來問人,不叫它自己再跑(Oscar 2026-09-17:一直自己重跑,用量上限就是這樣燒掉的)。你說不用再跑,Claude 用 --decide 記下你的話。沒標的關(A、C)這一輪跑過就算。規格:D 多輪先問人,路徑看 CLAUDE.md 的表。",
-  "_說明6": "agentsOnFirstRound:這一級的 D 第一輪可以派獨立 agent 多角度看(Oscar 2026-09-21:T1 一律 Claude 自己看、T2 第一輪才可以派,第二輪以上一律自己看)。沒寫就是不可以——取最省的那條。專案的 tiers.levels 覆寫時要自己帶這一欄。"
+  "_說明5": "rerunAfterChange:這一關的結論會因為之後又改了程式檔而過期(D 魔鬼教官;E 驗收也是——走過一遍、或你說驗收過了之後又改了程式,要不要再走由你決定)。這一輪第一次照分級自動要求;之後又改了程式檔,儀表板標「要不要再跑由你決定」、收工 hook 叫 AI 先停下來問人,不叫它自己再跑。你說不用再跑,AI 用 --decide 記下你的話。沒標的關(A、C)這一輪跑過就算。規格:D 多輪先問人,路徑看 AGENTS.md 的表。",
+  "_說明6": "agentsOnFirstRound:這一級的 D 第一輪可以派獨立 agent 多角度看(T1 一律自己看、T2 第一輪才可以派,第二輪以上一律自己看)。沒寫就是不可以——取最省的那條。專案的 tiers.levels 覆寫時要自己帶這一欄。"
 }

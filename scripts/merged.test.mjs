@@ -24,7 +24,7 @@ import { collectAll } from '../lib/collect.mjs';
 import { safeName } from '../lib/events.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const PLUGIN = JSON.parse(readFileSync(join(ROOT, '.claude-plugin', 'plugin.json'), 'utf8')).name;
+const PLUGIN = JSON.parse(readFileSync(join(ROOT, 'plugin.json'), 'utf8')).name;
 const out = (dir, ...a) => execFileSync('git', a, { cwd: dir, encoding: 'utf8' }).trim();
 const NOW = Date.now();                                   // 「現在」只取一次(L18)
 const T = (sec) => new Date(NOW + sec * 1000).toISOString();
@@ -316,24 +316,24 @@ function world() {
   mkdirSync(logDir); mkdirSync(join(monitorDir, 'checkpoints'));
   copyFileSync(join(ROOT, 'stages.json'), join(monitorDir, 'stages.json'));
   const home = mkdtempSync(join(tmpdir(), 'pm-home-'));
-  mkdirSync(join(home, '.claude', 'skills'), { recursive: true });
-  symlinkSync(ROOT, join(home, '.claude', 'skills', PLUGIN));             // 裝了 plugin:三支指令都在,收工 hook 才要得了 D
+  mkdirSync(join(home, '.gemini', 'config', 'plugins'), { recursive: true });
+  symlinkSync(ROOT, join(home, '.gemini', 'config', 'plugins', PLUGIN));             // 裝了 plugin:三支指令都在,收工 hook 才要得了 D
   const log = join(logDir, `${safeName(basename(s.r.dir))}.jsonl`);       // worktree 算主資料夾那個專案
   const write = (lines) => writeFileSync(log, lines.map((o) => JSON.stringify({ session: 's1', cwd: s.wt, ...o })).join('\n') + '\n');
   const cli = (args) => {
-    const { CLAUDE_CODE_SESSION_ID: _drop, ...env } = process.env;
+    const { ANTIGRAVITY_CONVERSATION_ID: _drop, ...env } = process.env;
     try { return execFileSync('node', [join(ROOT, 'status.mjs'), ...args], { cwd: s.wt, encoding: 'utf8',
-      env: { ...env, CLAUDE_CODE_SESSION_ID: 's1', HOME: home, PIPELINE_MONITOR_HOME: monitorDir, PIPELINE_MONITOR_LOG_DIR: logDir } }); }
+      env: { ...env, ANTIGRAVITY_CONVERSATION_ID: 's1', HOME: home, AGY_PIPELINE_HOME: monitorDir, AGY_PIPELINE_LOG_DIR: logDir } }); }
     catch (e) { return String(e.stdout ?? '') + String(e.stderr ?? ''); }
   };
-  const gate = () => decide({ payload: { session_id: 's1', cwd: s.wt, hook_event_name: 'Stop', stop_hook_active: false }, monitorDir, skillHome: home });
-  const session = () => collectAll({ monitorDir, skillHome: home, appTitles: new Map() }).projects[0]?.sessions.find((x) => x.id === 's1') ?? null;
+  const gate = () => decide({ payload: { conversationId: 's1', cwd: s.wt, executionNum: 0, fullyIdle: true, terminationReason: 'NO_TOOL_CALL' }, monitorDir, skillHome: home });
+  const session = () => collectAll({ monitorDir, skillHome: home, home }).projects[0]?.sessions.find((x) => x.id === 's1') ?? null;
   const cleanup = () => { for (const d of [monitorDir, home]) rmSync(d, { recursive: true, force: true }); s.cleanup(); };
   return { ...s, monitorDir, home, log, write, cli, gate, session, cleanup };
 }
-const said = (sec, prompt) => ({ ts: T(sec), hook: 'UserPromptSubmit', prompt, prompt_id: `p${sec}` });
-const callD = (sec, head) => ({ ts: T(sec), hook: 'PreToolUse', tool: 'Skill', skill: `${PLUGIN}:chaos-check`, head });
-const reportD = (sec) => ({ ts: T(sec), event: 'stage_report', stage: 'D', verdict: 'ok', note: '沒對到已知死法', source: 'claude' });
+const said = (sec, prompt) => ({ ts: T(sec), hook: 'UserPrompt', prompt, prompt_id: `p${sec}` });
+const callD = (sec, head) => ({ ts: T(sec), hook: 'PostToolUse', tool: 'read_file', skill: `${PLUGIN}:chaos-check`, head });
+const reportD = (sec) => ({ ts: T(sec), event: 'stage_report', stage: 'D', verdict: 'ok', note: '沒對到已知死法', source: 'ai' });
 
 section('AC-6、AC-7:D 跑完之後才併 main(10/30 兩次的形狀)——收工 hook 不叫人決定要不要再跑、D 那一格不寫要不要再跑、--round 不列 main 的檔、危險清單那一題不問', 'P12');
 {

@@ -25,7 +25,7 @@ import { parseWalk, walkSummary, summaryLine, walkItems, eLines } from '../lib/v
 import { withLang } from '../lib/lang.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const PLUGIN = JSON.parse(readFileSync(join(ROOT, '.claude-plugin', 'plugin.json'), 'utf8')).name;
+const PLUGIN = JSON.parse(readFileSync(join(ROOT, 'plugin.json'), 'utf8')).name;
 const STAGES = JSON.parse(readFileSync(join(ROOT, 'stages.json'), 'utf8'));
 const MIN = 60;
 // 測試裡的「現在」只取一次(LESSONS L18)
@@ -50,11 +50,11 @@ const SPEC = `# 功能：示範
 `;
 
 /** 事件的樣子:感測器記的(瀏覽器動作、Skill、你說的話、改檔)、CLI 記的(結論、驗收、決定、規格連結)。 */
-const callV = (sec, extra = {}) => ({ ts: T(sec), hook: 'PreToolUse', tool: 'Skill', skill: `${PLUGIN}:verify`, ...extra });
-const act = (sec, tool = 'mcp__Claude_Browser__navigate', extra = {}) => ({ ts: T(sec), hook: 'PreToolUse', tool, url_host: 'localhost:5173', ...extra });
-const rep = (sec, verdict, note, extra = {}) => ({ ts: T(sec), event: 'stage_report', stage: 'E', verdict, note, source: 'claude', by_session: 's1', ...extra });
-const said = (sec, prompt, extra = {}) => ({ ts: T(sec), hook: 'UserPromptSubmit', prompt, prompt_id: `p${sec}`, ...extra });
-const edit = (sec, file) => ({ ts: T(sec), hook: 'PostToolUse', tool: 'Edit', file });
+const callV = (sec, extra = {}) => ({ ts: T(sec), hook: 'PostToolUse', tool: 'read_file', skill: `${PLUGIN}:verify`, ...extra });
+const act = (sec, tool = 'browser_navigate', extra = {}) => ({ ts: T(sec), hook: 'PostToolUse', tool, url_host: 'localhost:5173', ...extra });
+const rep = (sec, verdict, note, extra = {}) => ({ ts: T(sec), event: 'stage_report', stage: 'E', verdict, note, source: 'ai', by_session: 's1', ...extra });
+const said = (sec, prompt, extra = {}) => ({ ts: T(sec), hook: 'UserPrompt', prompt, prompt_id: `p${sec}`, ...extra });
+const edit = (sec, file) => ({ ts: T(sec), hook: 'PostToolUse', tool: 'edit_file', file });
 const clear = (sec, extra = {}) => ({ ts: T(sec), event: 'stage_cleared', stage: 'E', source: 'human', ...extra });
 const ALL_SEEN = '第 1 趟：http://localhost:5173\nAC-1 看到了：首頁寫著「歡迎回來」\nAC-2 看到了：按鈕是藍色的，寫著「送出」\nAC-3 驗不了：畫面上看不出來';
 
@@ -79,8 +79,8 @@ function scene({ levels = null } = {}) {
   mkdirSync(join(monitorDir, 'logs')); mkdirSync(join(monitorDir, 'checkpoints'));
   copyFileSync(join(ROOT, 'stages.json'), join(monitorDir, 'stages.json'));
   const home = mkdtempSync(join(tmpdir(), 'pm-home-'));
-  mkdirSync(join(home, '.claude', 'skills'), { recursive: true });
-  symlinkSync(ROOT, join(home, '.claude', 'skills', PLUGIN));
+  mkdirSync(join(home, '.gemini', 'config', 'plugins'), { recursive: true });
+  symlinkSync(ROOT, join(home, '.gemini', 'config', 'plugins', PLUGIN));
   const logDir = join(monitorDir, 'logs');
   const log = join(logDir, `${safeName(basename(root))}.jsonl`);
   const head = () => out(root, 'rev-parse', '--short', 'HEAD');
@@ -92,16 +92,16 @@ function scene({ levels = null } = {}) {
   const touch = (f, sec, body = `changed ${sec}\n`) => { mkdirSync(dirname(join(root, f)), { recursive: true }); writeFileSync(join(root, f), body); utimesSync(join(root, f), at(sec), at(sec)); };
   // 跑真的 CLI。HOME 一定要給這個假的(L24);對話代號從環境變數給,session=null 就拿掉(= 你自己在終端機跑)
   const cli = (args, { session = 's1', cwd = root } = {}) => {
-    const { CLAUDE_CODE_SESSION_ID: _drop, ...env } = process.env;
-    if (session) env.CLAUDE_CODE_SESSION_ID = session;
-    try { return { code: 0, out: execFileSync('node', [join(ROOT, 'status.mjs'), ...args], { cwd, encoding: 'utf8', env: { ...env, HOME: home, PIPELINE_MONITOR_HOME: monitorDir, PIPELINE_MONITOR_LOG_DIR: logDir } }) }; }
+    const { ANTIGRAVITY_CONVERSATION_ID: _drop, ...env } = process.env;
+    if (session) env.ANTIGRAVITY_CONVERSATION_ID = session;
+    try { return { code: 0, out: execFileSync('node', [join(ROOT, 'status.mjs'), ...args], { cwd, encoding: 'utf8', env: { ...env, HOME: home, AGY_PIPELINE_HOME: monitorDir, AGY_PIPELINE_LOG_DIR: logDir } }) }; }
     catch (e) { return { code: e.status ?? 1, out: String(e.stdout ?? '') + String(e.stderr ?? '') }; }
   };
-  const gate = ({ sid = 's1', cwd = root } = {}) => decide({ payload: { session_id: sid, cwd, hook_event_name: 'Stop', stop_hook_active: false }, monitorDir, skillHome: home });
-  const project = () => collectAll({ monitorDir, skillHome: home, appTitles: new Map() }).projects[0];
+  const gate = ({ sid = 's1', cwd = root } = {}) => decide({ payload: { conversationId: sid, cwd, executionNum: 0, fullyIdle: true, terminationReason: 'NO_TOOL_CALL' }, monitorDir, skillHome: home });
+  const project = () => collectAll({ monitorDir, skillHome: home, home }).projects[0];
   const sessionOf = (sid = 's1') => project()?.sessions.find((s) => s.id === sid) ?? null;
   const eOf = (sid = 's1') => sessionOf(sid)?.stages?.find((x) => x.id === 'E') ?? null;
-  const link = (sec, extra = {}) => ({ ts: T(sec), event: 'spec_link', spec: 'docs/進行中/demo.md', by_session: 's1', source: 'claude', ...extra });
+  const link = (sec, extra = {}) => ({ ts: T(sec), event: 'spec_link', spec: 'docs/進行中/demo.md', by_session: 's1', source: 'ai', ...extra });
   const cleanup = () => { for (const d of [monitorDir, home]) rmSync(d, { recursive: true, force: true }); r.cleanup(); };
   return { root, monitorDir, home, log, head, write, append, events, touch, cli, gate, project, sessionOf, eOf, link, cleanup, repo: r };
 }
@@ -193,7 +193,7 @@ section('AC-3:Claude 走完一遍,E 不劃掉、不打勾、不寫「Claude 說�
   eq('不是「Claude 說」結案', E.closedBy, null);
   eq('E 這一輪在哪:Claude 走過一遍', E.estate, 'ok');
   const el = eLines(E, { ago });
-  check('第二句講 Claude 走了一遍、每種幾條', /Claude 說走了一遍：3 條裡 2 條看到了、1 條驗不了/.test(el.walk), el.walk);
+  check('第二句講 AI 走了一遍、每種幾條', /AI 說走了一遍：3 條裡 2 條看到了、1 條驗不了/.test(el.walk), el.walk);
   eq('第三句:還沒有人說驗收過了', el.human, '還沒有人說驗收過了');
   check('三句話裡沒有「沒問題」「通過」,也沒有把 Claude 說的講成驗收過了', ![el.acts, el.walk].some((l) => /沒問題|通過|驗收過了/.test(l)), JSON.stringify(el));
   eq('有「沒看到」→ found,照樣亮著等你看', viewOf([callV(-20 * MIN), rep(-15 * MIN, 'found', 'x\nAC-1 沒看到：沒有標題')]).E.state, 'current');
@@ -234,10 +234,10 @@ section('AC-9:Claude 代記「你說驗收過了」要對得回你在 E 之後�
 {
   const since = T(-20 * MIN);
   const evs = [said(-30 * MIN, '驗收一下'), said(-5 * MIN, '看過了，可以')].map((e) => ({ session: 's1', cwd: '/x', ...e }));
-  const byClaude = (sec, extra = {}) => clear(sec, { via: 'claude', by_session: 's1', quote: '看過了', ...extra });
+  const byClaude = (sec, extra = {}) => clear(sec, { via: 'ai', by_session: 's1', quote: '看過了', ...extra });
   let a = acceptOf({ clears: [byClaude(-2 * MIN)], since, events: evs });
-  eq('E 之後你說了話 → Claude 代記算數', a.valid, true);
-  eq('是 Claude 代記的', a.by, 'claude');
+  eq('E 之後你說了話 → AI 代記算數', a.valid, true);
+  eq('是 AI 代記的', a.by, 'ai');
   eq('附的是感測器記的那一句,不是 Claude 轉述的', a.said?.text, '看過了，可以');
   eq('蓋到你那句話那一刻,不是 Claude 記下的那一刻', a.coverTs, T(-5 * MIN));
   a = acceptOf({ clears: [byClaude(-2 * MIN)], since, events: evs.slice(0, 1) });
@@ -261,12 +261,12 @@ section('AC-9:Claude 代記「你說驗收過了」要對得回你在 E 之後�
   s.write([said(-30 * MIN, '驗收一下'), callV(-20 * MIN), act(-19 * MIN), rep(-15 * MIN, 'ok', ALL_SEEN)]);
   let r = s.cli(['--clear', 'E']);
   check('在對話裡跑、沒附原話 → 記下,但講明:Claude 替你記要附原話,你自己用 ! 跑的儀表板認得', r.code === 0 && /要附上使用者的原話/.test(r.out) && /用 ! 跑的/.test(r.out), r.out);
-  check('記成在對話裡跑的(via claude、對話代號)', s.events().filter((e) => e.event === 'stage_cleared').at(-1)?.via === 'claude');
+  check('記成在對話裡跑的(via ai、對話代號)', s.events().filter((e) => e.event === 'stage_cleared').at(-1)?.via === 'ai');
   eq('沒有你的話、也不是你用 ! 跑的 → 儀表板:E 不是 done', s.eOf()?.state === 'done', false);
   r = s.cli(['--clear', 'E', '使用者說驗收過了']);
   check('附了原話 → 記下,但講明這筆不算數(E 之後沒有使用者說的話)', r.code === 0 && /不算數/.test(r.out), r.out);
   const rec = s.events().filter((e) => e.event === 'stage_cleared').at(-1);
-  check('記成 Claude 代記(via claude、對話代號),決定照舊是使用者的', rec?.via === 'claude' && rec?.by_session === 's1' && rec?.source === 'human', JSON.stringify(rec));
+  check('記成 AI 代記(via ai、對話代號),決定照舊是使用者的', rec?.via === 'ai' && rec?.by_session === 's1' && rec?.source === 'human', JSON.stringify(rec));
   let e = s.eOf();
   check('儀表板:E 不是 done,第三句講「不算數」', e?.state !== 'done' && /不算數/.test(e?.elines?.human ?? ''), JSON.stringify(e?.elines));
   s.append([said(-2 * MIN, '看過了，可以')]);
@@ -274,7 +274,7 @@ section('AC-9:Claude 代記「你說驗收過了」要對得回你在 E 之後�
   check('使用者在 E 之後說了話 → 算數,講出畫面附的那一句', r.code === 0 && /看過了，可以/.test(r.out) && !/不算數/.test(r.out), r.out);
   e = s.eOf();
   eq('儀表板:E done', e?.state, 'done');
-  check('第三句:Claude 代記,附你在 E 之後說的最後一句', /Claude 代記：你說驗收過了（E 之後你說的最後一句：「看過了，可以」）/.test(e?.elines?.human ?? ''), e?.elines?.human);
+  check('第三句:AI 代記,附你在 E 之後說的最後一句', /AI 代記：你說驗收過了（E 之後你說的最後一句：「看過了，可以」）/.test(e?.elines?.human ?? ''), e?.elines?.human);
   // 你自己在終端機跑(環境沒有對話代號):照舊是你說的
   s.write([said(-30 * MIN, '驗收一下'), callV(-20 * MIN), rep(-15 * MIN, 'ok', ALL_SEEN)]);
   r = s.cli(['--clear', 'E'], { session: null });
@@ -318,11 +318,11 @@ section('AC-4、AC-5:--round E 給照哪份規格、要驗哪幾條、怎麼跑�
   // 沒有規格:照你叫它時講的話;沒講就先問,不自己編
   s.write([said(-5 * MIN, `/${PLUGIN}:verify 看首頁的標籤有沒有對齊`)]);
   r = s.cli(['--round', 'E']);
-  check('沒有規格 → 照叫的時候說的那句驗', /這一輪沒有規格/.test(r.out) && /叫 \/pipeline-monitor:verify 時說：「看首頁的標籤有沒有對齊」/.test(r.out), r.out);
+  check('沒有規格 → 照叫的時候說的那句驗', /這一輪沒有規格/.test(r.out) && /叫 \/agy-pipeline:verify 時說：「看首頁的標籤有沒有對齊」/.test(r.out), r.out);
   s.write([said(-6 * MIN, '驗收一下'), callV(-5 * MIN)]);
   r = s.cli(['--round', 'E']);
   check('叫的時候什麼都沒說 → 照對話裡交代的事驗,沒講就先問,不自己編步驟', /不自己編步驟/.test(r.out), r.out);
-  // 怎麼跑起來:從專案自己讀
+  // 怎麼跑起來:從專案自己讀（優先 .agents/launch.json，相容 .claude/launch.json）
   mkdirSync(join(s.root, '.claude'), { recursive: true });
   writeFileSync(join(s.root, '.claude', 'launch.json'), JSON.stringify({ version: '0.0.1', configurations: [{ name: 'web', runtimeExecutable: 'npm', runtimeArgs: ['run', 'dev'], port: 5173 }] }));
   r = s.cli(['--round', 'E']);
@@ -333,7 +333,7 @@ section('AC-4、AC-5:--round E 給照哪份規格、要驗哪幾條、怎麼跑�
   rmSync(join(s.root, '.claude', 'launch.json'));
   writeFileSync(join(s.root, 'package.json'), JSON.stringify({ scripts: { dev: 'vite', test: 'x' } }));
   r = s.cli(['--round', 'E']);
-  check('沒有 launch.json、package.json 有 dev → 照它補一份,回報講明', /package\.json 有 dev（vite）/.test(r.out) && /我補了 launch\.json/.test(r.out), r.out);
+  check('沒有 launch.json、package.json 有 dev → 講用背景指令在這個工作區起本機伺服器', /package\.json 有 dev（vite）/.test(r.out) && /在這個工作區起本機伺服器/.test(r.out), r.out);
   s.cleanup();
 }
 
@@ -371,7 +371,7 @@ section('AC-8:分級預設不要求 E;專案把 E 放進清單時,收工 hook �
   const levels = Object.entries(STAGES.tierLevels);
   check('stages.json 的三級預設都不放 E(Oscar 2026-09-23)', levels.every(([, l]) => !(l.requires ?? []).includes('E')), JSON.stringify(STAGES.tierLevels));
   const E = STAGES.stages.find((x) => x.id === 'E');
-  check('E 認 verify 這支指令、結論會過期,瀏覽器工具照舊認', E.skill === 'verify' && E.rerunAfterChange === true && E.type === 'browser' && /Claude_Browser/.test(E.tools), JSON.stringify(E));
+  check('E 認 verify 這支指令、結論會過期,瀏覽器工具與 browser subagent 照舊認', E.skill === 'verify' && E.rerunAfterChange === true && E.type === 'browser' && /browser_/.test(E.tools) && Array.isArray(E.subagentTypes) && E.subagentTypes.includes('browser'), JSON.stringify(E));
 
   // 預設的分級:碰到危險清單(T2),E 這一輪一次都沒走——收工 hook 不提 E
   let s = scene();
@@ -436,10 +436,10 @@ section('英文那一份(規格:技能與寫給AI的話中英切換 AC-6):收工
   writeFileSync(join(enHome, 'lang.json'), JSON.stringify({ lang: 'en' }));
   const r = s.cli(['--round', 'E']).out;
   check('--round E:只有使用者能說 accepted、不准按儀表板的按鈕', /Only the user can say "accepted": never press the dashboard's button/.test(r), r);
-  check('……要不要再走:說不用 → --decide、看過了說可以 → 才 --clear;「不用再走」不是「驗收過了」', /If they say no need: pipeline-status --decide E skip/.test(r) && /"No need to walk through again" isn't "accepted": never record it as --clear/.test(r), r);
+  check('……要不要再走:說不用 → --decide、看過了說可以 → 才 --clear;「不用再走」不是「驗收過了」', /If they say no need: agy-pipeline --decide E skip/.test(r) && /"No need to walk through again" isn't "accepted": never record it as --clear/.test(r), r);
   check('……走完不要自己再走', /After walking through it, don't walk through it again on your own/.test(r), r);
   const rec = s.cli(['--report', 'E', 'ok', 'Walk 1: http://localhost:5173\nAC-1 seen: "Welcome back"\nAC-2 seen: "Send"\nAC-3 can\'t verify: not visible on the screen']).out;
-  check('--report E:講 Claude 說走了一遍,不是 accepted;只有使用者能說', /^✅ Recorded: /.test(rec) && /walked through/.test(rec) && /This is "what Claude says", not accepted: only the user can say it's accepted/.test(rec), rec);
+  check('--report E:講 AI 說走了一遍,不是 accepted;只有使用者能說', /^✅ Recorded: /.test(rec) && /walked through/.test(rec) && /This is "what AI says", not accepted: only the user can say it's accepted/.test(rec), rec);
   check('……第一行不准講成 verified／passed／accepted', !/\bverified\b|\bpass(ed)?\b|\baccepted\b/i.test(rec.split('\n')[0]), rec.split('\n')[0]);
   s.cleanup();
 }
@@ -447,7 +447,7 @@ section('英文那一份(規格:技能與寫給AI的話中英切換 AC-6):收工
 section('收尾:skill 自己不准替你說驗收過了、不准自己再走一趟;第一步先問 --round E(AC-3、AC-6、AC-9)——先寫必須抓到、必須放過的句子', 'P4');
 {
   const skill = readFileSync(join(ROOT, 'skills', 'verify', 'SKILL.md'), 'utf8');
-  check('第一步:先跑 pipeline-status --round E', /跑 `pipeline-status --round E`/.test(skill));
+  check('第一步:先跑 agy-pipeline --round E', /跑 `agy-pipeline --round E`/.test(skill));
   check('不按儀表板上的「你說驗收過了」', /不按儀表板上的「你說驗收過了」/.test(skill));
   check('使用者親口說了才記,而且附原話', /--clear E "使用者的原話"/.test(skill) && /親口說了/.test(skill));
   check('「不用再走」不是「驗收過了」', /「不用再走」不是「驗收過了」/.test(skill));
@@ -478,7 +478,7 @@ section('畫面:E 那一格畫三句話與逐條的清單;Claude 走完沒有打
   let html = '';
   try { html = wf?.(card) ?? ''; } catch (e) { html = `畫面壞了：${e.message}`; }
   const eCard = html.slice(html.lastIndexOf('<div class="acard"'));
-  check('三句話都在:開過瀏覽器、Claude 說走了一遍、還沒有人說驗收過了', /開過瀏覽器（1 個動作/.test(eCard) && /Claude 說走了一遍：2 條裡 1 條看到了、1 條沒看到/.test(eCard) && /還沒有人說驗收過了/.test(eCard), eCard.slice(0, 900));
+  check('三句話都在:開過瀏覽器、AI 說走了一遍、還沒有人說驗收過了', /開過瀏覽器（1 個動作/.test(eCard) && /AI 說走了一遍：2 條裡 1 條看到了、1 條沒看到/.test(eCard) && /還沒有人說驗收過了/.test(eCard), eCard.slice(0, 900));
   check('逐條列出來,看到了用 👁 不用打勾', /👁/.test(eCard) && /沒看到：應該是藍色/.test(eCard) && !/✅/.test(eCard), eCard.slice(0, 900));
   check('按鈕「你說驗收過了」還在', /data-clear="E"/.test(eCard), eCard.slice(-400));
   s.append([clear(-1 * MIN)]);
@@ -493,8 +493,8 @@ section('魔鬼教官第一輪:你說的驗收不綁在開瀏覽器上——之�
   const walk = [said(-40 * MIN, '驗收一下'), callV(-20 * MIN), act(-19 * MIN), rep(-15 * MIN, 'ok', ALL_SEEN)];
   let { E } = viewOf([...walk, clear(-12 * MIN), act(-5 * MIN, 'mcp__Claude_Browser__computer')]);
   eq('你按了驗收之後 Claude 開瀏覽器截一張圖(沒改程式) → 照樣 done', E.state, 'done');
-  ({ E } = viewOf([...walk, said(-10 * MIN, '看過了，可以'), act(-8 * MIN), clear(-5 * MIN, { via: 'claude', by_session: 's1', quote: '看過了，可以' })]));
-  check('你說了可以、Claude 先開瀏覽器看一眼才代記 → 算數,附你那句話', E.state === 'done' && E.accept?.by === 'claude' && E.accept?.said?.text === '看過了，可以', JSON.stringify(E.accept));
+  ({ E } = viewOf([...walk, said(-10 * MIN, '看過了，可以'), act(-8 * MIN), clear(-5 * MIN, { via: 'ai', by_session: 's1', quote: '看過了，可以' })]));
+  check('你說了可以、AI 先開瀏覽器看一眼才代記 → 算數,附你那句話', E.state === 'done' && E.accept?.by === 'ai' && E.accept?.said?.text === '看過了，可以', JSON.stringify(E.accept));
   ({ E } = viewOf([said(-40 * MIN, '改一下標籤'), clear(-10 * MIN)]));
   eq('這一輪 Claude 沒開過瀏覽器、你自己驗過記了驗收 → done', E.state, 'done');
   ({ E } = viewOf([callV(-40 * MIN, { skill: `${PLUGIN}:spec` }), clear(-45 * MIN), said(-30 * MIN, '開工')]));
@@ -524,28 +524,28 @@ section('魔鬼教官第一輪:沒走過 verify、你驗收過、之後又改了
   check('--decide E skip 收得下(錨在你的驗收),講出畫面附的那一句', r.code === 0 && /說驗收過了之後說的最後一句：「不用再走了」/.test(r.out), r.out);
   e = s.eOf();
   eq('E 擱著(你說不用再走),不是 done', e?.state, 'held');
-  check('第三句講你的驗收是改之前的、你說不用再走,不寫「驗收過了」成立', /之後又改了程式檔；Claude 記下：你說不用再走（E 之後你說的最後一句：「不用再走了」/.test(e?.elines?.human ?? ''), e?.elines?.human);
+  check('第三句講你的驗收是改之前的、你說不用再走,不寫「驗收過了」成立', /之後又改了程式檔；AI 記下：你說不用再走（E 之後你說的最後一句：「不用再走了」/.test(e?.elines?.human ?? ''), e?.elines?.human);
   eq('收工 hook 不再擋', s.gate(), null);
   s.cleanup();
 }
 
-section('魔鬼教官第一輪:分級卡那一行跟 E 那一格同一句——Claude 代記不講成「你說」、漏報的條目照樣列「沒有結果」;--report E 回的也是這一句', 'P2');
+section('魔鬼教官第一輪:分級卡那一行跟 E 那一格同一句——AI 代記不講成「你說」、漏報的條目照樣列「沒有結果」;--report E 回的也是這一句', 'P2');
 {
   const s = scene({ levels: { none: { id: 'T0', requires: [] }, code: { id: 'T1', requires: [] }, danger: { id: 'T2', requires: ['E'] } } });
   s.write([said(-40 * MIN, '驗收一下'), s.link(-39 * MIN), callV(-20 * MIN)]);
   s.touch('src/danger.js', -30 * MIN);
   const r = s.cli(['--report', 'E', 'ok', '第 1 趟\nAC-1 看到了：首頁寫著「歡迎回來」\nAC-2 看到了：按鈕寫著「送出」']);
   check('--report E 回的那句拿這一輪的規格對:3 條裡 2 條看到了、AC-3 沒有結果', /3 條裡 2 條看到了；AC-3 沒有結果/.test(r.out), r.out);
-  check('記完馬上回讀的那一筆講「剛剛」,不講「時間對不上」(魔鬼教官第二輪,LESSONS L42)', /記下了：剛剛Claude 說走了一遍/.test(r.out) && !/對不上/.test(r.out), r.out);
+  check('記完馬上回讀的那一筆講「剛剛」,不講「時間對不上」(魔鬼教官第二輪,LESSONS L42)', /記下了：剛剛AI 說走了一遍/.test(r.out) && !/對不上/.test(r.out), r.out);
   const rowOf = (sess) => sess?.tier?.requirements?.find((x) => x.key === 'E') ?? null;
   const row = () => rowOf(s.sessionOf());
   // 兩句要從同一次算出來的拿:「幾分鐘前」有秒數,各算一次差一秒就不等(L18:測試裡的「現在」只准取一次)
   const sess = s.sessionOf();
   const e = sess?.stages?.find((x) => x.id === 'E') ?? null;
   check('分級卡:跟 E 那一格同一句(含 AC-3 沒有結果、還沒有人說驗收過了),不打勾', rowOf(sess)?.state === 'ran' && rowOf(sess)?.detail === `${e?.elines?.walk}——${e?.elines?.human}` && /AC-3 沒有結果/.test(rowOf(sess)?.detail ?? ''), JSON.stringify(rowOf(sess)));
-  s.append([said(-2 * MIN, '看過了，可以'), clear(-1 * MIN, { via: 'claude', by_session: 's1', quote: '看過了，可以' })]);
-  check('Claude 代記 → 分級卡寫 Claude 代記與你那句話,不寫成「你說」', row()?.state === 'ok' && /Claude 代記：你說驗收過了（E 之後你說的最後一句：「看過了，可以」）/.test(row()?.detail ?? ''), JSON.stringify(row()));
-  eq('對話列那一句也講是 Claude 代記', s.eOf()?.ewhere, 'Claude 代記：你說驗收過了');
+  s.append([said(-2 * MIN, '看過了，可以'), clear(-1 * MIN, { via: 'ai', by_session: 's1', quote: '看過了，可以' })]);
+  check('AI 代記 → 分級卡寫 AI 代記與你那句話,不寫成「你說」', row()?.state === 'ok' && /AI 代記：你說驗收過了（E 之後你說的最後一句：「看過了，可以」）/.test(row()?.detail ?? ''), JSON.stringify(row()));
+  eq('對話列那一句也講是 AI 代記', s.eOf()?.ewhere, 'AI 代記：你說驗收過了');
   s.cleanup();
 }
 
@@ -594,11 +594,11 @@ section('魔鬼教官第一輪:共用資料夾時,另一個對話的 Claude 代�
 section('魔鬼教官第一輪:你自己在對話框用 ! 跑 --clear E,認得是你——不是 Claude 代記', 'P7');
 {
   const walk = [said(-40 * MIN, '驗收一下'), callV(-20 * MIN), rep(-15 * MIN, 'ok', ALL_SEEN)];
-  const bang = (sec, cmd) => ({ ts: T(sec), hook: 'UserPromptSubmit', prompt: `<bash-input>${cmd}</bash-input>`, prompt_id: `b${sec}` });
-  let { E } = viewOf([...walk, clear(-5 * MIN, { via: 'claude', by_session: 's1' }), bang(-5 * MIN + 1, 'pipeline-status --clear E')]);
+  const bang = (sec, cmd) => ({ ts: T(sec), hook: 'UserPrompt', prompt: `<bash-input>${cmd}</bash-input>`, prompt_id: `b${sec}` });
+  let { E } = viewOf([...walk, clear(-5 * MIN, { via: 'ai', by_session: 's1' }), bang(-5 * MIN + 1, 'agy-pipeline --clear E')]);
   check('感測器記到你打的那一句 ! 指令 → 算你按的', E.state === 'done' && E.accept?.by === 'human' && E.accept?.bang === true, JSON.stringify(E.accept));
-  eq('第三句:你說驗收過了(不寫 Claude 代記)', /^.*你說驗收過了$/.test(eLines(E, { ago }).human) && !/Claude 代記/.test(eLines(E, { ago }).human), true);
-  ({ E } = viewOf([...walk, clear(-5 * MIN, { via: 'claude', by_session: 's1' }), bang(-5 * MIN + 1, 'pipeline-status --serve-restart')]));
+  eq('第三句:你說驗收過了(不寫 AI 代記)', /^.*你說驗收過了$/.test(eLines(E, { ago }).human) && !/AI 代記/.test(eLines(E, { ago }).human), true);
+  ({ E } = viewOf([...walk, clear(-5 * MIN, { via: 'ai', by_session: 's1' }), bang(-5 * MIN + 1, 'agy-pipeline --serve-restart')]));
   eq('別的 ! 指令不算', E.accept?.valid ?? false, false);
   // 真的跑 CLI:對話框的 ! 帶著對話代號、沒附原話 → 以前一律拒收;現在記下,感測器那一句進來就算你的
   const s = scene();
@@ -607,7 +607,7 @@ section('魔鬼教官第一輪:你自己在對話框用 ! 跑 --clear E,認得�
   check('在對話裡跑、沒附原話 → 記下(不拒收)', r.code === 0 && s.events().some((x) => x.event === 'stage_cleared'), r.out);
   // 感測器在指令跑完之後才記下那一句:時間接在記下那一筆之後(測試跑到這裡離 NOW 已經過了好一段,不能用 NOW 算)
   const recAt = Date.parse(s.events().filter((x) => x.event === 'stage_cleared').at(-1).ts);
-  s.append([{ ...bang(0, 'pipeline-status --clear E'), ts: new Date(recAt + 1000).toISOString() }]);
+  s.append([{ ...bang(0, 'agy-pipeline --clear E'), ts: new Date(recAt + 1000).toISOString() }]);
   eq('感測器記下你打的那一句之後 → 儀表板 E done', s.eOf()?.state, 'done');
   s.cleanup();
 }

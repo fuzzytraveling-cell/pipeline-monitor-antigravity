@@ -1,8 +1,6 @@
 ---
 name: cleanup
-description: C 打掃這一關（產線監視器 pipeline-monitor 帶的通用版）：清掉寫程式時留下的鷹架。只做證明得出來安全的刪除（沒用到的 import／變數、註解掉的死碼、同一檔案內零呼叫點的函式），其餘只出建議清單；測試檔唯讀；不改控制流。使用者說「打掃一下」「清一下沒用到的東西」時用；專案自己也有 /cleanup 時，使用者叫哪個就跑哪個，不要自作主張換。 English — the Cleanup stage (the general version that comes with Pipeline Monitor) clears away the scaffolding left over from writing code. It only makes deletions it can prove are safe (unused imports and variables, commented-out dead code, functions with zero callers in the same file); everything else goes on a suggestion list. Test files are read-only and control flow is never changed. Use it when the user says "clean up", "clean this up", "clear out what isn't used", "remove dead code"; if the project has its own /cleanup too, run whichever one the user asks for.
-argument-hint: "[git ref，預設是這一輪的改動（pipeline-status --round 給的範圍）] / [git ref, defaults to this round's changes (the scope pipeline-status --round gives)]"
-allowed-tools: Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git ls-files:*), Bash(ls:*), Bash(pipeline-status --round:*)
+description: C 打掃這一關（產線監視器 agy-pipeline 帶的通用版）：清掉寫程式時留下的鷹架。只做證明得出來安全的刪除（沒用到的 import／變數、註解掉的死碼、同一檔案內零呼叫點的函式），其餘只出建議清單；測試檔唯讀；不改控制流。使用者說「打掃一下」「清一下沒用到的東西」時用；專案自己也有 cleanup 技能時，使用者叫哪個就跑哪個，不要自作主張換。 English — the Cleanup stage (the general version that comes with Pipeline Monitor for Antigravity) clears away the scaffolding left over from writing code. It only makes deletions it can prove are safe (unused imports and variables, commented-out dead code, functions with zero callers in the same file); everything else goes on a suggestion list. Test files are read-only and control flow is never changed. Use it when the user says "clean up", "clean this up", "clear out what isn't used", "remove dead code"; if the project has its own cleanup skill too, run whichever one the user asks for.
 ---
 
 # C —— 打掃（通用版）
@@ -21,8 +19,8 @@ allowed-tools: Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git l
 
 - **用使用者講的語言回。** 講英文就用英文回、講中文就用中文回。這一支裡引號裡的中文（「看到了」「這是找過，不是通過」…）是**意思**，不是要照抄的字。
   Reply in the language the user writes in. The quoted Chinese in this skill is the meaning, not words to copy.
-- `pipeline-status` 印的字跟著它自己的語言設定（`pipeline-status --lang`），不一定是使用者講的那一種：照它印的**意思**走——下面照它的字分路的表，中英兩種都列了。
-  What `pipeline-status` prints follows its own language setting, which may differ from the user's language: go by what it means. The tables below that route on its words list both languages.
+- `agy-pipeline` 印的字跟著它自己的語言設定（`agy-pipeline --lang`），不一定是使用者講的那一種：照它印的**意思**走——下面照它的字分路的表，中英兩種都列了。
+  What `agy-pipeline` prints follows its own language setting, which may differ from the user's language: go by what it means. The tables below that route on its words list both languages.
 - 講英文的時候，紅線那幾個字照這張表講（when speaking English, say the red-line words this way）：
 
 <!-- 用語對照:跟 lib/lang.mjs 的 TERMS 逐字對(scripts/skills.test.mjs,老毛病 P2)。要改先改那裡,每一支技能一起改 -->
@@ -41,7 +39,7 @@ allowed-tools: Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git l
 | 看不全／看不到 | can't see all of it / can't see | no changes, none |
 | 檢查全綠 | all checks green | works, passed, verified, safe |
 | 先停下來問使用者 | stop and ask the user first | failed, error, blocked |
-| 使用者說／Claude 代記／分不出是誰 | the user said / Claude recorded it for them / can't tell who | a guessed subject |
+| 使用者說／AI 代記／分不出是誰 | the user said / AI recorded it for them / can't tell who | a guessed subject |
 | 可能 | might | will, is |
 | 前 N 個字 | the first N characters | words |
 
@@ -74,19 +72,19 @@ allowed-tools: Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git l
 
 | 要知道的 | 去哪讀 | 沒有的話 |
 |---|---|---|
-| 進場與收工要跑哪些檢查 | `package.json` 的 `scripts`：`lint`、`test`、`test:unit`、`build` 有哪些就跑哪些（跟 `pipeline-status --checkpoint` 同一條規則） | 沒有任何檢查可跑 → 明說「沒有東西能證明我沒弄壞」；只准做 lint 級的靜態證明（沒用到的 import、整段註解掉的），其餘全進建議清單 |
+| 進場與收工要跑哪些檢查 | `package.json` 的 `scripts`：`lint`、`test`、`test:unit`、`build` 有哪些就跑哪些（跟 `agy-pipeline --checkpoint` 同一條規則） | 沒有任何檢查可跑 → 明說「沒有東西能證明我沒弄壞」；只准做 lint 級的靜態證明（沒用到的 import、整段註解掉的），其餘全進建議清單 |
 | 哪些是測試檔（唯讀） | 路徑含 `test`、`spec`、`__tests__` 的檔案；測試設定檔（`vitest.config.*`、`jest.config.*`、`tests/setup.*` 之類） | 沒有測試 → 同上一格 |
-| 刻意的決定（看起來像該清、其實不能動） | `CLAUDE.md` 裡任何寫著「刻意」「不是 bug」「不要順手修」的段落 | 沒有就沒有；但下面的「絕對不碰」照樣適用 |
+| 刻意的決定（看起來像該清、其實不能動） | 專案手冊（`AGENTS.md`／`GEMINI.md`／`CLAUDE.md`）裡任何寫著「刻意」「不是 bug」「不要順手修」的段落 | 沒有就沒有；但下面的「絕對不碰」照樣適用 |
 | 這個專案犯過的錯 | `docs/FAILURE-PATTERNS.md`、`docs/LESSONS.md` | 用三條通用判準：R1 沒問到≠沒有、R2 跑過≠通過、R3 不編數字 |
-| 讀報告的人是誰 | `README.md`、`CLAUDE.md` | 當成不是工程師來寫 |
+| 讀報告的人是誰 | `README.md`、`AGENTS.md`、`GEMINI.md`、`CLAUDE.md` | 當成不是工程師來寫 |
 
 ## 範圍
 
 只看**這一輪動到的檔案**——跟收工 hook、儀表板說的「這一輪」同一份，不自己決定（自己用 `git diff HEAD` 的話，這一輪中途存過檔的那一半掃不到）：
-- 先跑 `pipeline-status --round C`（沒有這個指令的話：`node "<pipeline-monitor 的資料夾>/status.mjs" --round C`，
-  那個資料夾就是 `~/.claude/skills/pipeline-monitor` 指向的位置）。照它印的「這一輪的範圍」：`git diff <它給的版本> -- <它列的那幾個檔>`，
+- 先跑 `agy-pipeline --round C`（沒有這個指令的話：`node "<agy-pipeline 的資料夾>/status.mjs" --round C`，
+  那個資料夾就是 `~/.gemini/config/plugins/agy-pipeline` 指向的位置）。照它印的「這一輪的範圍」：`git diff <它給的版本> -- <它列的那幾個檔>`，
   標「新檔」的整份讀。它說起點找不到、只看得到還沒存檔的 → 照它說的拿，報告第一行照它給的那句寫。
-- 有參數 → `git diff $ARGUMENTS --name-only`
+- 使用者若指定了 git ref → `git diff <ref> --name-only`
 - `--round` 沒給範圍（這個指令不存在、或是舊版沒有這一段）→ `git diff HEAD --name-only` **加上** `git ls-files --others --exclude-standard`（新檔案 `git diff` 看不到）；
   報告第一行寫「拿不到這一輪的範圍，只看了還沒存檔的改動」。
 
@@ -139,7 +137,7 @@ allowed-tools: Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git l
 
 1. **同一組**檢查再跑一次，必須依然全綠。回報時說是哪幾個指令、結果如何；沒跑的說沒跑。
 2. 這次動到的檔案（`git status --short`，**新檔案也算**）不得出現任何測試檔。出現就是違規，**整輪作廢**。
-3. 改到程式區的話，提醒使用者：這次的改動該給 D 魔鬼教官看一次（`/pipeline-monitor:chaos-check`）。
+3. 改到程式區的話，提醒使用者：這次的改動該給 D 魔鬼教官看一次（`chaos-check` 技能）。
 
 ## 輸出格式
 
@@ -167,14 +165,14 @@ allowed-tools: Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git l
 把結果**連清單**記給儀表板，說明第一行是結論、之後一行一條建議（白話那一句就好，儀表板會一條一條列出來）：
 
 ```
-pipeline-status --report C ok "已改 1 項、建議 3 條
+agy-pipeline --report C ok "已改 1 項、建議 3 條
 - 檔案:行 —— 白話一句
 - 檔案:行 —— 白話一句"
 ```
 
-英文：`pipeline-status --report C ok "Changed 1, suggested 3` 之後一樣一行一條 `- file:line — one plain sentence`。
+英文：`agy-pipeline --report C ok "Changed 1, suggested 3` 之後一樣一行一條 `- file:line — one plain sentence`。
 
-沒有這個指令的話：`node "<pipeline-monitor 的資料夾>/status.mjs" --report C ok "…"`，那個資料夾就是 `~/.claude/skills/pipeline-monitor` 指向的位置。
+沒有這個指令的話：`node "<agy-pipeline 的資料夾>/status.mjs" --report C ok "…"`，那個資料夾就是 `~/.gemini/config/plugins/agy-pipeline` 指向的位置。
 清單再長都會整份留著（太長會另存一個檔），有幾條就寫幾條，不要為了短而漏。列出來這一關就算結案——做不做由使用者決定，不是這一關的事。
 
 🔴 **每一項建議都白話在前、技術在後。** 讀報告的人可能不是工程師；純技術陳述（「fallback 路徑」「抽新模組」「no-unused-vars」）
@@ -184,4 +182,4 @@ pipeline-status --report C ok "已改 1 項、建議 3 條
 
 - 想做「不產出」那一欄的事 → 退回給 A 重寫規格，不要在這一關做。
 - 這一關是選配：不進 CI、不是 commit 的前置條件、不自動觸發。打掃沒做，只是亂，東西照樣能用。
-- 專案自己也有 `/cleanup` → 兩個並存，使用者叫哪個就跑哪個。產線監視器把兩種名字都算成 C 這一關。
+- 專案自己也有 `cleanup` 技能 → 兩個並存，使用者叫哪個就跑哪個。產線監視器把兩種名字都算成 C 這一關。

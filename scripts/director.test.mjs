@@ -100,15 +100,15 @@ section('AC-6:終端機的白板標出「這個對話」——照代號標,不�
   check('必抓:紀錄裡找不到這個對話 → 照講,分不出哪一行是它(不准安靜地一行都不標)', /紀錄裡找不到這個對話/.test(lost ?? '') && /分不出白板上哪一行是它/.test(lost ?? ''), lost);
   eq('在白板上的那一個 → 不另外講', hereLine(bd, 'a'), null);
 
-  // 真的資料:環境給的對話代號(Claude Code 的 CLAUDE_CODE_SESSION_ID)就是它認的那一個
+  // 真的資料:環境給的對話代號(Antigravity 的 ANTIGRAVITY_CONVERSATION_ID)就是它認的那一個
   const r = realSetup((dir) => [
-    { ts: T(10), hook: 'UserPromptSubmit', session: 's1', cwd: dir, prompt: '做一件事' },
-    { ts: T(9), hook: 'UserPromptSubmit', session: 's2', cwd: dir, prompt: '做另一件事' },
+    { ts: T(10), hook: 'UserPrompt', session: 's1', cwd: dir, prompt: '做一件事' },
+    { ts: T(9), hook: 'UserPrompt', session: 's2', cwd: dir, prompt: '做另一件事' },
   ]);
-  const prev = process.env.CLAUDE_CODE_SESSION_ID;
-  process.env.CLAUDE_CODE_SESSION_ID = 's1';
+  const prev = process.env.ANTIGRAVITY_CONVERSATION_ID;
+  process.env.ANTIGRAVITY_CONVERSATION_ID = 's1';
   const out = await printed(() => doTodo({ monitorDir: r.monitorDir, ask: async () => null }));
-  if (prev === undefined) delete process.env.CLAUDE_CODE_SESSION_ID; else process.env.CLAUDE_CODE_SESSION_ID = prev;
+  if (prev === undefined) delete process.env.ANTIGRAVITY_CONVERSATION_ID; else process.env.ANTIGRAVITY_CONVERSATION_ID = prev;
   eq('真的跑 --todo:環境給 s1 → 標一行', out.filter((l) => l.includes('← 這個對話')).length, 1);
   const out2 = await printed(() => doTodo({ monitorDir: r.monitorDir, ask: async () => null, here: null }));
   check('真的跑 --todo:沒有對話代號 → 不標', !out2.some((l) => l.includes('← ')), out2.join('\n'));
@@ -144,37 +144,35 @@ section('AC-7:--todo 每個專案一行還沒開始的建議卡;沒有對話要�
   check('……不收進最後「其他 N 個專案沒事」那一句;真的沒事的才收', !(b.quiet ?? '').includes('只剩卡的專案') && (b.quiet ?? '').includes('沒事的專案'), b.quiet);
 }
 
-section('AC-7:--cards 印這個專案每一張卡——四種狀態各一區,還沒開始的講哪來的、要貼的話;一張都沒有不准講沒有', 'P5');
+section('AC-7:--cards 印這個專案每一張卡——四種狀態各一區,還沒開始的講哪來的、要貼的話;一張都沒有講只列 --suggest 放的', 'P5');
 {
   const p = proj([], { suggestions: [
-    sg({ id: 'o1', title: '當場問的', ask: 'offer', source: 'app', session: 's9', fromTitle: '前一個對話', prompt: '監視器湊的' }),
-    sg({ id: 'o2', title: '對話裡提的', source: 'app', session: 's9', fromTitle: '前一個對話', openIn: { project: 'q', name: 'Q 專案' } }),
-    sg({ id: 'o3', title: '指令放的' }),
+    sg({ id: 'o1', title: '對話裡提的', source: 'ai', session: 's9', fromTitle: '前一個對話', openIn: { project: 'q', name: 'Q 專案' } }),
+    sg({ id: 'o2', title: '指令放的', source: 'ai' }),
     sg({ id: 'd1', title: '開始了的', startedBy: 's7', startedTitle: '照卡開的對話' }),
     sg({ id: 'd2', title: '不做了的', dismissedAt: '2026-11-01T00:00:00Z' }),
     sg({ id: 'd3', title: '被取代的', supersededAt: '2026-11-01T00:00:00Z' }),
   ] });
   const q = proj([], { name: 'q', displayName: 'Q 專案', suggestions: [sg({ id: 'x1', title: '要開在 P 的卡', openIn: { project: 'p', name: 'P 專案' } }), sg({ id: 'x2', title: '要開在 P、已開始', openIn: { project: 'p' }, startedBy: 'z' })] });
   const L = cardsText({ projects: [p, q] }, 'p', { ago: AGO }).join('\n');
-  check('還沒開始的一區,張數照數', L.includes('還沒開始（3 張）'), L);
-  check('當場問的卡講是當場問的,而且講要貼的那段是監視器湊的(不是 Claude 寫的)', L.includes('當場問你要不要開的卡 · 3 分鐘前 · 來自「前一個對話」') && L.includes('Claude 沒寫說明'), L);
-  check('對話裡提的卡講來自哪個對話、要開在哪', L.includes('對話裡提的卡 · 3 分鐘前 · 來自「前一個對話」') && L.includes('要開在「Q 專案」'), L);
+  check('還沒開始的一區,張數照數', L.includes('還沒開始（2 張）'), L);
+  check('對話裡提的卡講來自哪個對話、要開在哪', L.includes('--suggest 放的 · 3 分鐘前 · 來自「前一個對話」') && L.includes('要開在「Q 專案」'), L);
   check('必抓:--suggest 放的分不出是哪個對話放的 → 照講,不算到誰頭上(P7)', L.includes('--suggest 放的 · 3 分鐘前 · 分不出是哪個對話放的'), L);
   check('還沒開始的附要貼的話的第一行(後面還有就加…)', L.includes('要貼的話：照規格做第二段。…'), L);
   check('已開始講是哪個對話照它開的', L.includes('已開始（1 張）') && L.includes('開始了的 → 「照卡開的對話」'), L);
   check('你說不做了的照講(主任看到就不准再開)', L.includes('你說不做了（1 張）') && L.includes('不做了的（你 3 分鐘前按了「不做了」）'), L);
   check('被同名的取代的照講', L.includes('被同一個對話後來提的同名卡取代（1 張）'), L);
   check('別的專案提、要開在這裡、還沒開始的指過去;已開始的不算', L.includes('別的專案提、要開在這裡、還沒開始的（1 張）') && L.includes('要開在 P 的卡　在「Q 專案」的案件頁') && !L.includes('要開在 P、已開始'), L);
-  check('最後一句講紀錄裡沒有的卡不代表沒有', L.includes('紀錄裡沒有的卡不代表沒有'), L);
+  check('最後一句講明只列 --suggest 放進來的項目', L.includes('建議卡只列用 agy-pipeline --suggest 放進來的項目。'), L);
   const empty = cardsText({ projects: [proj([])] }, 'p', { ago: AGO }).join('\n');
-  check('必抓:一張都沒有 → 講紀錄裡沒有、不代表沒跳過,不講「沒有建議卡」(P5)', empty.includes('紀錄裡沒有這個專案的建議卡——不代表沒跳過'), empty);
+  check('必抓:一張都沒有 → 講紀錄裡沒有且說明只列 --suggest 放進來的(P5)', empty.includes('紀錄裡沒有這個專案的建議卡。') && empty.includes('agy-pipeline --suggest'), empty);
   const missing = cardsText({ projects: [] }, 'p', { ago: AGO }).join('\n');
   check('紀錄裡找不到這個專案 → 講看不到,不講沒有', missing.includes('紀錄裡找不到這個專案') && missing.includes('看不到它的建議卡'), missing);
 
   // 真的資料:--suggest 寫的那一筆,照紀錄檔名認專案(safeName),--cards 印得出來
   const r = realSetup((dir) => [
-    { ts: T(10), hook: 'UserPromptSubmit', session: 's1', cwd: dir, prompt: '做一件事' },
-    { ts: T(5), event: 'suggestion', id: 'sg-1', title: '下一段：真的那張', prompt: '照規格做下一段', cwd: dir, source: 'claude' },
+    { ts: T(10), hook: 'UserPrompt', session: 's1', cwd: dir, prompt: '做一件事' },
+    { ts: T(5), event: 'suggestion', id: 'sg-1', title: '下一段：真的那張', prompt: '照規格做下一段', cwd: dir, source: 'ai' },
   ]);
   const out = (await printed(() => doCards({ project: basename(r.repo.dir) }, { monitorDir: r.monitorDir }))).join('\n');
   check('真的跑 --cards:紀錄裡那張印出來,算還沒開始', out.includes('還沒開始（1 張）') && out.includes('下一段：真的那張'), out);
@@ -184,19 +182,19 @@ section('AC-7:--cards 印這個專案每一張卡——四種狀態各一區,還
 section('AC-8:叫主任不算任何一關,也不挪動「這一輪」——叫之前、叫之後,五關與這一輪的起點一樣', 'P2');
 {
   const r = realSetup((dir) => [
-    { ts: T(60), hook: 'UserPromptSubmit', session: 's1', cwd: dir, prompt: '寫規格' },
-    { ts: T(55), hook: 'PreToolUse', tool: 'Skill', skill: 'pipeline-monitor:spec', session: 's1', cwd: dir },
-    { ts: T(40), hook: 'PostToolUse', tool: 'Write', session: 's1', cwd: dir, file: join(dir, 'a.txt') },
-    { ts: T(30), hook: 'PreToolUse', tool: 'Skill', skill: 'pipeline-monitor:chaos-check', session: 's1', cwd: dir },
+    { ts: T(60), hook: 'UserPrompt', session: 's1', cwd: dir, prompt: '寫規格' },
+    { ts: T(55), hook: 'PostToolUse', tool: 'read_file', skill: 'agy-pipeline:spec', session: 's1', cwd: dir },
+    { ts: T(40), hook: 'PostToolUse', tool: 'write_file', session: 's1', cwd: dir, file: join(dir, 'a.txt') },
+    { ts: T(30), hook: 'PostToolUse', tool: 'read_file', skill: 'agy-pipeline:chaos-check', session: 's1', cwd: dir },
   ]);
   const view = () => {
-    const s = collectAll({ monitorDir: r.monitorDir, skillHome: r.home, appTitles: new Map() }).projects[0]?.sessions?.find((x) => x.id === 's1');
+    const s = collectAll({ monitorDir: r.monitorDir, skillHome: r.home }).projects[0]?.sessions?.find((x) => x.id === 's1');
     return { stages: (s?.stages ?? []).map((x) => ({ id: x.id, state: x.state, ranAt: x.ranAt ?? null, line: x.line ?? null })), roundFrom: s?.roundFrom ?? null };
   };
   const before = view();
   check('叫之前:A 與 D 都有紀錄(不然下面比的是兩個空的)', before.stages.some((x) => x.id === 'A' && x.state !== 'none') && before.stages.some((x) => x.id === 'D' && x.state !== 'none'), JSON.stringify(before));
-  appendFileSync(r.log, JSON.stringify({ ts: T(5), hook: 'PreToolUse', tool: 'Skill', skill: 'pipeline-monitor:director', session: 's1', cwd: r.repo.dir }) + '\n');
-  appendFileSync(r.log, JSON.stringify({ ts: T(4), hook: 'PreToolUse', tool: 'Skill', skill: 'director', session: 's1', cwd: r.repo.dir }) + '\n');
+  appendFileSync(r.log, JSON.stringify({ ts: T(5), hook: 'PostToolUse', tool: 'read_file', skill: 'agy-pipeline:director', session: 's1', cwd: r.repo.dir }) + '\n');
+  appendFileSync(r.log, JSON.stringify({ ts: T(4), hook: 'PostToolUse', tool: 'read_file', skill: 'director', session: 's1', cwd: r.repo.dir }) + '\n');
   const after = view();
   eq('叫主任之後:五關每一格一樣', JSON.stringify(after.stages), JSON.stringify(before.stages));
   eq('……這一輪的起點一樣', after.roundFrom, before.roundFrom);
@@ -215,8 +213,8 @@ section('技能照指令的字分路:找「這個對話」的那幾句、建議�
       boardText(board([proj([sess()])]), { here: 's1' }).find((l) => /←/.test(l)) ?? '',
       hereLine(bd, 'c') ?? '', hereLine(bd, 'zzz') ?? '',
       board([proj([sess()], { suggestions: [sg()] })]).projects[0].cards ?? '']);
-    const keys = lang === 'zh' ? ['← 這個對話', '← 這個對話（已結案）不在白板上', '← 紀錄裡找不到這個對話', 'pipeline-status --cards']
-      : ['← this conversation', '← This conversation (closed) isn\'t on the board', '← This conversation isn\'t in the records', 'pipeline-status --cards'];
+    const keys = lang === 'zh' ? ['← 這個對話', '← 這個對話（已結案）不在白板上', '← 紀錄裡找不到這個對話', 'agy-pipeline --cards']
+      : ['← this conversation', '← This conversation (closed) isn\'t on the board', '← This conversation isn\'t in the records', 'agy-pipeline --cards'];
     [mark, shut, lost, cards].forEach((printedLine, i) => {
       check(`技能的表有「${keys[i]}」(${lang}),而且是指令真的會印的字`, skill.includes(keys[i]) && printedLine.includes(keys[i]), printedLine);
     });
@@ -229,9 +227,8 @@ section('技能照指令的字分路:找「這個對話」的那幾句、建議�
   check('技能找這一輪的規格靠「照這 N 份規格驗」,那是 --round E 真的會印的字', /照這 N 份規格驗/.test(skill) && /照這 \$\{vl\.specs\.length\} 份規格驗/.test(src));
 }
 
-section('實況走一遍:白板上一個箭頭都沒有,有兩種意思——拿不到對話代號、或 pipeline-status 是還不會標的舊版;技能兩種都講,不照標題猜', 'P5');
+section('實況走一遍:白板上一個箭頭都沒有,有兩種意思——拿不到對話代號、或 agy-pipeline 是還不會標的舊版;技能兩種都講,不照標題猜', 'P5');
 {
-  // 2026-11-03 照技能自己走一遍時真的碰到:pipeline-status 指著主資料夾,那時還是舊版,環境明明有對話代號,白板一個箭頭都沒有
   const skill = readFileSync(join(ROOT, 'skills', 'director', 'SKILL.md'), 'utf8');
   const row = skill.split('\n').find((l) => l.startsWith('| 一個箭頭都沒有')) ?? '';
   check('那一列兩種原因都列(拿不到對話代號、還不會標箭頭的舊版)', row.includes('拿不到對話代號') && row.includes('還不會標箭頭的舊版'), row);
@@ -241,26 +238,22 @@ section('實況走一遍:白板上一個箭頭都沒有,有兩種意思——拿
 section('AC-10、AC-4(主任動手收尾 AC-1、AC-6、AC-7 改過):回答之前不動手,回答之後只走 --wrap、只做問題裡的;「照建議收尾」不准拿來繞過 D 要不要再跑');
 {
   const skill = readFileSync(join(ROOT, 'skills', 'director', 'SKILL.md'), 'utf8');
-  const tools = skill.match(/^allowed-tools:(.*)$/m)?.[1] ?? '';
-  check('先許可的指令裡有讀總表、查卡、收尾那一支(不然主任每次都要問)', tools.includes('pipeline-status --todo') && tools.includes('pipeline-status --cards') && tools.includes('pipeline-status --wrap'), tools);
-  // 併、推、重啟、蓋章只准走 --wrap:它先在紀錄裡找你的原話、做完自己確認。直接叫的那幾個不先許可。git merge-base 只讀(查存檔在不在 main 上),不算併
-  for (const [bad, re] of [['git merge', /git merge(?!-base)/], ['git push', /git push/], ['--serve-restart', /--serve-restart/], ['--checkpoint', /--checkpoint/], ['--decide', /--decide/], ['git commit', /git commit/]]) {
-    check(`先許可的指令裡沒有「${bad}」(直接叫就少了找原話、自己確認那兩道)`, !re.test(tools), tools);
-  }
-  check('回答之後每一步走哪一個指令都寫了', ['merge', 'push', 'restart', 'stamp'].every((s) => skill.includes(`pipeline-status --wrap ${s} "<原話>"`)), skill.slice(-2500));
+  check('技能無 Claude 專有 allowed-tools，改以絕對不做規則明訂只走 --wrap、不直接叫 git merge/push/--serve-restart/--checkpoint',
+    !/^allowed-tools:/m.test(skill) && skill.includes('agy-pipeline --todo') && skill.includes('agy-pipeline --cards')
+    && skill.includes('不直接叫 `git merge`、`git push`') && skill.includes('--serve-restart') && skill.includes('--checkpoint'));
+  check('回答之後每一步走哪一個指令都寫了', ['merge', 'push', 'restart', 'stamp'].every((s) => skill.includes(`agy-pipeline --wrap ${s} "<原話>"`)), skill.slice(-2500));
   check('不是照做的回答 → 一步都不做;第一個不是成了、不用的就停;不准把沒成、問不到講成成了',
     skill.includes('**一步都不做**') && skill.includes('第一個不是「成了」「不用」的就停') && skill.includes('不准把沒成、問不到講成成了'));
   check('說明裡講明「照建議收尾」是在回答它,不是叫它', /「照建議收尾」是在回答它，不是叫它/.test(skill) && /that's an answer to it, not a call for it/.test(skill));
   check('D 修完要再問、蓋章不准拿來跳過這一題', skill.includes('修完會再問你一次要不要再跑；蓋章等你回答之後才蓋') && skill.includes('不准拿蓋章跳過這一題'));
   check('「驗收過了」只有使用者能說,不包進照建議收尾', skill.includes('「驗收過了」只有使用者能說') && skill.includes('照建議收尾不算這一句'));
-  check('開卡之前先查,說不做了的不准再開', skill.includes('pipeline-status --cards') && skill.includes('不准再開'));
+  check('開卡之前先查,說不做了的不准再開', skill.includes('agy-pipeline --cards') && skill.includes('不准再開'));
 }
 
-section('魔鬼教官第一輪:主任開卡的來源不把對話開頭別的對話、app 包進來的說明當成使用者說的(寫這份技能的對話,第一則就是另一個 Claude 寫的)', 'P7');
+section('魔鬼教官第一輪:主任開卡的來源不把對話開頭別的對話或系統包進來的背景摘要當成使用者說的', 'P7');
 {
   const skill = readFileSync(join(ROOT, 'skills', 'director', 'SKILL.md'), 'utf8');
-  check('技能點名那兩種包裝(Background／Task from the session that started this one),寫明不算使用者說的', skill.includes('Background (from the session that started this one)')
-    && skill.includes('Task (from the session that started this one)') && skill.includes('**不算他說的**'));
+  check('技能明講對話開頭由別的對話或系統包進來的背景摘要不算使用者說的', skill.includes('對話開頭由別的對話或系統包進來的背景摘要**不算他說的**'));
   check('……包進來的說明裡講到的決定,要在規格施作紀錄找得到他的原話才算', skill.includes('要在規格的施作紀錄裡找得到他的原話，才算'));
 }
 
@@ -272,13 +265,13 @@ section('AC-1:F 工地主任那一列講怎麼叫主任;已結案的對話沒有
   const latest = { projects: [{ name: 'p', suggestions: [] }], todo: board([proj([live, shut])]) };
   const ui = uiOf(latest);
   const html = (sid) => ui.workflow({ path: '/w/a', sensor: { state: 'ok' }, stages: wfStages, director: ui.directorOf(latest.projects[0], { id: sid }) });
-  // 斜線指令搬進「細節」了(規格:主任條列與工地帽 AC-1):外面那一條只講在對話裡說「主任」
-  check('進行中的對話:F 那一列講在對話裡說「主任」,斜線指令在細節裡', html('l').includes('在對話裡說「主任」') && outsideOf(html('l')) !== null
-    && !outsideOf(html('l')).includes('/pipeline-monitor:director') && html('l').includes('/pipeline-monitor:director'), html('l').slice(-900));
-  check('已結案的對話:不畫這一行', !html('c').includes('在對話裡說「主任」') && !html('c').includes('/pipeline-monitor:director'), html('c').slice(-700));
+  // 細節說明搬進「細節」(規格:主任條列與工地帽 AC-1):外面那一條只講在對話裡說「主任」
+  check('進行中的對話:F 那一列講在對話裡說「主任」,director 技能說明在細節裡', html('l').includes('在對話裡說「主任」') && outsideOf(html('l')) !== null
+    && !outsideOf(html('l')).includes('director 技能') && html('l').includes('director 技能'), html('l').slice(-900));
+  check('已結案的對話:不畫這一行', !html('c').includes('在對話裡說「主任」') && !html('c').includes('director 技能'), html('c').slice(-700));
 }
 
-section('主任條列與工地帽 AC-1、AC-2、AC-4:F 那一格外面是條列重點,說明在「細節」;「不代表沒跳過」這種但書留在外面——剪掉就讀成「沒有建議卡」', 'P5');
+section('主任條列與工地帽 AC-1、AC-2、AC-4:F 那一格外面是條列重點,說明在「細節」;「只看得到用 --suggest 放的」留在外面——剪掉就讀成「沒有建議卡」', 'P5');
 {
   const wfStages = ['A', 'B', 'C', 'D', 'E'].map((id) => ({ id, name: id, line: '這一輪還沒跑', state: 'none', ...(id === 'B' ? { type: 'main-conversation', state: 'main' } : id === 'E' ? { type: 'browser' } : { skill: id.toLowerCase() }) }));
   const s = sess({ id: 'l' });
@@ -290,9 +283,9 @@ section('主任條列與工地帽 AC-1、AC-2、AC-4:F 那一格外面是條列�
   const none = page([]);
   const out = outsideOf(none);
   check('拿得出 F 那一格「細節」以外的那一段(拿不出來下面什麼都沒比到)', out !== null, none.slice(-900));
-  check('必抓:一張建議卡都沒記到 → 外面那一條照樣寫「不代表沒跳過」,不准只寫「沒有」', (out ?? '').includes('建議卡：紀錄裡沒有（不代表沒跳過）'), out);
-  check('主任做什麼、建議卡為什麼可能看不到 → 在細節裡,不在外面', !(out ?? '').includes('看這個對話還有哪些沒收尾') && none.includes('看這個對話還有哪些沒收尾')
-    && !(out ?? '').includes('有些卡這裡看不到') && none.includes('有些卡這裡看不到'), out);
+  check('必抓:一張建議卡都沒記到 → 外面那一條照樣寫「只看得到用 --suggest 放的」,不准只寫「沒有」', (out ?? '').includes('建議卡：紀錄裡沒有（只看得到用 --suggest 放的）'), out);
+  check('主任做什麼、建議卡在哪一區 → 在細節裡,不在外面', !(out ?? '').includes('看這個對話還有哪些沒收尾') && none.includes('看這個對話還有哪些沒收尾')
+    && !(out ?? '').includes('建議新增的對話') && none.includes('建議新增的對話'), out);
   const loose = outsideOf(page([sg({ id: 'x1' }), sg({ id: 'x2' })])) ?? '';
   check('案件頁有分不出是誰放的卡 → 外面照樣列幾張', loose.includes('另有 2 張建議卡分不出是哪個對話放的'), loose);
   const mine = outsideOf(page([sg({ id: 'm1', session: 'l' }), sg({ id: 'm2', session: 'l', dismissedAt: '2026-11-01T00:00:00Z' })])) ?? '';
@@ -319,19 +312,19 @@ section('主任條列與工地帽 AC-10:切成英文——F 那一格外面、�
   for (const [name, h] of [['亮燈、分不出是誰放的卡', lit], ['這個對話提的卡', mine], ['一張都沒記到', none]]) {
     check(`英文:${name} → F 那一格沒有中文`, !CJK.test(h.replace(/<[^>]*>/g, '')), h.replace(/<[^>]*>/g, ' ').match(/.{0,40}[一-鿿　-〿＀-￯].{0,40}/)?.[0]);
   }
-  check('英文:一張都沒記到 → 照樣講「不代表沒跳過」那一句', none.includes('that doesn&#39;t mean none came up') || none.includes('that doesn\'t mean none came up'), none.slice(0, 600));
+  check('英文:一張都沒記到 → 照樣講明只看得到 --suggest 放的', none.includes('only ones placed with --suggest can be seen'), none.slice(0, 600));
 }
 
 section('AC-9:切成英文——標這個對話、不在白板上、建議卡那一行、--cards 的字都是英文', 'P2');
 {
   const en = withLang('en', () => {
     const p = proj([sess({ title: 'Do a thing' })], { displayName: 'P', suggestions: [sg({ title: 'Next part', prompt: 'Build the next part' }), sg({ id: 'k2', title: 'Old one', dismissedAt: '2026-11-01T00:00:00Z' }),
-      sg({ id: 'k3', title: 'Started one', startedBy: 's7', startedTitle: 'Its conversation' }), sg({ id: 'k4', title: 'Asked one', ask: 'offer', source: 'app', session: 's9', fromTitle: 'Earlier' })] });
+      sg({ id: 'k3', title: 'Started one', startedBy: 's7', startedTitle: 'Its conversation', prompt: 'Started prompt' }), sg({ id: 'k4', title: 'Another one', source: 'ai', session: 's9', fromTitle: 'Earlier', prompt: 'Do another part' })] });
     const enAgo = () => '3 minutes ago';   // 「幾分鐘前」的英文是 lib/git.mjs 的 ago 給的,這裡換成英文的假的
     const bd = board([p, proj([], { name: 'q', displayName: 'Q', incomingSuggestions: [{ project: 'p', name: 'P', count: 1 }] })], enAgo);
     const shut = board([proj([sess({ id: 'c', title: 'Closed one', closedAt: '2026-11-01T05:00:00Z' })], { displayName: 'P' })], enAgo);
     return [...boardText(bd, { here: 's1' }), hereLine(shut, 'c'), hereLine(bd, 'zzz'),
-      ...cardsText({ projects: [p, proj([], { name: 'q', displayName: 'Q', suggestions: [sg({ title: 'For P', openIn: { project: 'p' } })] })] }, 'p', { ago: () => '3 minutes ago' }),
+      ...cardsText({ projects: [p, proj([], { name: 'q', displayName: 'Q', suggestions: [sg({ title: 'For P', prompt: 'Work on P', openIn: { project: 'p' } })] })] }, 'p', { ago: () => '3 minutes ago' }),
       ...cardsText({ projects: [proj([], { displayName: 'P' })] }, 'p', { ago: enAgo }), ...cardsText({ projects: [] }, 'nowhere')].join('\n');
   });
   check('英文:這一段新的字沒有中文', !CJK.test(en), en.match(/.*[一-鿿　-〿＀-￯].*/)?.[0]);
