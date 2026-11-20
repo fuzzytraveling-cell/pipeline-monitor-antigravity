@@ -12,10 +12,14 @@
       "rules/",
       "gate.mjs",
       "gate.sh",
+      "guard.mjs",
+      "guard.sh",
       "skills/"
     ],
     "danger": [
       "hook.sh",
+      "guard.sh",
+      "guard.mjs",
       "hooks.json",
       "plugin.json",
       "lib/events.mjs",
@@ -25,15 +29,13 @@
       "lib/checkpoint.mjs"
     ],
     "checked": {
-      "at": "2026-11-20T06:12:20.362Z",
-      "said": "2.照建議（lib/transcript.mjs、plugin.json 放進危險清單，rules/AGENTS.md 留程式區）",
+      "at": "2026-11-20T08:32:56.406Z",
+      "said": "2.照建議",
       "by": "ai",
-      "commit": "cbcdd88660e1a13c318709f5baf6ea8fac6c8d0a",
+      "commit": "4fad47a9ed6e3bbf5e18ca5132f35a5b9e4d8a29",
       "files": [
-        "hooks.json",
-        "lib/transcript.mjs",
-        "plugin.json",
-        "rules/AGENTS.md"
+        "guard.mjs",
+        "guard.sh"
       ]
     }
   }

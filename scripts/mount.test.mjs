@@ -4,7 +4,7 @@
  *   2. 專案級掛載將根目錄 hooks.json 的 named hook groups 合併進 .agents/hooks.json（合併不覆蓋、動手前備份、拆下只拆我們的）
  *   3. 退出記號支援 .agents/pipeline-monitor.off 與相容 .claude/pipeline-monitor.off
  */
-import { writeFileSync, readFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, chmodSync } from 'node:fs';
+import { writeFileSync, readFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, chmodSync, copyFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -158,9 +158,31 @@ section('接點清單只有一份：根目錄 hooks.json 與專案級掛載跑�
   check('hooks.json 的指令都是相對路徑 sh ./<腳本>.sh（搬家不會斷）',
     allCmds.length > 0 && allCmds.every((c) => /^sh \.\/[a-z]+\.sh$/.test(c)), JSON.stringify(allCmds));
   check('SessionStart → remind.sh', spec['agy-pipeline-remind']?.SessionStart?.[0]?.command === 'sh ./remind.sh');
-  check('PostToolUse → hook.sh（不碰 PreToolUse）',
-    !!spec['agy-pipeline-sensor']?.PostToolUse?.length && !Object.values(spec).some((g) => g.PreToolUse));
+  check('PostToolUse → hook.sh（感測器不碰 PreToolUse）',
+    !!spec['agy-pipeline-sensor']?.PostToolUse?.length && !spec['agy-pipeline-sensor']?.PreToolUse);
+  check('PreToolUse → guard.sh（agy-pipeline-guard）',
+    spec['agy-pipeline-guard']?.PreToolUse?.[0]?.hooks?.[0]?.command === 'sh ./guard.sh' && !spec['agy-pipeline-guard']?.PostToolUse);
   check('Stop → gate.sh', spec['agy-pipeline-gate']?.Stop?.[0]?.command === 'sh ./gate.sh');
+  r.cleanup();
+}
+
+section('plugin 目錄缺 guard.sh 或 guard.mjs 時 mountState 回 broken（P3）', 'P3');
+{
+  const r = makeRepo({ files: { 'a.js': '1\n' } });
+  for (const drop of ['guard.sh', 'guard.mjs']) {
+    const home = mkdtempSync(join(tmpdir(), 'pm-mhome-'));
+    const fakePlugin = mkdtempSync(join(tmpdir(), 'pm-mplugin-'));
+    for (const f of ['plugin.json', 'hooks.json', 'hook.sh', 'remind.sh', 'gate.sh', 'gate.mjs', 'guard.sh', 'guard.mjs']) {
+      if (f === drop) continue;
+      copyFileSync(join(ROOT, f), join(fakePlugin, f));
+    }
+    mkdirSync(join(home, '.gemini', 'config', 'plugins'), { recursive: true });
+    symlinkSync(fakePlugin, join(home, '.gemini', 'config', 'plugins', 'agy-pipeline'));
+    const st = mountState(r.dir, null, home);
+    check(`缺少 ${drop} → broken/plugin`, st.state === 'broken' && st.where === 'plugin' && st.paths.some((p) => p.endsWith(drop)), JSON.stringify(st));
+    rmSync(home, { recursive: true, force: true });
+    rmSync(fakePlugin, { recursive: true, force: true });
+  }
   r.cleanup();
 }
 

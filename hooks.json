@@ -60,5 +60,19 @@
         "timeout": 20
       }
     ]
+  },
+  "agy-pipeline-guard": {
+    "PreToolUse": [
+      {
+        "matcher": "write_file|edit_file|write_to_file|replace_file_content|multi_replace_file_content",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh ./guard.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
   }
 }

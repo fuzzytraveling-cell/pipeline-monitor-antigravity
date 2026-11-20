@@ -15,7 +15,7 @@ import { join, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
-import { faultState, faultsNow, faultBanner, faultNotes, sensorNow, unreadableLine, hookTimesIn, roundStartFor, sensorOffLine, sensorParts } from '../lib/faults.mjs';
+import { faultState, faultsNow, faultBanner, faultNotes, sensorNow, unreadableLine, hookTimesIn, roundStartFor, sensorOffLine, sensorParts, guardHeartbeat, guardLine } from '../lib/faults.mjs';
 import { readEvents, safeName, RETAIN_DAYS } from '../lib/events.mjs';
 import { collectAll } from '../lib/collect.mjs';
 import { installPlugin, mountState, mountFix, mount, hookPathsIn } from '../lib/mount.mjs';
@@ -459,6 +459,40 @@ section('魔鬼教官第二輪:收工 hook 壞過又好了——不准掛在之�
   eq('對話頁不講', a.projects.flatMap((p) => p.sessions).find((x) => x.id === 's1')?.faultNotes?.length, 0);
   check('終端機也不講', !/找不到 node/.test(out), out);
   s.cleanup();
+}
+
+section('改檔把關故障（guard_broken）與心跳（_guard.json / guardLine）：缺 node、出錯、unclear、recovered，錯誤原文不上畫面', 'P3');
+{
+  const gNode = (h) => ({ ts: H(h), event: 'guard_broken', why: '找不到 node' });
+  const gErr = (h, cwd) => ({ ts: H(h), event: 'guard_broken', why: 'ReferenceError: bad secret', ...(cwd ? { cwd } : {}) });
+  const gState = (faults, guardHb = null) => faultState({ faults, sensorTimes: () => [], heartbeat: null, guardHb, now: NOW, retainDays: RETAIN_DAYS });
+
+  const fsNode = gState([gNode(3)], { ts: H(5), cwd: '/a' });
+  check('改檔把關找不到 node → 紅燈「改檔把關找不到 node」「改危險檔可能沒跳出來問你」',
+    /改檔把關找不到 node/.test(texts(fsNode)) && /改危險檔可能沒跳出來問你/.test(texts(fsNode)), texts(fsNode));
+
+  const fsErr = gState([gErr(3, '/w/a')], { ts: H(3.001), cwd: '/w/a' });
+  const errText = texts(fsErr);
+  check('改檔把關自己出錯 → 紅燈且錯誤原文不上畫面',
+    /改檔把關自己出錯/.test(errText) && /改危險檔可能沒跳出來問你/.test(errText) && !/ReferenceError|bad secret/.test(errText), errText);
+
+  const fsUnclear = gState([gErr(3, '/w/a')], { ts: H(1), cwd: '/w/b' });
+  check('之後只有別的資料夾跑過 → 黃燈「a 之後有沒有跑過看不到」',
+    faultBanner(fsUnclear)[0]?.tone === 'amber' && /改檔把關/.test(texts(fsUnclear)) && /a 之後有沒有跑過看不到/.test(texts(fsUnclear)), texts(fsUnclear));
+
+  const fsRec = gState([gErr(3, '/w/a'), gNode(4)], { ts: H(1), cwd: '/w/a' });
+  eq('改檔把關恢復後 → 不上橫條', faultBanner(fsRec).length, 0);
+  const notes = faultNotes(fsRec, { since: H(5), cwd: '/w/a' });
+  check('改檔把關恢復後 → 五關旁講最近一次或在此出錯過', notes.length === 2 && notes.every((x) => /改檔把關/.test(x)), JSON.stringify(notes));
+
+  check('guardLine 沒心跳 → 還沒跑過', /改檔把關：還沒跑過/.test(guardLine(null)));
+  check('guardLine 有心跳 → 最後一次跑', /改檔把關：最後一次跑/.test(guardLine({ ts: H(1) })));
+
+  const tmpLog = mkdtempSync(join(tmpdir(), 'pm-ghb-'));
+  eq('沒有 _guard.json → null', guardHeartbeat(tmpLog), null);
+  writeFileSync(join(tmpLog, '_guard.json'), JSON.stringify({ ts: H(1), cwd: '/x' }));
+  eq('讀得到 _guard.json', guardHeartbeat(tmpLog)?.cwd, '/x');
+  rmSync(tmpLog, { recursive: true, force: true });
 }
 
 process.exit(summary());
