@@ -51,12 +51,12 @@ const texts = (r) => (r?.items ?? []).map((i) => i.text);
 const has = (r, part) => texts(r).some((t) => t.includes(part));
 const escH = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 /** 真的跑整支 ui/app.js(L20:畫面的程式沒真的跑過就等於沒測):只拿掉最上面的 import 與最下面的輪詢,DOM、計時器、網路換成假的;latest 換成給的資料 */
-function uiOf(latest) {
+function uiOf(latest, lang = 'zh') {
   const src = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8');
   const body = src.replace(/^import .*$/m, '').replace(/^pollLoop\(\);$/m, '').replace(/^setInterval\(paintFreshness, 1000\);$/m, '');
   const noop = () => {};
   const el = () => ({ dataset: {}, classList: { toggle: noop }, innerHTML: '', textContent: '', setAttribute: noop });
-  const document = { getElementById: el, addEventListener: noop, body: el(), activeElement: null };
+  const document = { documentElement: { dataset: { lang } }, getElementById: el, addEventListener: noop, body: el(), activeElement: null };
   const make = new Function('describeFreshness', 'STALE_AFTER_SECONDS', 'document', 'window', 'localStorage', 'location', 'setTimeout', 'setInterval', 'fetch', '__LATEST',
     `${body}\nlatest = __LATEST;\nreturn { whiteboard, workflow, directorOf, restartBanner, projectPage };`);
   return make(() => ({ label: '', state: 'fresh', dim: false }), 60, document, { addEventListener: noop }, { getItem: () => null, setItem: noop },
@@ -360,7 +360,7 @@ section('AC-10、AC-11:案件頁的白板——每個對話一個彩色筆圈、
   check('必抓:整塊白板沒有一處是綠色', !/green|mint|agent-c/i.test(html));
   check('預設收起:沒有一個圈是打開的', (html.match(/class="wb-task"/g) ?? []).length === 4 && !/class="wb-task"[^>]* open/.test(html), html.slice(0, 300));
   check('圈旁一定有字:等你決定幾件、還差幾件、看不到幾件、沒有還差的事', ['等你決定 1 件', '還差 1 件', '看不到 1 件', '沒有還差的事了'].every((t) => html.includes(t)), html);
-  check('筆槽每一支筆旁寫那一色的意思(不只靠顏色)', ['紅筆＝等你決定', '藍筆＝還差什麼', '灰筆＝看不到', '黃筆＝只差按結案'].every((t) => html.includes(t)), html.slice(-900));
+  check('下方燈號每一盞旁寫那一色的意思(不只靠顏色)', ['紅燈＝等你決定', '藍燈＝還差什麼', '灰（不亮燈）＝看不到', '黃燈＝只差按結案'].every((t) => html.includes(t)), html.slice(-900));
   check('白板上有工地主任:有事等你決定 → 擔心的眼睛(不笑)', /class="agent" data-id="director" data-face="worry"/.test(html), html.match(/data-id="director"[^>]*/)?.[0]);
   const calm = uiOf({ projects: [{ name: 'p', suggestions: [] }], todo: board([proj([okRow])]) }).whiteboard({ name: 'p' });
   check('沒有還差的事 → 主任睜著眼,不笑(沒有人驗過,P10)', /data-id="director" data-face="open"/.test(calm), calm.match(/data-id="director"[^>]*/)?.[0]);
@@ -516,6 +516,12 @@ section('AC-9:切成英文——總表的每一句都是英文,「沒有還差�
   check('英文:總表自己出的字沒有中文', !/[一-鿿]/.test(all), all.match(/.*[一-鿿].*/)?.[0]);
   const clear = rowsOf(en.b).find((r) => r.id === 's2')?.clear ?? '';
   check('英文:沒有還差的事 → 不講 passed、done、✓', !!clear && !/\bpassed\b|\bdone\b|✓|✅/i.test(clear), clear);
+  const wbEn = uiOf({ projects: [{ name: 'p', suggestions: [] }], todo: en.b }, 'en').whiteboard({ name: 'p' });
+  const grayTitle = wbEn.match(/class="wb-pen" data-ink="gray" data-lit="1" title="([^"]+)"/)?.[1] ?? '';
+  check('英文:看板下方四盞燈號文案完整且灰燈提示不因雙引號被截斷',
+    ['Red light = your call', 'Blue light = what\'s still to do', 'Gray (unlit) = can\'t see', 'Yellow light = only closing left'].every((t) => wbEn.includes(t))
+    && grayTitle.includes('&quot;can\'t see&quot;') && grayTitle.includes('(gray stays unlit)'),
+    wbEn.slice(-600));
 }
 
 process.exit(summary());

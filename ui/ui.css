@@ -1,103 +1,130 @@
 /* ⚠️ AC-9:這個檔案裡**不准出現任何色碼**。全部吃 tokens.css(＝ui設計規格/variables.css)。
-   ⚠️ AC-10:Monad 是行銷網站的系統,尺度壓縮過——身分保留(紙感底、襯線 400、藥丸),字級只用 12–32、卡片內距 20px。
-   2026-10-27 起換成清新的工地工班風(規格:工地工班風畫面):一般的句子用無襯線字(中文是蘋方),等寬只留給指令、檔名;
-   便條紙有淡淡的影子、紙膠帶。跟 Monad 不一樣的地方記在 docs/DESIGN.md 最後一段 */
+   ⚠️ AC-10:Monad 是行銷網站的系統,尺度壓縮過——襯線 400、藥丸語言保留,字級只用 12–32、卡片內距 20px。
+   2026-11-23 起 Antigravity 專用版換成「夜間工班風」(規格:night-shift-ui-theme):深藍炭夜空底、克制霓虹邊框、
+   A–E 發溫暖黃光眼＋F 主任粗黑框黃光眼＋安全帽反光條、夜間螢光玻璃白板；與白天版差異記在 docs/DESIGN.md 最後一段 */
 @import url('/tokens.css');
+
+:root { color-scheme: dark; }
 
 * { box-sizing: border-box; }
 body {
-  margin: 0; background: var(--color-parchment); color: var(--color-off-black);
+  margin: 0; background: var(--color-night-canvas); color: var(--color-text-primary);
   font-family: var(--font-body);
   font-size: var(--text-body-sm); line-height: 1.5;
 }
+a { color: var(--color-neon-cyan); text-decoration: none; }
+a:hover { text-decoration: underline; }
 /* 等寬只留給指令、檔名、分支名、檢查項目(工地工班風畫面 AC-14) */
 .mono, .pill, .fgroup { font-family: var(--font-abc-diatype-mono); letter-spacing: var(--tracking-body-sm); }
-body.dim main { opacity: .45; filter: grayscale(.85); transition: opacity .2s; }
+body.dim main { opacity: .42; filter: grayscale(.9) brightness(.78); transition: opacity .2s; }
 
 /* ───────── 頂列 ───────── */
 header {
-  position: sticky; top: 0; z-index: 5; background: var(--color-parchment);
-  border-bottom: 1px solid var(--color-ash);
+  position: sticky; top: 0; z-index: 5; background: var(--color-night-header);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-neon-cyan) 36%, var(--color-night-border));
+  box-shadow: 0 2px 18px color-mix(in srgb, var(--color-neon-cyan) 14%, transparent);
   padding: var(--spacing-16) var(--spacing-24);
   display: flex; align-items: center; gap: var(--spacing-16); flex-wrap: wrap;
 }
 .serif { font-family: var(--font-untitled-serif); font-weight: var(--font-weight-regular); }
-h1 { font-size: var(--text-subheading); letter-spacing: var(--tracking-subheading); margin: 0; }
-.crumb { display: flex; align-items: center; gap: 10px; }
-.crumb a { color: var(--color-lake-blue); text-decoration: none; }
+h1 { font-size: var(--text-subheading); letter-spacing: var(--tracking-subheading); margin: 0; color: var(--color-text-primary); }
+.brand-badge {
+  font-family: var(--font-abc-diatype-mono); font-size: 11px; letter-spacing: 0.04em;
+  color: var(--color-neon-cyan);
+  border: 1px solid color-mix(in srgb, var(--color-neon-cyan) 82%, transparent);
+  background: color-mix(in srgb, var(--color-neon-cyan) 14%, var(--color-night-surface));
+  border-radius: var(--radius-full); padding: 3px 10px; line-height: 1.2;
+  box-shadow: 0 0 14px color-mix(in srgb, var(--color-neon-cyan) 34%, transparent);
+}
+.crumb { display: flex; align-items: center; gap: 10px; color: var(--color-text-secondary); }
+.crumb a { color: var(--color-neon-cyan); text-decoration: none; }
 .crumb a:hover { text-decoration: underline; }
-.crumb .sep { color: var(--color-ash); }
+.crumb .sep { color: var(--color-night-border-strong); }
 .spacer { flex: 1; }
 
 #freshness {
   font-size: var(--text-caption); letter-spacing: var(--tracking-caption);
-  text-transform: uppercase; color: var(--color-graphite);
-  border: 1px solid var(--color-ash); border-radius: var(--radius-full); padding: 6px 14px;
+  text-transform: uppercase; color: var(--color-text-secondary);
+  background: var(--color-night-surface);
+  border: 1px solid var(--color-night-border-strong); border-radius: var(--radius-full); padding: 6px 14px;
 }
 #freshness[data-state="stale"], #freshness[data-state="disconnected"],
 #freshness[data-state="unknown"] {
-  background: var(--color-off-black); color: var(--color-parchment); border-color: var(--color-off-black);
+  background: var(--color-alert-pill-bg); color: var(--color-alert-pill-text); border-color: var(--color-alert-pill-bg);
+  font-weight: var(--font-weight-medium);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--color-alert-pill-bg) 36%, transparent);
 }
 
 /* 中英切換:按了之後換不成的那一句(連不上、服務還在跑舊的程式、寫不進去)寫在按鈕旁。空的時候不佔位置 */
-.lang-note { font-size: var(--text-caption); color: var(--color-smoke); }
+.lang-note { font-size: var(--text-caption); color: var(--color-text-secondary); }
 .lang-note:empty { display: none; }
 
 main { padding: var(--spacing-24); max-width: var(--page-max-width); margin: 0 auto; }
 h2.section { font-size: var(--text-subheading); letter-spacing: var(--tracking-subheading);
-  margin: 0 0 4px; }
-.section-note { color: var(--color-smoke); font-size: var(--text-caption); margin: 0 0 var(--spacing-16); }
+  margin: 0 0 4px; color: var(--color-text-primary); }
+.section-note { color: var(--color-text-secondary); font-size: var(--text-caption); margin: 0 0 var(--spacing-16); }
 .block { margin-bottom: var(--spacing-40); }
-/* 故障橫條(規格:agent回報與故障記號 AC-3):每一頁最上面。還在壞是珊瑚色、時好時壞／看不到好了沒是金色;字是伺服器算好的,跟終端機同一句 */
-.fault { margin: 0 0 var(--spacing-16); padding: var(--spacing-8) var(--spacing-16); border-left: 3px solid var(--color-coral);
-  font-size: var(--text-caption); }
-.fault[data-tone="amber"] { border-left-color: var(--color-gold); }
+/* 故障橫條(規格:agent回報與故障記號 AC-3):每一頁最上面。還在壞是珊瑚色、時好時壞／看不到好了沒是琥珀色;字是伺服器算好的,跟終端機同一句 */
+.fault {
+  margin: 0 0 var(--spacing-16); padding: var(--spacing-8) var(--spacing-16);
+  border-left: 3px solid var(--color-neon-coral); border-radius: 4px;
+  background: color-mix(in srgb, var(--color-neon-coral) 11%, var(--color-night-surface));
+  color: var(--color-text-primary); font-size: var(--text-caption);
+}
+.fault[data-tone="amber"] {
+  border-left-color: var(--color-neon-amber);
+  background: color-mix(in srgb, var(--color-neon-amber) 11%, var(--color-night-surface));
+}
 
 /* ───────── 第一層:案件列表 ───────── */
-/* 案件卡也是貼在看板上的紙(工地工班風畫面 AC-11):施工圖的淡方格、紙膠帶(樣子跟對話頁的便條紙同一套,在下面) */
+/* 案件卡也是貼在夜間施工看板上的工作卡(night-shift-ui-theme AC-1、AC-2):施工藍圖方格、頂端反光貼條 */
 .projects { display: grid; gap: var(--spacing-24) var(--spacing-16); grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); padding-top: 12px; }
 .pcard {
   position: relative;
-  border: 1px solid var(--color-ash); border-radius: 10px;
+  border: 1px solid var(--color-night-border-strong); border-radius: 10px;
   padding: 22px 20px 18px; cursor: pointer;
   background:
     linear-gradient(var(--color-grid) 1px, transparent 1px) 0 0 / 22px 22px,
     linear-gradient(90deg, var(--color-grid) 1px, transparent 1px) 0 0 / 22px 22px,
-    var(--color-paper);
+    var(--color-night-surface);
   box-shadow: var(--shadow-note);
-  text-align: left; font: inherit; color: inherit; width: 100%;
-  transition: border-color .15s, transform .15s;
+  text-align: left; font: inherit; color: var(--color-text-primary); width: 100%;
+  transition: border-color .15s, box-shadow .15s, transform .15s;
 }
-.pcard:hover { border-color: var(--color-lake-blue); transform: translateY(-2px); }
+.pcard:hover {
+  border-color: var(--color-neon-cyan);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--color-neon-cyan) 18%, transparent), var(--shadow-note);
+  transform: translateY(-2px);
+}
 .pcard h3 { font-family: var(--font-untitled-serif); font-weight: var(--font-weight-regular);
-  font-size: var(--text-label); margin: 0 0 10px; }
-.pcard .meta { color: var(--color-smoke); font-size: var(--text-caption); }
+  font-size: var(--text-label); margin: 0 0 10px; color: var(--color-text-primary); }
+.pcard .meta { color: var(--color-text-secondary); font-size: var(--text-caption); }
 /* 小小的五關縮圖:只顯示狀態,不顯示角色 */
 .mini { display: flex; gap: 4px; margin: 12px 0 10px; }
-.mini span { flex: 1; height: 5px; border-radius: var(--radius-full); background: var(--color-ash); }
-.mini span[data-s="ran"]  { background: var(--color-lake-blue); }
-.mini span[data-s="done"] { background: var(--color-off-black); }
+.mini span { flex: 1; height: 5px; border-radius: var(--radius-full); background: var(--color-night-border-strong); }
+.mini span[data-s="ran"]  { background: var(--color-neon-blue); box-shadow: 0 0 6px color-mix(in srgb, var(--color-neon-blue) 55%, transparent); }
+.mini span[data-s="done"] { background: var(--color-text-primary); }
 
-/* ───────── 四張便條紙(工地工班風畫面 AC-4、AC-5) ───────── */
-/* 每張一種淡水彩(data-note),固定代表「這是哪一張」,不跟狀態變;紙上有施工圖的淡方格,上緣貼一條紙膠帶。
-   ⚠️ 狀態只剩一個記號:有事要處理的那張(data-tone="alert",條件在 app.js,沒改),膠帶換成斜紋警示膠帶。
+/* ───────── 四張夜間工作卡(工地工班風畫面 AC-4、AC-5；night-shift-ui-theme AC-2) ───────── */
+/* 每張一種固定霓虹邊色(data-note),只代表「這是哪一張」,不跟狀態變;紙上有施工藍圖方格,上緣貼一條反光貼條。
+   ⚠️ 狀態只剩一個記號:有事要處理的那張(data-tone="alert",條件在 app.js,沒改),貼條換成高對比斜紋警戒帶。
       底色固定之後,顏色不會說「這張有問題」;不補這個記號,就回到「字說有問題、顏色說沒事」(L40)。
-      斜紋本身看得出來,不只靠顏色(pipeline-ui AC-4)。會跟著狀態變的顏色不准是薄荷綠(AC-3)——這裡沒有。 */
+      斜紋本身看得出來,不只靠顏色(pipeline-ui AC-4)。會跟著狀態變的顏色不准是綠色(AC-3)——這裡沒有。 */
 .stats { display: grid; gap: var(--spacing-24) var(--spacing-16); grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  padding-top: 12px; }   /* 紙膠帶凸出卡片上緣,留位子 */
+  padding-top: 12px; }   /* 貼條凸出卡片上緣,留位子 */
 .stat {
   position: relative;
-  --paper: var(--color-paper); --wash: var(--color-ash);
-  border: 1px solid color-mix(in srgb, var(--wash) 75%, var(--color-ash));
+  --paper: var(--color-night-surface); --wash: var(--color-night-border-strong);
+  border: 1px solid color-mix(in srgb, var(--wash) 80%, var(--color-night-border));
   border-radius: 10px; padding: 22px 20px 20px; min-height: 168px;
   background:
-    radial-gradient(65% 50% at 90% 8%, color-mix(in srgb, var(--wash) 75%, transparent), transparent 72%),
-    radial-gradient(55% 45% at 6% 96%, color-mix(in srgb, var(--wash) 55%, transparent), transparent 72%),
+    radial-gradient(65% 50% at 90% 8%, color-mix(in srgb, var(--wash) 28%, transparent), transparent 72%),
+    radial-gradient(55% 45% at 6% 96%, color-mix(in srgb, var(--wash) 22%, transparent), transparent 72%),
     linear-gradient(var(--color-grid) 1px, transparent 1px) 0 0 / 22px 22px,
     linear-gradient(90deg, var(--color-grid) 1px, transparent 1px) 0 0 / 22px 22px,
     var(--paper);
-  box-shadow: var(--shadow-note);
-  transition: transform .2s ease;
+  box-shadow: 0 0 22px color-mix(in srgb, var(--wash) 30%, transparent), inset 0 0 18px color-mix(in srgb, var(--wash) 14%, transparent), var(--shadow-note);
+  transition: transform .2s ease, box-shadow .2s ease;
 }
 .stat[data-note="restore"] { --paper: var(--color-note-sky);    --wash: var(--color-note-sky-deep); }
 .stat[data-note="ladder"]  { --paper: var(--color-note-lilac);  --wash: var(--color-note-lilac-deep); }
@@ -108,59 +135,66 @@ h2.section { font-size: var(--text-subheading); letter-spacing: var(--tracking-s
 .stats > .stat:nth-child(4n+2) { transform: rotate(.5deg); }
 .stats > .stat:nth-child(4n+3) { transform: rotate(-.35deg); }
 .stats > .stat:nth-child(4n+4) { transform: rotate(.7deg); }
-.stats > .stat:hover { transform: none; }
-/* 紙膠帶(便條紙與案件卡同一條) */
+.stats > .stat:hover {
+  transform: none;
+  box-shadow: 0 0 28px color-mix(in srgb, var(--wash) 40%, transparent), inset 0 0 22px color-mix(in srgb, var(--wash) 18%, transparent), var(--shadow-note);
+}
+/* 夜間反光貼條(工作卡與案件卡同一條) */
 .stat::after, .pcard::after {
   content: ''; position: absolute; top: -11px; left: 50%; width: 92px; height: 22px;
   transform: translateX(-50%) rotate(-2.5deg); border-radius: 2px;
-  background: var(--color-tape); pointer-events: none;
+  background: var(--color-tape);
+  border: 1px solid color-mix(in srgb, var(--wash, var(--color-neon-cyan)) 78%, transparent);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--wash, var(--color-neon-cyan)) 38%, transparent), inset 0 1px 0 color-mix(in srgb, var(--wash, var(--color-neon-cyan)) 70%, transparent);
+  pointer-events: none;
 }
 .stat[data-tone="alert"]::after {
   width: 118px;
-  background: repeating-linear-gradient(-45deg, var(--color-coral) 0 7px, var(--color-paper) 7px 14px);
+  background: repeating-linear-gradient(-45deg, var(--color-neon-coral) 0 7px, var(--color-tape-stripe-dark) 7px 14px);
+  border-color: color-mix(in srgb, var(--color-neon-coral) 85%, transparent);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--color-neon-coral) 48%, transparent);
 }
 .stat > * { position: relative; }
 .stat .ctitle {
   font-family: var(--font-untitled-serif); font-weight: var(--font-weight-regular);
   font-size: var(--text-label); letter-spacing: var(--tracking-label);
-  margin: 0 0 2px;
+  margin: 0 0 2px; color: var(--color-text-primary);
 }
 /* ⚠️ 副標刻意**不用** uppercase + letter-spacing。
    那兩個屬性套在中英混排上,會把「commit 後尚未檢查的檔案」的字距撐開,
    看起來像三段拼起來的,不像一句話。 */
 .stat .label {
   font-size: var(--text-body-sm); letter-spacing: normal;
-  color: var(--color-smoke);
+  color: var(--color-text-secondary);
   padding-bottom: 10px; margin-bottom: 14px;
-  border-bottom: 1px solid color-mix(in srgb, var(--wash, var(--color-ash)), var(--color-off-black) 10%);   /* 副標與內容的分隔線,跟著紙的顏色 */
+  border-bottom: 1px solid color-mix(in srgb, var(--wash, var(--color-night-border)) 48%, var(--color-night-border));
 }
 .stat .big { font-family: var(--font-untitled-serif); font-weight: var(--font-weight-regular);
-  font-size: var(--text-heading-sm); letter-spacing: var(--tracking-heading-sm); line-height: 1.1; }
+  font-size: var(--text-heading-sm); letter-spacing: var(--tracking-heading-sm); line-height: 1.1; color: var(--color-text-primary); }
 .stat .big .num { font-size: var(--text-heading-sm); }
 /* 單位小一級並貼齊基線,不然「5」和「個檔案」看起來是兩件事 */
 .stat .big .unit { font-size: var(--text-body-lg); margin-left: 4px; }
-.stat .sub { color: var(--color-graphite); margin-top: 8px; }
-.stat .hint { color: var(--color-smoke); font-size: var(--text-caption); margin-top: 10px; }
+.stat .sub { color: var(--color-text-secondary); margin-top: 8px; }
+.stat .hint { color: var(--color-text-muted); font-size: var(--text-caption); margin-top: 10px; }
 
 /* ───────── 全綠項目的膠囊標籤 ───────── */
 .pills { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 4px; }
 .pill {
   display: inline-flex; align-items: center; gap: 5px;
-  border: 1px solid var(--color-ash); border-radius: var(--radius-full);
+  border: 1px solid var(--color-night-border-strong); border-radius: var(--radius-full);
   padding: 4px 12px; font-size: var(--text-caption); letter-spacing: var(--tracking-caption);
-  background: color-mix(in srgb, var(--color-paper) 70%, transparent); color: var(--color-graphite); white-space: nowrap;
+  background: var(--color-night-surface-2); color: var(--color-text-secondary); white-space: nowrap;
 }
-.pill.ok::before { content: '✓'; color: var(--color-lake-blue); }
+.pill.ok::before { content: '✓'; color: var(--color-neon-cyan); }
 
-/* ───────── 三階梯:三顆膠囊,跟這張便條紙同一個紫色系(工地工班風畫面 AC-6) ───────── */
+/* ───────── 三階梯:三顆膠囊,跟這張卡同一個電紫色系(工地工班風畫面 AC-6；night-shift-ui-theme AC-2) ───────── */
 /* ⚠️ 原本膠囊之間有流水線動畫,拿掉了。Oscar:「現在確定不是單向的流程了,加入流水會誤導。」——①②③ 會來回進退。
-   ⚠️ 上色標的是「這一階已經完成」,不是「卡在哪」;只有 done 上色(空的分支一格都不亮,L16)。
-      以前完成那格是四色漂移的漸層,混在一起像髒水(Oscar 2026-10-27),換成淡紫水彩 */
+   ⚠️ 上色標的是「這一階已經完成」,不是「卡在哪」;只有 done 亮起電紫(空的分支一格都不亮,L16)。 */
 .pipe { display: grid; gap: 8px; margin-top: 4px; }
 .cap {
   display: flex; align-items: center; gap: 10px; min-height: 62px;   /* 三格等高,不因文案長短而不一樣大 */
-  border: 1px solid color-mix(in srgb, var(--color-lilac-ink) 28%, transparent); border-radius: var(--radius-full);
-  padding: 8px 16px; background: color-mix(in srgb, var(--color-paper) 72%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-lilac-ink) 28%, var(--color-night-border)); border-radius: var(--radius-full);
+  padding: 8px 16px; background: color-mix(in srgb, var(--color-night-surface) 84%, transparent);
 }
 .capn {
   width: 22px; height: 22px; flex: none; border-radius: 50%;
@@ -168,16 +202,20 @@ h2.section { font-size: var(--text-subheading); letter-spacing: var(--tracking-s
   font-size: 11px; color: var(--color-lilac-ink);
 }
 .cap[data-ok="yes"] {
-  border-color: color-mix(in srgb, var(--color-lilac-ink) 50%, transparent);
+  border-color: color-mix(in srgb, var(--color-neon-violet) 92%, transparent);
   background:
-    radial-gradient(70% 140% at 12% 20%, var(--color-note-lilac-deep), transparent 72%),
-    radial-gradient(60% 120% at 92% 85%, color-mix(in srgb, var(--color-note-lilac-deep) 70%, transparent), transparent 70%),
-    var(--color-note-lilac);
+    radial-gradient(70% 140% at 12% 20%, color-mix(in srgb, var(--color-neon-violet) 34%, transparent), transparent 72%),
+    radial-gradient(60% 120% at 92% 85%, color-mix(in srgb, var(--color-neon-violet) 24%, transparent), transparent 70%),
+    color-mix(in srgb, var(--color-neon-violet) 16%, var(--color-night-surface));
+  box-shadow: 0 0 18px color-mix(in srgb, var(--color-neon-violet) 34%, transparent), inset 0 0 14px color-mix(in srgb, var(--color-neon-violet) 18%, transparent);
 }
-.cap[data-ok="yes"] .capn { background: var(--color-lilac-ink); color: var(--color-paper); border-color: var(--color-lilac-ink); }
+.cap[data-ok="yes"] .capn {
+  background: var(--color-lilac-ink); color: var(--color-night-canvas);
+  border-color: var(--color-lilac-ink); font-weight: var(--font-weight-medium);
+}
 .capt { min-width: 0; }
-.capt b { font-weight: var(--font-weight-medium); }
-.capt small { display: block; color: var(--color-smoke); font-size: var(--text-caption); }
+.capt b { font-weight: var(--font-weight-medium); color: var(--color-text-primary); }
+.capt small { display: block; color: var(--color-text-secondary); font-size: var(--text-caption); }
 
 /* ───────── My Agent work flow ───────── */
 /* 左軌與右卡在同一個 grid 的同一列 → A–E 的對應由版面保證,不靠調數字 */
@@ -185,116 +223,161 @@ h2.section { font-size: var(--text-subheading); letter-spacing: var(--tracking-s
   display: grid; grid-template-columns: 76px 1fr; gap: 10px 14px;
   align-items: stretch; position: relative;
 }
-/* ⚠️ 不能只寫 top + bottom。<svg> 是 replaced element,
-   絕對定位時 height:auto 會採用它的**內在高度**(viewBox 的 1000),
-   top/bottom 就被忽略了——實測線條會多出 400px 掉在卡片下面。
-   必須給明確的 height。 */
+/* 貫穿 A→E 的高亮度彩虹漸層流動霓虹燈管（雙週期背景向下無縫流動＋彩色外暈＋亮白燈芯，不用綠色） */
 .wf-line {
-  position: absolute; left: 6px; top: 10px; width: 10px;
-  height: calc(100% - 20px);
-  z-index: 0; overflow: visible;
+  --wf-rainbow: linear-gradient(
+    180deg,
+    var(--color-tube-1) 0%,
+    var(--color-tube-2) 10%,
+    var(--color-tube-3) 20%,
+    var(--color-tube-4) 30%,
+    var(--color-tube-5) 40%,
+    var(--color-tube-1) 50%,
+    var(--color-tube-2) 60%,
+    var(--color-tube-3) 70%,
+    var(--color-tube-4) 80%,
+    var(--color-tube-5) 90%,
+    var(--color-tube-1) 100%
+  );
+  position: absolute; left: 9px; top: 8px; width: 4px;
+  height: calc(100% - 16px); border-radius: var(--radius-full);
+  z-index: 0; pointer-events: none;
+  background: var(--wf-rainbow);
+  background-size: 100% 200%;
+  animation:
+    wf-rainbow-flow 3.2s linear infinite,
+    wf-tube-glow 3.6s linear infinite;
+  animation-delay: calc(var(--t, 0) * -1s), calc(var(--t, 0) * -1s);
 }
-.wf-line path {
-  fill: none; stroke: var(--color-graphite); stroke-width: 1.7; stroke-linecap: round;
-  vector-effect: non-scaling-stroke; opacity: .55;
-  stroke-dasharray: 1400; stroke-dashoffset: 1400;
-  animation: draw 7s ease-in-out infinite;
+.wf-line::before {
+  content: ''; position: absolute; inset: -1px -2px; border-radius: var(--radius-full);
+  background: var(--wf-rainbow);
+  background-size: 100% 200%;
+  filter: blur(4px) saturate(1.35) brightness(1.1);
+  opacity: .72; pointer-events: none;
+  animation: wf-rainbow-flow 3.2s linear infinite;
   animation-delay: calc(var(--t, 0) * -1s);
 }
-@keyframes draw {
-  0%   { stroke-dashoffset: 1400; }
-  55%  { stroke-dashoffset: 0; }
-  92%  { stroke-dashoffset: 0; opacity: .55; }
-  100% { stroke-dashoffset: 0; opacity: .15; }
+.wf-line::after {
+  content: ''; position: absolute; inset: 1px 1px; border-radius: var(--radius-full);
+  background: var(--color-hat-reflect); opacity: .48; filter: blur(.5px);
+  pointer-events: none;
+}
+@keyframes wf-rainbow-flow {
+  from { background-position: 0% 100%; }
+  to   { background-position: 0% 0%; }
+}
+@keyframes wf-tube-glow {
+  0%, 19%, 21%, 54%, 56%, 100% { filter: brightness(1.12) saturate(1.3); }
+  20%, 55%                     { filter: brightness(.88) saturate(1.1); }
+  38%                          { filter: brightness(1.3) saturate(1.48); }
 }
 .wf::before {
-  content: ''; position: absolute; left: -10px; top: 0; bottom: 0; width: 88px;
-  background: radial-gradient(ellipse at 50% 20%, var(--color-sky-blue), transparent 62%),
-              radial-gradient(ellipse at 50% 85%, var(--color-coral), transparent 62%);
-  filter: blur(40px); opacity: .34; pointer-events: none; border-radius: var(--radius-2xl);
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 32px;
+  background: radial-gradient(ellipse at 50% 20%, var(--color-neon-cyan), transparent 62%),
+              radial-gradient(ellipse at 50% 85%, var(--color-neon-coral), transparent 62%);
+  filter: blur(22px); opacity: .10; pointer-events: none; border-radius: var(--radius-2xl);
 }
 .railcell {
   position: relative; display: grid; justify-items: center;
   grid-template-rows: auto auto 1fr; padding-top: 18px; gap: 4px;
+  padding-left: 18px;
 }
 /* 代號與圓點置中對齊(Oscar 指定) */
 .railcell .rlab {
-  font-size: var(--text-caption); color: var(--color-graphite); line-height: 1;
+  font-size: var(--text-caption); color: var(--color-text-secondary); line-height: 1;
 }
 .railcell .dot {
   width: 15px; height: 15px; border-radius: 50%; z-index: 1;
-  border: 1px solid var(--color-ash); background: var(--color-parchment);
+  border: 1px solid var(--color-night-border-strong); background: var(--color-night-canvas);
 }
-.railcell[data-state="done"] .dot { background: var(--color-off-black); border-color: var(--color-off-black); }
-.railcell[data-state="ran"]  .dot { background: var(--color-lake-blue); border-color: var(--color-lake-blue); }
-/* F 工地主任那一顆(規格:主任條列與工地帽 AC-6):不借五關的樣子——實心藍是「這一輪走到這一關」,以前「還差幾件」也塗成藍的,
-   看起來兩關都在進行中。平常空心,F 那一行亮的時候才塗主任的黃(亮不亮是伺服器那一句在不在,ui/app.js 的 directorRow) */
-.railcell[data-state="director"][data-lit="1"] .dot { background: var(--color-agent-f); border-color: var(--color-agent-f); }
-/* 連到下一列的線:高度撐滿剩餘空間,所以卡片多高都連得起來 */
-/* 每格只剩「代號 + 圓點」;貫穿的長線由 .wf-line 一條畫完(見上)。
-   分段畫的話,卡片高度不同就會在接縫處斷開。 */
-.railcell { padding-left: 18px; }
+.railcell[data-state="done"] .dot { background: var(--color-text-primary); border-color: var(--color-text-primary); }
+.railcell[data-state="ran"]  .dot {
+  background: var(--color-neon-blue); border-color: var(--color-neon-blue);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--color-neon-blue) 65%, transparent);
+}
+/* F 工地主任那一顆(規格:主任條列與工地帽 AC-6):不借五關的樣子——實心藍是「這一輪走到這一關」,
+   平常空心,F 那一行亮的時候才塗主任的黃(亮不亮是伺服器那一句在不在,ui/app.js 的 directorRow) */
+.railcell[data-state="director"][data-lit="1"] .dot {
+  background: var(--color-agent-f); border-color: var(--color-agent-f);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--color-agent-f) 65%, transparent);
+}
 
 .acard {
   display: flex; align-items: flex-start; gap: 14px;
-  border: 1px solid var(--color-ash); border-radius: var(--radius-2xl);
-  padding: 14px 18px; background: var(--color-paper); position: relative;
+  border: 1px solid var(--color-night-border); border-radius: var(--radius-2xl);
+  padding: 14px 18px; background: var(--color-night-surface); position: relative;
 }
-/* ───────── 五個工班:五種形狀加兩隻眼睛(工地工班風畫面 AC-7、AC-8、AC-9) ───────── */
-.agent { position: relative; width: 58px; height: 60px; flex: none; display: grid; place-items: center; --agent: var(--color-graphite); }
+/* ───────── 六個工班:夜間實心微發光＋安全帽反光條＋A–E 溫暖黃光眼＋F 主任粗黑框黃光眼(night-shift-ui-theme AC-3) ───────── */
+.agent { position: relative; width: 58px; height: 60px; flex: none; display: grid; place-items: center; --agent: var(--color-text-secondary); }
 /* 身分色:永遠是那一關的顏色,不跟狀態變 */
 .agent[data-id="A"] { --agent: var(--color-agent-a); --ph: 0s; }
 .agent[data-id="B"] { --agent: var(--color-agent-b); --ph: -1s; }
 .agent[data-id="C"] { --agent: var(--color-agent-c); --ph: -2s; }
 .agent[data-id="D"] { --agent: var(--color-agent-d); --ph: -3s; }
 .agent[data-id="E"] { --agent: var(--color-agent-e); --ph: -4s; }
-/* 工地主任(還差什麼總表 AC-11):第六個角色,不是一關。主任的黃(色票住 variables.css;2026-11-04 照校色參考圖換成金黃) */
+/* 工地主任(還差什麼總表 AC-11):第六個角色,不是一關。金黃 */
 .agent[data-id="director"] { --agent: var(--color-agent-f); --ph: -5s; }
 .agent svg { position: relative; z-index: 1; width: 58px; height: 60px; overflow: visible; }
-.ag-body > * { fill: var(--agent); stroke: var(--agent); stroke-width: 5; stroke-linejoin: round; }
-/* 眼睛一律黑色(校色參考圖,規格:主任條列與工地帽 AC-12;以前 A–E 是白眼睛,只有黃底的主任是黑眼睛) */
-.ag-face { fill: var(--color-off-black); }
-.ag-face .ln { fill: none; stroke: var(--color-off-black); stroke-width: 3; stroke-linecap: round; }
-/* B 的身體很深,黑眼睛看不到表情:眼睛加一圈淡淡的亮邊,線畫的眼睛(笑眼、閉眼)用那個淡色——參考圖上那是黑眼睛的反光 */
-.agent[data-id="B"] .ag-face { --rim: color-mix(in srgb, var(--color-paper) 55%, var(--agent)); }
-.agent[data-id="B"] .ag-face > :not(.ln) { stroke: var(--rim); stroke-width: 2; paint-order: stroke; }
-.agent[data-id="B"] .ag-face .ln { stroke: var(--rim); }
-/* 工地帽(規格:主任條列與工地帽 AC-7、AC-8):身體的淺一號——校色參考圖上帽子跟身體同色系;帽緣深一點、頂上那一道稜亮一點。
-   顏色只跟著是哪一個角色,不跟狀態變(帽子變色會被讀成「這一關怎麼了」) */
-.ag-hat > * { fill: color-mix(in srgb, var(--agent) 70%, var(--color-paper)); }
-.ag-hat :is(.hat-dome, .hat-brim) { stroke: color-mix(in srgb, var(--agent) 78%, var(--color-off-black)); stroke-width: .5; }
-.ag-hat .hat-brim { fill: color-mix(in srgb, var(--agent) 84%, var(--color-paper)); }
-.ag-hat .hat-ridge { fill: color-mix(in srgb, var(--agent) 50%, var(--color-paper)); }
-.ag-hat .hat-shade { fill: color-mix(in srgb, var(--agent) 55%, var(--color-off-black)); opacity: .35; }
-/* 主任帽子上的 AI:參考圖是銀白色的字。底下先畫一道深一點的寬線,淺色的帽子上才讀得到 */
+.ag-body > * {
+  fill: var(--agent); stroke: var(--agent); stroke-width: 5; stroke-linejoin: round;
+  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--agent) 42%, transparent));
+}
+/* A–E 醒著的眼睛:溫暖黃光＋細暗描邊；F 主任（金黃身體）:粗黑框黃光眼,在金黃底上清楚讀出 */
+.ag-face { fill: var(--color-eye-glow); filter: drop-shadow(0 0 3px var(--color-eye-glow-halo)); }
+.ag-face > :not(.ln) { stroke: var(--color-eye-rim); stroke-width: 1.4; paint-order: stroke; }
+.ag-face .ln { fill: none; stroke: var(--color-eye-glow); stroke-width: 3; stroke-linecap: round; }
+.agent[data-id="director"] .ag-face { filter: drop-shadow(0 0 2.5px var(--color-eye-glow-halo)); }
+.agent[data-id="director"] .ag-face > :not(.ln) { stroke: var(--color-eye-frame-director); stroke-width: 3.4; paint-order: stroke; }
+.agent[data-id="director"] .ag-face text { stroke-width: 2.2; }
+.agent[data-id="director"][data-face="happy"] .ag-face .ln {
+  filter: drop-shadow(0 0 1px var(--color-eye-frame-director)) drop-shadow(0 0 2px var(--color-eye-frame-director));
+}
+/* 閉眼睡著／休息:關閉強光,改用低亮度閉眼線條；B 用淺灰、F 主任用粗黑線避免吃色 */
+.agent:is([data-face="sleep"], [data-face="rest"]) .ag-face { filter: none; }
+.agent:is([data-face="sleep"], [data-face="rest"]) .ag-face .ln { stroke: var(--color-eye-sleep); }
+.agent[data-id="B"]:is([data-face="sleep"], [data-face="rest"]) .ag-face .ln { stroke: var(--color-eye-sleep-b); }
+.agent[data-id="director"]:is([data-face="sleep"], [data-face="rest"]) .ag-face .ln { stroke: var(--color-eye-frame-director); }
+
+/* 工地帽:身體同色系提亮＋深邊線＋帽頂夜間反光稜條。顏色只跟著是哪一個角色,不跟狀態變 */
+.ag-hat > * { fill: color-mix(in srgb, var(--agent) 78%, var(--color-hat-reflect)); }
+.ag-hat :is(.hat-dome, .hat-brim) { stroke: var(--color-hat-outline); stroke-width: .7; }
+.ag-hat .hat-brim { fill: color-mix(in srgb, var(--agent) 88%, var(--color-hat-reflect)); }
+.ag-hat .hat-ridge {
+  fill: var(--color-hat-reflect);
+  filter: drop-shadow(0 0 2px color-mix(in srgb, var(--color-hat-reflect) 75%, transparent));
+}
+.ag-hat .hat-shade { fill: var(--color-hat-shade); opacity: .7; }
+/* 主任帽子上的 AI:深底邊＋亮白字線 */
 .ag-hat :is(.hat-ai, .hat-ai-edge) { fill: none; stroke-linecap: round; stroke-linejoin: round; }
-.ag-hat .hat-ai-edge { stroke: color-mix(in srgb, var(--agent) 55%, var(--color-off-black)); stroke-width: 1.6; }
-.ag-hat .hat-ai { stroke: var(--color-paper); stroke-width: .8; }
+.ag-hat .hat-ai-edge { stroke: var(--color-eye-frame-director); stroke-width: 1.8; }
+.ag-hat .hat-ai { stroke: var(--color-hat-reflect); stroke-width: .85; }
 .ag-face text { font: 700 11px var(--font-body); }
-.ag-ground { fill: var(--color-off-black); opacity: .09; }
-.ag-sweat { fill: var(--color-sky-blue); }
-.ag-z { fill: var(--color-smoke); font: 600 10px var(--font-body); }
+.ag-ground { fill: var(--color-ground-glow); opacity: .65; }
+.ag-sweat { fill: var(--color-neon-cyan); }
+.ag-z { fill: var(--color-text-secondary); font: 600 10px var(--font-body); }
 /* 還沒跑、已走過:淡一點 */
 .agent[data-face="sleep"] { opacity: .5; }
 .agent[data-face="rest"] { opacity: .6; }
 /* 未建:虛線輪廓、沒有眼睛、不動 */
-.agent[data-face="blank"] .ag-body > * { fill: none; stroke: var(--color-smoke); stroke-width: 1.5; stroke-dasharray: 4 3; }
-.agent[data-face="blank"] .ag-hat > * { fill: none; stroke: var(--color-smoke); stroke-width: 1; stroke-dasharray: 3 2; }
+.agent[data-face="blank"] .ag-body > * { fill: none; stroke: var(--color-text-muted); stroke-width: 1.5; stroke-dasharray: 4 3; filter: none; }
+.agent[data-face="blank"] .ag-hat > * { fill: none; stroke: var(--color-text-muted); stroke-width: 1; stroke-dasharray: 3 2; }
+.agent[data-face="blank"] .ag-hat .hat-ridge { fill: none; filter: none; }
 .agent[data-face="blank"] .ag-hat .hat-shade { display: none; }
 /* 漂浮:五顆一樣速度,只是錯開一點,不要像列隊——漂浮不跟狀態變,不代表在做事(AC-9) */
 .ag-float, .ag-ground { animation: float 4.8s ease-in-out infinite; animation-delay: calc(var(--t, 0) * -1s + var(--ph, 0s)); }
 .ag-ground { animation-name: ground; transform-box: fill-box; transform-origin: center; }
 .agent[data-face="blank"] .ag-float, .agent[data-face="blank"] .ag-ground { animation: none; }
 @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
-@keyframes ground { 0%, 100% { transform: scaleX(1); opacity: .09; } 50% { transform: scaleX(.82); opacity: .05; } }
-/* 這一輪走到的那一關:身後的藍色光暈向外暈開;睜著眼的偶爾眨一下。
-   ⚠️ 光暈一律藍色,C 也一樣:會跟著狀態變的顏色不准是薄荷綠(pipeline-ui AC-3)。笑眼不眨,看起來像在擠眼睛 */
+@keyframes ground { 0%, 100% { transform: scaleX(1); opacity: .65; } 50% { transform: scaleX(.82); opacity: .32; } }
+/* 這一輪走到的那一關:身後的電光藍光暈向外暈開;睜著眼的偶爾眨一下。
+   ⚠️ 光暈一律藍色,C 也一樣:會跟著狀態變的顏色不准是綠色(pipeline-ui AC-3)。笑眼不眨,看起來像在擠眼睛 */
 .agent[data-here="1"]::before {
   content: ''; position: absolute; inset: -4px; border-radius: 50%; pointer-events: none;
-  background: radial-gradient(circle, var(--color-sky-blue), transparent 68%); opacity: .6;
+  background: radial-gradient(circle, color-mix(in srgb, var(--color-neon-blue) 45%, transparent), transparent 68%); opacity: .75;
 }
 .agent .halo {
-  position: absolute; inset: 6px; border-radius: 50%; border: 2px solid var(--color-sky-blue); opacity: 0; pointer-events: none;
+  position: absolute; inset: 6px; border-radius: 50%; border: 2px solid var(--color-neon-blue); opacity: 0; pointer-events: none;
   animation: halo 3.2s ease-out infinite; animation-delay: calc(var(--t, 0) * -1s);
 }
 .agent .halo + .halo { animation-delay: calc(var(--t, 0) * -1s + 1.6s); }
@@ -305,136 +388,180 @@ h2.section { font-size: var(--text-subheading); letter-spacing: var(--tracking-s
 }
 @keyframes blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(.1); } }
 
-/* 這一輪走到的那一張:藍色細框、靠工班那一側淡淡的藍(只用藍色系,「叫了」不等於通過,pipeline-ui AC-3) */
+/* 這一輪走到的那一張:電光藍細框、靠工班那一側淡淡的藍(只用藍色系,「叫了」不等於通過,pipeline-ui AC-3) */
 .acard[data-here="1"] {
-  border-color: var(--color-sky-blue);
-  background: radial-gradient(60% 120% at 0% 50%, color-mix(in srgb, var(--color-sky-blue) 22%, transparent), transparent 70%), var(--color-paper);
+  border-color: color-mix(in srgb, var(--color-neon-blue) 68%, transparent);
+  background: radial-gradient(60% 120% at 0% 50%, color-mix(in srgb, var(--color-neon-blue) 18%, transparent), transparent 70%), var(--color-night-surface);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--color-neon-blue) 15%, transparent);
 }
 .acard > * { position: relative; z-index: 1; }
 .abody { flex: 1; min-width: 0; }
-.atitle { font-size: var(--text-body); letter-spacing: var(--tracking-body); }
-.ahouse { color: var(--color-smoke); font-size: var(--text-caption); margin-left: 8px; }
-.astatus { margin-top: 4px; color: var(--color-off-black); }
+.atitle { font-size: var(--text-body); letter-spacing: var(--tracking-body); color: var(--color-text-primary); }
+.ahouse { color: var(--color-text-secondary); font-size: var(--text-caption); margin-left: 8px; }
+.astatus { margin-top: 4px; color: var(--color-text-primary); }
 /* 角色說明是第三層:小字、淡色(工地工班風畫面 AC-10) */
-.adoes { color: var(--color-smoke); font-size: var(--text-caption); margin-top: 6px; }
+.adoes { color: var(--color-text-muted); font-size: var(--text-caption); margin-top: 6px; }
 /* 不是走到的那一關:只剩名字和狀態那一行,「細節」點開才看(AC-15) */
-.amore > summary { cursor: pointer; color: var(--color-smoke); font-size: var(--text-caption); list-style: none; margin-top: 4px; width: max-content; }
+.amore > summary { cursor: pointer; color: var(--color-text-secondary); font-size: var(--text-caption); list-style: none; margin-top: 4px; width: max-content; }
 .amore > summary::-webkit-details-marker { display: none; }
 .amore > summary::before { content: '▸ '; }
 .amore[open] > summary::before { content: '▾ '; }
+.amore > summary:hover { color: var(--color-text-primary); }
 .acard[data-state="none"] .astatus,
 .acard[data-state="notbuilt"] .astatus,
-.acard[data-state="main"] .astatus { color: var(--color-smoke); }
-.said { color: var(--color-smoke); font-size: var(--text-caption); margin-top: 4px; }
-/* F 那一格「現在可以叫主任」(主任動手收尾 AC-9):主任的黃當底,字照舊深色——黃字放在白底上看不清楚。亮＝可以叫,不是做完了,所以不用綠。
-   F 那一格改成條列之後它是最後一條(規格:主任條列與工地帽 AC-1) */
-.titems li.call[data-k] {   /* 比「只是說明」那一條(淡灰)強一級:它也是 data-k="note" */
-  color: var(--color-off-black); font-weight: 600; padding: 4px 8px; border-radius: 6px;
-  background: color-mix(in srgb, var(--color-agent-f) 45%, transparent); border-left: 3px solid var(--color-agent-f);
+.acard[data-state="main"] .astatus { color: var(--color-text-muted); }
+.said { color: var(--color-text-secondary); font-size: var(--text-caption); margin-top: 4px; }
+/* F 那一格「現在可以叫主任」(主任動手收尾 AC-9):深暗金底＋左側金黃條,亮＝可以叫,不是做完了,所以不用綠 */
+.titems li.call[data-k] {
+  color: var(--color-text-primary); font-weight: 600; padding: 4px 8px; border-radius: 6px;
+  background: color-mix(in srgb, var(--color-agent-f) 22%, var(--color-night-surface));
+  border-left: 3px solid var(--color-agent-f);
 }
 
 /* 燈號:亮＝跑過了。⚠️ 亮不代表通過,只代表有紀錄。 */
 .lamp {
   width: 11px; height: 11px; border-radius: 50%; flex: none; margin-top: 6px;
-  border: 1px solid var(--color-ash); background: transparent;
+  border: 1px solid var(--color-night-border-strong); background: transparent;
 }
-.acard[data-state="ran"]  .lamp { background: var(--color-lake-blue); border-color: var(--color-lake-blue); }
-.acard[data-state="done"] .lamp { background: var(--color-off-black); border-color: var(--color-off-black); }
+.acard[data-state="ran"]  .lamp {
+  background: var(--color-neon-blue); border-color: var(--color-neon-blue);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--color-neon-blue) 65%, transparent);
+}
+.acard[data-state="done"] .lamp { background: var(--color-text-primary); border-color: var(--color-text-primary); }
 
-/* 系統設定「減少動態效果」:全部不動(AC-9)。A→E 那條線是靠動畫畫出來的,不動的時候要直接畫好 */
+/* 系統設定「減少動態效果」:全部不動(AC-9)。A→E 那條彩虹燈管不動的時候改為穩定常亮 */
 @media (prefers-reduced-motion: reduce) {
-  .ag-float, .ag-ground, .agent .halo, .agent .ag-face { animation: none; }
-  .wf-line path { animation: none; stroke-dashoffset: 0; }
+  .ag-float, .ag-ground, .agent .halo, .agent .ag-face, .wf-line, .wf-line::before { animation: none; }
 }
 
 /* ───────── 檔案清單 ───────── */
-.files { margin-top: 12px; }
+.files { margin-top: 12px; color: var(--color-text-secondary); }
 .fgroup { margin-bottom: 10px; }
-.fgroup .dir { font-size: var(--text-caption); color: var(--color-smoke);
+.fgroup .dir { font-size: var(--text-caption); color: var(--color-text-muted);
   text-transform: none; letter-spacing: 0; margin-bottom: 3px; text-align: left; padding-left: 0; }
 .fgroup ul { list-style: none; margin: 0; padding: 0 0 0 12px; }
 .fgroup li { padding: 1px 0; }
-.isnew { color: var(--color-lake-blue); }
+.isnew { color: var(--color-neon-cyan); }
 
-.note { margin-top: var(--spacing-16); padding-top: 10px; border-top: 1px solid var(--color-ash);
-  color: var(--color-smoke); font-size: var(--text-caption); }
+.note { margin-top: var(--spacing-16); padding-top: 10px; border-top: 1px solid var(--color-night-border);
+  color: var(--color-text-muted); font-size: var(--text-caption); }
 
 /* ───────── 說明文字分三層(工地工班風畫面 AC-10) ─────────
    ① 大字講事實 ② 一行講最要緊的後果 ③ 解釋「為什麼」收進「為什麼？」。會害你丟東西、誤會結果的那幾句是 ②,留在外面 */
-.hint.warn { color: var(--color-off-black); font-size: var(--text-body-sm); font-weight: var(--font-weight-medium); }
-.why { margin-top: 8px; font-size: var(--text-caption); color: var(--color-graphite); }
+.hint.warn { color: var(--color-neon-amber); font-size: var(--text-body-sm); font-weight: var(--font-weight-medium); }
+.why { margin-top: 8px; font-size: var(--text-caption); color: var(--color-text-secondary); }
 /* 寬度照字,但不超過卡片:英文比中文長,放不下就換行,不准凸出卡片外(規格:儀表板與終端機中英切換 AC-6) */
-.why > summary, .more > summary { cursor: pointer; color: var(--color-smoke); list-style: none; width: max-content; max-width: 100%; }
+.why > summary, .more > summary { cursor: pointer; color: var(--color-text-muted); list-style: none; width: max-content; max-width: 100%; }
 .why > summary::-webkit-details-marker, .more > summary::-webkit-details-marker { display: none; }
 .why > summary::before { content: 'ⓘ '; }
 .more > summary::before { content: '▸ '; }
 .more[open] > summary::before { content: '▾ '; }
-.why > summary:hover, .more > summary:hover { color: var(--color-off-black); }
-.why p { margin: 6px 0 0; padding-left: 10px; border-left: 2px solid color-mix(in srgb, var(--color-sky-blue) 60%, transparent); line-height: 1.55; }
+.why > summary:hover, .more > summary:hover { color: var(--color-text-primary); }
+.why p { margin: 6px 0 0; padding-left: 10px; border-left: 2px solid color-mix(in srgb, var(--color-neon-cyan) 50%, transparent); line-height: 1.55; }
 .more { margin: 2px 0 0; font-size: var(--text-body-sm); }
 .more > summary { font-family: var(--font-body); font-size: var(--text-caption); margin: 2px 0 6px; }
 /* 「叫了不等於通過」:前半句是重點,後半句小字 */
-.callout { margin: 0 0 6px; }
-.callout .tail { display: block; color: var(--color-smoke); font-size: var(--text-caption); margin-top: 2px; }
+.callout { margin: 0 0 6px; color: var(--color-text-primary); }
+.callout .tail { display: block; color: var(--color-text-secondary); font-size: var(--text-caption); margin-top: 2px; }
 /* 感測器那一行:三件事三顆小標籤 */
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.chip { border: 1px solid var(--color-ash); border-radius: var(--radius-full); padding: 2px 10px; background: var(--color-paper); }
-code { background: var(--color-periwinkle-mist); border-radius: 4px; padding: 1px 6px;
-  font-family: var(--font-abc-diatype-mono); }
+.chip {
+  border: 1px solid var(--color-night-border-strong); border-radius: var(--radius-full);
+  padding: 2px 10px; background: var(--color-night-surface); color: var(--color-text-secondary);
+}
+code {
+  background: var(--color-night-code-bg); color: var(--color-code-text);
+  border: 1px solid color-mix(in srgb, var(--color-neon-cyan) 22%, transparent);
+  border-radius: 4px; padding: 1px 6px; font-family: var(--font-abc-diatype-mono);
+}
 button.copy {
   font: inherit; font-size: var(--text-caption); cursor: pointer;
-  border: 1px solid var(--color-off-black); background: transparent; color: var(--color-off-black);
+  border: 1px solid var(--color-neon-cyan); background: color-mix(in srgb, var(--color-neon-cyan) 10%, transparent);
+  color: var(--color-neon-cyan);
   border-radius: var(--radius-full); padding: 5px 14px; margin-top: 8px;
 }
-button.copy:hover { background: var(--color-off-black); color: var(--color-parchment); }
-a.ext { color: var(--color-lake-blue); }
-.muted { color: var(--color-smoke); }
-.warn { color: var(--color-off-black); }
+button.copy:hover { background: var(--color-neon-cyan); color: var(--color-night-canvas); }
+a.ext { color: var(--color-neon-cyan); }
+.muted { color: var(--color-text-muted); }
+.warn { color: var(--color-neon-amber); }
 
 /* ───────── Overview:左邊在跑、中間狀態、右邊已結案 ───────── */
 .ov {
   position: relative; display: grid; grid-template-columns: 1fr 200px 1fr;
   gap: var(--spacing-16); align-items: center;
-  border: 1px solid var(--color-ash); border-radius: var(--radius-2xl);
-  padding: 22px 20px; overflow: hidden; min-height: 210px;
-  /* 工地看板:比便條紙大一點的淡方格(工地工班風畫面 AC-11) */
+  border: 1px solid color-mix(in srgb, var(--color-neon-cyan) 42%, var(--color-night-border-strong)); border-radius: var(--radius-2xl);
+  padding: 24px 20px 28px; overflow: hidden; min-height: 284px;
+  /* 夜間施工看板:比工作卡大一點的電青施工方格 */
   background:
     linear-gradient(var(--color-grid) 1px, transparent 1px) 0 0 / 28px 28px,
     linear-gradient(90deg, var(--color-grid) 1px, transparent 1px) 0 0 / 28px 28px,
-    var(--color-paper);
+    var(--color-night-surface);
+  box-shadow: 0 0 22px color-mix(in srgb, var(--color-neon-cyan) 14%, transparent), var(--shadow-note);
 }
 .ov-col { display: grid; gap: 7px; align-content: center; justify-items: start; z-index: 1; }
 .ov-right { justify-items: end; }
 /* 膠囊寬度貼著文字,不要撐滿整欄 */
 .ochip { width: max-content; max-width: 100%; }
 .ov-h {
-  font-size: var(--text-caption); color: var(--color-smoke);
+  font-size: var(--text-caption); color: var(--color-text-muted);
   text-transform: uppercase; letter-spacing: var(--tracking-caption); margin-bottom: 2px;
 }
 .ochip {
   display: inline-flex; align-items: center; gap: 7px; text-decoration: none;
-  border: 1px solid var(--color-ash); border-radius: var(--radius-full);
-  padding: 6px 14px; background: var(--color-paper); color: var(--color-off-black);
+  border: 1px solid var(--color-night-border-strong); border-radius: var(--radius-full);
+  padding: 6px 14px; background: var(--color-night-surface-2); color: var(--color-text-primary);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.ochip:hover { border-color: var(--color-lake-blue); }
-.odot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-lake-blue); flex: none; }
-.ov-right .odot { background: var(--color-ash); }
+.ochip:hover {
+  border-color: var(--color-neon-cyan); text-decoration: none;
+  box-shadow: 0 0 10px color-mix(in srgb, var(--color-neon-cyan) 22%, transparent);
+}
+.odot {
+  width: 7px; height: 7px; border-radius: 50%; background: var(--color-neon-cyan); flex: none;
+  box-shadow: 0 0 6px color-mix(in srgb, var(--color-neon-cyan) 70%, transparent);
+}
+.ov-right .odot { background: var(--color-text-muted); box-shadow: none; }
 
-/* 中央的匯流點:參考設計稿那顆會呼吸的核心 */
+/* 中央的匯流點:夜間四色漸層流動核心(類 After Effects 4-Color Gradient + 霓虹燈管微閃爍) */
 /* ⚠️ hub 必須落在**線匯流的那個高度**(50%)。
    原本 hub 與文字疊成一欄,文字把 hub 往上推,線就對不到球心。 */
-.ov-mid { position: relative; display: grid; place-items: center; z-index: 1; min-height: 150px; }
+.ov-mid { position: relative; display: grid; place-items: center; z-index: 1; min-height: 244px; }
 .ov-hub {
   width: 74px; height: 74px; border-radius: 50%; display: grid; place-items: center;
-  background: radial-gradient(circle at 40% 35%, var(--color-mint), transparent 62%),
-              radial-gradient(circle at 65% 60%, var(--color-sky-blue), transparent 62%),
-              radial-gradient(circle at 45% 75%, var(--color-gold), transparent 62%);
+  background: var(--color-night-surface-2);
+  border: 1.5px solid color-mix(in srgb, var(--color-hub-1) 75%, transparent);
+  box-shadow:
+    0 0 24px color-mix(in srgb, var(--color-hub-1) 52%, transparent),
+    0 0 42px color-mix(in srgb, var(--color-hub-2) 34%, transparent);
   position: relative;
+}
+.ov-hub::before {
+  content: ''; position: absolute; inset: 0; border-radius: 50%;
+  background:
+    radial-gradient(circle at 22% 24%, color-mix(in srgb, var(--color-hub-1) 92%, transparent), transparent 56%),
+    radial-gradient(circle at 78% 26%, color-mix(in srgb, var(--color-hub-2) 90%, transparent), transparent 56%),
+    radial-gradient(circle at 76% 78%, color-mix(in srgb, var(--color-hub-3) 88%, transparent), transparent 58%),
+    radial-gradient(circle at 24% 76%, color-mix(in srgb, var(--color-hub-4) 90%, transparent), transparent 56%),
+    linear-gradient(135deg, var(--color-hub-1), var(--color-hub-2), var(--color-hub-3), var(--color-hub-4));
+  background-size: 220% 220%;
+  animation:
+    hubflow 4.2s ease-in-out infinite,
+    hubflicker 3.6s linear infinite;
+  animation-delay: calc(var(--t, 0) * -1s), calc(var(--t, 0) * -1s);
+}
+@keyframes hubflow {
+  0%, 100% { background-position: 0% 0%, 100% 0%, 100% 100%, 0% 100%, 0% 50%; }
+  33%      { background-position: 100% 35%, 30% 100%, 0% 45%, 85% 0%, 60% 20%; }
+  66%      { background-position: 35% 100%, 0% 40%, 85% 0%, 100% 80%, 100% 70%; }
+}
+@keyframes hubflicker {
+  0%, 19%, 21%, 54%, 56%, 100% { filter: brightness(1.08) saturate(1.25); }
+  20%, 55%                     { filter: brightness(.82) saturate(1.05); }
+  38%                          { filter: brightness(1.26) saturate(1.4); }
 }
 .ov-hub span {
   position: absolute; inset: 0; border-radius: 50%;
-  border: 1px solid var(--color-ash); animation: pulse 3.4s ease-in-out infinite;
+  border: 1px solid color-mix(in srgb, var(--color-neon-cyan) 70%, transparent); animation: pulse 3.4s ease-in-out infinite;
   animation-delay: calc(var(--t, 0) * -1s);
 }
 /* --t 是這一頁開了幾秒(app.js 的 paint):畫面每 5 秒重畫一次,負的延遲讓動畫從該在的位置接著演,不跳回起點(工地工班風畫面 AC-3) */
@@ -446,7 +573,7 @@ a.ext { color: var(--color-lake-blue); }
 }
 .ov-state {
   position: absolute; top: calc(50% + 48px); left: 50%; transform: translateX(-50%);
-  text-align: center; font-size: var(--text-caption); color: var(--color-graphite);
+  text-align: center; font-size: var(--text-caption); color: var(--color-text-secondary);
   white-space: nowrap;
 }
 .ov-state div { padding: 1px 0; }
@@ -455,77 +582,96 @@ a.ext { color: var(--color-lake-blue); }
    每條一樣快、一樣顏色:流得快慢不一樣,會被讀成「這個在忙」 */
 .ov-wires { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
 .ov-wires path {
-  fill: none; stroke: var(--color-sky-blue); stroke-width: 1.2; stroke-linecap: round;
+  fill: none; stroke: var(--color-neon-cyan); stroke-width: 1.5; stroke-linecap: round;
+  opacity: .88;
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--color-neon-cyan) 65%, transparent));
   stroke-dasharray: 3 7; animation: ovdrift 4.5s linear infinite;
   animation-delay: calc(var(--t, 0) * -1s);
 }
 @keyframes ovdrift { to { stroke-dashoffset: -40; } }
 /* 已結案的「還有 N 個／收起」:跟膠囊同一個樣子、虛線框,看得出是按鈕不是一個對話 */
-.ochip.ov-more { font: inherit; cursor: pointer; color: var(--color-graphite); border-style: dashed; }
+.ochip.ov-more { font: inherit; cursor: pointer; color: var(--color-text-secondary); border-style: dashed; }
 .sl-more { margin-top: 10px; }
 
 /* ───────── 對話清單 ───────── */
 .slist { display: grid; gap: 8px; }
 .srow {
   display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: center;
-  border: 1px solid var(--color-ash); border-radius: var(--radius-2xl); padding: 12px 18px;
-  background: var(--color-paper);
+  border: 1px solid color-mix(in srgb, var(--color-text-primary) 16%, var(--color-night-border));
+  border-radius: var(--radius-2xl); padding: 12px 18px;
+  background:
+    repeating-linear-gradient(135deg, color-mix(in srgb, var(--color-text-primary) 2.5%, transparent) 0 1px, transparent 1px 4px),
+    linear-gradient(125deg,
+      color-mix(in srgb, var(--color-text-primary) 10%, transparent) 0%,
+      color-mix(in srgb, var(--color-night-surface) 58%, transparent) 55%,
+      color-mix(in srgb, var(--color-text-primary) 4%, transparent) 100%);
+  -webkit-backdrop-filter: blur(14px) saturate(1.3);
+  backdrop-filter: blur(14px) saturate(1.3);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--color-text-primary) 20%, transparent), var(--shadow-note);
 }
-.srow .sname { grid-column: 1; font-size: var(--text-body); color: var(--color-off-black); text-decoration: none; }
-.srow .sname:hover { color: var(--color-lake-blue); }
-.srow .smeta { grid-column: 1; font-size: var(--text-caption); color: var(--color-smoke); }
+.srow .sname { grid-column: 1; font-size: var(--text-body); color: var(--color-text-primary); text-decoration: none; }
+.srow .sname:hover { color: var(--color-neon-cyan); text-decoration: none; }
+.srow .smeta { grid-column: 1; font-size: var(--text-caption); color: var(--color-text-secondary); }
 .srow .mini-btn { grid-column: 2; grid-row: 1 / span 2; }
 /* 結案:用一條手繪感的線劃掉,不是刪掉——紀錄還在 */
 .srow.closed { opacity: .62; }
 .srow.closed .sname {
   text-decoration: line-through; text-decoration-thickness: 1.5px;
-  text-decoration-color: var(--color-coral); color: var(--color-smoke);
+  text-decoration-color: var(--color-neon-coral); color: var(--color-text-muted);
 }
 .mini-btn {
   font: inherit; font-size: var(--text-caption); cursor: pointer;
-  border: 1px solid var(--color-ash); background: transparent; color: var(--color-graphite);
+  border: 1px solid var(--color-night-border-strong); background: var(--color-night-surface-2); color: var(--color-text-secondary);
   border-radius: var(--radius-full); padding: 5px 14px; white-space: nowrap;
 }
-.mini-btn:hover { border-color: var(--color-off-black); color: var(--color-off-black); }
-.mini-btn:disabled { opacity: .5; cursor: default; }
+.mini-btn:hover { border-color: var(--color-neon-cyan); color: var(--color-text-primary); }
+.mini-btn:disabled { opacity: .45; cursor: default; }
 
 @media (prefers-reduced-motion: reduce) {
-  .ov-hub span, .ov-wires path { animation: none; }
+  .ov-hub::before, .ov-hub span, .ov-wires path { animation: none; }
 }
 
 /* ═══ 分級卡:需要的那幾項、調高的表單 ═══ */
-.reqs { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 4px; font-size: var(--text-caption); }
-.reqs li[data-state="missing"] { color: var(--color-coral); }
+.reqs { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 4px; font-size: var(--text-caption); color: var(--color-text-secondary); }
+.reqs li[data-state="missing"] { color: var(--color-neon-coral); }
 .tierform { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
-.tierform input { flex: 1; min-width: 160px; font: inherit; font-size: var(--text-caption); padding: 4px 8px;
-  border: 1px solid var(--color-smoke); border-radius: 6px; background: transparent; color: inherit; }
-.tierform select { font: inherit; font-size: var(--text-caption); padding: 4px 6px; }
+.tierform input {
+  flex: 1; min-width: 160px; font: inherit; font-size: var(--text-caption); padding: 5px 8px;
+  border: 1px solid var(--color-night-border-strong); border-radius: 6px;
+  background: var(--color-night-surface-2); color: var(--color-text-primary);
+}
+.tierform input::placeholder { color: var(--color-text-muted); }
+.tierform select {
+  font: inherit; font-size: var(--text-caption); padding: 5px 8px;
+  border: 1px solid var(--color-night-border-strong); border-radius: 6px;
+  background: var(--color-night-surface-2); color: var(--color-text-primary);
+}
 
-/* 已走過(這一輪比現在這一關早被叫的)與處理完了:鉛筆劃掉——紀錄還在,只是不用再看。跟結案那條線同一支筆 */
+/* 已走過(這一輪比現在這一關早被叫的)與處理完了:劃掉——紀錄還在,只是不用再看。跟結案那條線同一支筆 */
 .acard[data-state="done"] .atitle, .acard[data-state="passed"] .atitle {
-  text-decoration: line-through; text-decoration-thickness: 1.5px; text-decoration-color: var(--color-coral);
+  text-decoration: line-through; text-decoration-thickness: 1.5px; text-decoration-color: var(--color-neon-coral);
 }
 .acard[data-state="passed"] { opacity: .62; }
-.acard[data-state="passed"] .astatus { color: var(--color-smoke); }
-.railcell[data-state="passed"] .dot { background: var(--color-off-black); border-color: var(--color-off-black); opacity: .5; }
-.mini span[data-s="passed"] { background: var(--color-off-black); opacity: .5; }
+.acard[data-state="passed"] .astatus { color: var(--color-text-muted); }
+.railcell[data-state="passed"] .dot { background: var(--color-text-secondary); border-color: var(--color-text-secondary); opacity: .55; }
+.mini span[data-s="passed"] { background: var(--color-text-secondary); opacity: .55; }
 
 /* 開過瀏覽器(seen):不亮、不劃掉——它是線索不是進度。圓點空心、卡片正常 */
-.railcell[data-state="seen"] .dot { background: transparent; border-color: var(--color-lake-blue); border-style: dashed; }
+.railcell[data-state="seen"] .dot { background: transparent; border-color: var(--color-neon-blue); border-style: dashed; }
 /* 結論過期(之後又改了程式檔,要再跑一次):警示色,跟「需要」清單裡的 missing 同一個慣例 */
-.railcell[data-state="stale"] .dot { background: transparent; border-color: var(--color-coral); border-style: dashed; }
-.acard[data-state="stale"] .lamp { background: transparent; border-color: var(--color-coral); border-style: dashed; }
-.acard[data-state="stale"] .astatus { color: var(--color-coral); }
-.acard[data-state="seen"] .lamp { background: transparent; border-color: var(--color-lake-blue); border-style: dashed; }
+.railcell[data-state="stale"] .dot { background: transparent; border-color: var(--color-neon-coral); border-style: dashed; }
+.acard[data-state="stale"] .lamp { background: transparent; border-color: var(--color-neon-coral); border-style: dashed; }
+.acard[data-state="stale"] .astatus { color: var(--color-neon-coral); }
+.acard[data-state="seen"] .lamp { background: transparent; border-color: var(--color-neon-blue); border-style: dashed; }
 /* 你說不用再跑(held,D 多輪先問人 AC-4):擱著——不亮、不劃掉、不打勾、也不是警示。圓點空心灰:是你的決定,不是驗過了 */
-.railcell[data-state="held"] .dot { background: transparent; border-color: var(--color-graphite); border-style: dashed; }
-.acard[data-state="held"] .lamp { background: transparent; border-color: var(--color-graphite); border-style: dashed; }
-.mini span[data-s="held"] { background: var(--color-smoke); opacity: .6; }
-.mini span[data-s="seen"] { background: var(--color-ash); }
+.railcell[data-state="held"] .dot { background: transparent; border-color: var(--color-text-muted); border-style: dashed; }
+.acard[data-state="held"] .lamp { background: transparent; border-color: var(--color-text-muted); border-style: dashed; }
+.mini span[data-s="held"] { background: var(--color-text-muted); opacity: .6; }
+.mini span[data-s="seen"] { background: color-mix(in srgb, var(--color-neon-blue) 45%, var(--color-night-surface-2)); }
 .acard .mini-btn { margin-top: 8px; }
 .srow .sact { grid-column: 2; grid-row: 1 / span 2; display: flex; gap: 8px; align-items: center; }
 /* 建議卡:說明那幾行裡的連結(來自哪個對話、要開在哪個專案、已開始的對話、別的專案那一頁),跟麵包屑同一個顏色 */
-.srow .smeta a, .section-note a { color: var(--color-lake-blue); text-decoration: none; }
+.srow .smeta a, .section-note a { color: var(--color-neon-cyan); text-decoration: none; }
 .srow .smeta a:hover, .section-note a:hover { text-decoration: underline; }
 /* 收起來的建議卡(已開始、你說不做了):預設收著,點開看得到——收起來不是刪掉 */
 .sg-fold { margin-top: var(--spacing-16); }
@@ -534,60 +680,163 @@ a.ext { color: var(--color-lake-blue); }
 /* 案件卡:說出小格子畫的是哪個對話。名字太長就截,不要把「走到哪」那一行擠掉 */
 .pcard { min-width: 0; }
 .pcard .meta.focus { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ov-subject { color: var(--color-smoke); font-size: var(--text-caption); }
+.ov-subject { color: var(--color-text-primary); font-size: var(--text-caption); }
 
 /* A 底下的驗收清單:照規格檔畫,一條一行;白話那句用次要色 */
-.acl { list-style: none; margin: .45rem 0 0; padding: 0; font-size: 12px; line-height: 1.5; }
+.acl { list-style: none; margin: .45rem 0 0; padding: 0; font-size: 12px; line-height: 1.5; color: var(--color-text-primary); }
 .acl li { display: flex; gap: .45rem; align-items: flex-start; margin: .15rem 0; }
 .acl .mark { flex: 0 0 auto; }
-.acl .plain, .acl .muted, .acl.muted { color: var(--color-smoke); }
-.acl li[data-state="checked"] { opacity: .7; }
+.acl .plain, .acl .muted, .acl.muted { color: var(--color-text-secondary); }
+.acl li[data-state="checked"] { opacity: .65; text-decoration: line-through; }
 .acl-box { margin-top: .45rem; font-size: 12px; }
-.acl-box > summary { cursor: pointer; color: var(--color-smoke); list-style: none; }
+.acl-box > summary { cursor: pointer; color: var(--color-text-secondary); list-style: none; }
 .acl-box > summary::before { content: '▸ '; }
 .acl-box[open] > summary::before { content: '▾ '; }
-.acl li[data-state="checked"] { text-decoration: line-through; }
+.acl-box > summary:hover { color: var(--color-text-primary); }
 /* 分批做的規格:不在這一批的那幾條照畫,淡一點(施工對話認規格 AC-8) */
 .acl li[data-batch="out"] { opacity: .5; }
 /* 結論的清單(C 的建議、D 的發現):一行一條 */
-.rnote { margin: .35rem 0 0; padding-left: 1.1rem; font-size: 12px; line-height: 1.5; color: var(--color-smoke); }
+.rnote { margin: .35rem 0 0; padding-left: 1.1rem; font-size: 12px; line-height: 1.5; color: var(--color-text-secondary); }
 
-/* ───────── 還差什麼白板(案件頁 Overview 下面,規格:還差什麼總表 AC-10、AC-11) ─────────
-   工地白板:白板面、鋁框、下緣的筆槽;每個對話一個手畫的馬克筆圈。筆的顏色照最急的那一件(紅等你決定、藍還差、灰看不到、黃只差按結案)——
-   「沒有還差的事」是黃筆(工地主任的黃,Oscar 2026-11-02 指定),不變綠(老毛病 P10);顏色之外圈旁一定有字,筆槽寫四色的意思 */
+/* ───────── 還差什麼夜間霓虹廣告招牌板(案件頁 Overview 下面,規格:還差什麼總表 AC-10、AC-11；night-shift-ui-theme AC-4) ─────────
+   深炭毛玻璃底板、暗金屬框、下緣燈號列;每個對話一張毛玻璃霓虹招牌(紅等你決定、藍還差、灰看不到、黃只差按結案)——
+   紅／藍／黃發光並模擬霓虹微閃爍；灰（看不到）不發光、不閃爍。沒有還差的事是黃色（工地主任的黃），不變綠（老毛病 P10）；顏色之外標題旁一定有字,下緣寫四色燈號的意思 */
 .wb {
-  background: var(--color-whiteboard); border: 6px solid var(--color-whiteboard-frame); border-radius: 10px;
-  padding: var(--spacing-16) var(--spacing-24) 12px; box-shadow: var(--shadow-note);
+  background:
+    linear-gradient(var(--color-grid) 1px, transparent 1px) 0 0 / 28px 28px,
+    linear-gradient(90deg, var(--color-grid) 1px, transparent 1px) 0 0 / 28px 28px,
+    radial-gradient(ellipse 55% 65% at 14% 48%, color-mix(in srgb, var(--color-neon-cyan) 14%, transparent), transparent 68%),
+    radial-gradient(ellipse 50% 65% at 86% 62%, color-mix(in srgb, var(--color-neon-violet) 16%, transparent), transparent 70%),
+    radial-gradient(circle 140px at 90% 14%, color-mix(in srgb, var(--color-agent-f) 11%, transparent), transparent 72%),
+    color-mix(in srgb, var(--color-whiteboard) 82%, transparent);
+  -webkit-backdrop-filter: blur(14px) saturate(1.25);
+  backdrop-filter: blur(14px) saturate(1.25);
+  border: 6px solid var(--color-whiteboard-frame); border-radius: 10px;
+  padding: var(--spacing-16) var(--spacing-24) 12px;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--color-text-primary) 16%, transparent), var(--shadow-note);
 }
 .wb-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .wb-head .section { margin-bottom: 4px; }
 .wb-boss { display: flex; flex-direction: column; align-items: center; gap: 2px; flex: none; }
-.wb-boss-name { font-size: var(--text-caption); color: var(--color-smoke); }
-.wb-line { font-size: var(--text-caption); color: var(--color-graphite); margin: 0 0 8px; }
-.wb-tasks { list-style: none; margin: 10px 0 0; padding: 0 0 0 10px; display: grid; gap: 16px; }
+.wb-boss-name { font-size: var(--text-caption); color: var(--color-text-secondary); }
+.wb-line { font-size: var(--text-caption); color: var(--color-text-secondary); margin: 0 0 8px; }
+.wb-tasks { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 12px; }
 /* 認不得的顏色畫成看不到,不畫成只差按結案(P10) */
-.wb-task { --ink: var(--color-marker-gray); }
+.wb-task {
+  --ink: var(--color-marker-gray); --sign-ph: 0s;
+  position: relative; border-radius: 12px; padding: 12px 16px 12px 20px;
+  border: 1.5px solid color-mix(in srgb, var(--color-marker-gray) 38%, var(--color-night-border));
+  background: color-mix(in srgb, var(--color-night-surface) 56%, transparent);
+}
+.wb-item:nth-child(2n) .wb-task { --sign-ph: -1.7s; }
+.wb-item:nth-child(3n) .wb-task { --sign-ph: -3.1s; }
 .wb-task[data-ink="red"] { --ink: var(--color-marker-red); }
 .wb-task[data-ink="blue"] { --ink: var(--color-marker-blue); }
 .wb-task[data-ink="gray"] { --ink: var(--color-marker-gray); }
 .wb-task[data-ink="yellow"] { --ink: var(--color-marker-yellow); }
-.wb-task > summary { cursor: pointer; list-style: none; display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; padding: 6px 4px; }
-.wb-task > summary::-webkit-details-marker { display: none; }
-.wb-ring { position: relative; display: inline-block; padding: 2px 12px; font-size: var(--text-body); color: var(--color-off-black); }
-/* 手畫的圈:不規則的橢圓、歪一點;單雙數歪的方向不一樣,像真的一個一個用筆圈的 */
-.wb-ring::before {
-  content: ''; position: absolute; inset: -6px -10px; border: 2.5px solid var(--ink); pointer-events: none;
-  border-radius: 52% 48% 55% 45% / 58% 46% 54% 42%; transform: rotate(-2.5deg);
+/* 紅／藍／黃招牌:半透明毛玻璃透霧＋斜向霧面玻璃細紋＋玻璃頂緣反光＋左側垂直燈管＋霓虹微閃爍 */
+.wb-task:is([data-ink="red"], [data-ink="blue"], [data-ink="yellow"]) {
+  border-color: var(--ink);
+  background:
+    repeating-linear-gradient(135deg, color-mix(in srgb, var(--color-text-primary) 2.5%, transparent) 0 1px, transparent 1px 4px),
+    linear-gradient(125deg,
+      color-mix(in srgb, var(--color-text-primary) 13%, transparent) 0%,
+      color-mix(in srgb, var(--ink) 16%, color-mix(in srgb, var(--color-night-surface) 44%, transparent)) 38%,
+      color-mix(in srgb, var(--color-night-surface) 58%, transparent) 100%);
+  -webkit-backdrop-filter: blur(18px) saturate(1.55) brightness(1.06);
+  backdrop-filter: blur(18px) saturate(1.55) brightness(1.06);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--color-text-primary) 30%, transparent),
+    0 0 14px color-mix(in srgb, var(--ink) 42%, transparent),
+    0 0 28px color-mix(in srgb, var(--ink) 18%, transparent),
+    inset 0 0 16px color-mix(in srgb, var(--ink) 20%, transparent);
+  animation: sign-flicker 5.4s linear infinite;
+  animation-delay: calc(var(--t, 0) * -1s + var(--sign-ph, 0s));
 }
-.wb-item:nth-child(even) .wb-ring::before { transform: rotate(2deg); border-radius: 47% 53% 44% 56% / 50% 58% 42% 50%; }
-/* 件數的字一種一色(下面 [data-k]);「沒有還差的事了」不上色——黃字在白板上看不清楚,也不替它另外上色(P10) */
-.wb-count { font-size: var(--text-caption); font-weight: 600; color: var(--color-off-black); }
-.wb-task .titems { margin: 8px 0 0 14px; }
-.wb-acts { display: flex; gap: 14px; align-items: center; margin: 8px 0 0 14px; font-size: var(--text-caption); }
-/* 一件一色(Oscar 2026-11-02):圈旁的件數、展開後每一件前面那一點、main 推了沒那一行,照那一件的種類上色——
-   紅圈裡的還差也是藍的,所以筆槽亮的每一支筆,白板上都找得到那一色。只是說明的那幾件不上色;
-   「沒有還差的事」也不另外上色(老毛病 P10)——圈旁那幾個字跟著黑圈,展開後那一行跟說明一樣 */
-.titems li { --ink: var(--color-smoke); }
+.wb-task:is([data-ink="red"], [data-ink="blue"], [data-ink="yellow"])::before {
+  content: ''; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3.5px;
+  border-radius: 0 var(--radius-full) var(--radius-full) 0;
+  background: var(--ink);
+  box-shadow: 0 0 8px var(--ink), 0 0 16px color-mix(in srgb, var(--ink) 65%, transparent);
+  pointer-events: none;
+  animation: sign-bar-flicker 5.4s linear infinite;
+  animation-delay: calc(var(--t, 0) * -1s + var(--sign-ph, 0s));
+}
+@keyframes sign-flicker {
+  0%, 17%, 20%, 58%, 62%, 100% {
+    border-color: var(--ink);
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, var(--color-text-primary) 30%, transparent),
+      0 0 14px color-mix(in srgb, var(--ink) 42%, transparent),
+      0 0 28px color-mix(in srgb, var(--ink) 18%, transparent),
+      inset 0 0 16px color-mix(in srgb, var(--ink) 20%, transparent);
+  }
+  18%, 60% {
+    border-color: color-mix(in srgb, var(--ink) 52%, transparent);
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, var(--color-text-primary) 24%, transparent),
+      0 0 4px color-mix(in srgb, var(--ink) 16%, transparent),
+      inset 0 0 5px color-mix(in srgb, var(--ink) 8%, transparent);
+  }
+  19% {
+    border-color: var(--ink);
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, var(--color-text-primary) 34%, transparent),
+      0 0 18px color-mix(in srgb, var(--ink) 58%, transparent),
+      0 0 34px color-mix(in srgb, var(--ink) 26%, transparent),
+      inset 0 0 18px color-mix(in srgb, var(--ink) 28%, transparent);
+  }
+}
+@keyframes sign-bar-flicker {
+  0%, 17%, 20%, 58%, 62%, 100% { opacity: 1; }
+  18%, 60%                     { opacity: .45; }
+  19%                          { opacity: 1; }
+}
+/* 灰招牌（看不到）:霧面冷灰毛玻璃,不閃爍也不亮燈 */
+.wb-task[data-ink="gray"] {
+  border-color: color-mix(in srgb, var(--color-marker-gray) 38%, var(--color-night-border));
+  background:
+    repeating-linear-gradient(135deg, color-mix(in srgb, var(--color-text-primary) 2%, transparent) 0 1px, transparent 1px 4px),
+    linear-gradient(125deg,
+      color-mix(in srgb, var(--color-text-primary) 8%, transparent) 0%,
+      color-mix(in srgb, var(--color-night-surface) 52%, transparent) 100%);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--color-text-primary) 14%, transparent);
+  animation: none;
+}
+.wb-task > summary { cursor: pointer; list-style: none; display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; padding: 0 2px; }
+.wb-task > summary::-webkit-details-marker { display: none; }
+.wb-ring {
+  position: relative; flex: 1 1 100%; display: flex; align-items: baseline; gap: 8px;
+  font-size: var(--text-body); font-weight: 500; line-height: 1.45; color: var(--color-text-primary);
+}
+.wb-ring::before { content: '▸'; flex: none; font-size: var(--text-caption); color: var(--ink); opacity: .88; }
+.wb-task[open] > summary .wb-ring::before { content: '▾'; }
+.wb-task:is([data-ink="red"], [data-ink="blue"], [data-ink="yellow"]) .wb-ring {
+  text-shadow: 0 0 10px color-mix(in srgb, var(--ink) 55%, transparent);
+}
+.wb-task[data-ink="gray"] .wb-ring { color: var(--color-text-secondary); text-shadow: none; }
+/* 件數的字一種一色(下面 [data-k]);「沒有還差的事了」不上特殊色(P10) */
+.wb-count { font-size: var(--text-caption); font-weight: 600; color: var(--color-text-secondary); }
+.wb-task .titems {
+  position: relative; margin: 10px 0 0; padding-top: 10px; padding-left: 1.3em;
+  border-top: 1px solid color-mix(in srgb, var(--color-marker-gray) 38%, var(--color-night-border));
+}
+.wb-task:is([data-ink="red"], [data-ink="blue"], [data-ink="yellow"]) .titems {
+  border-top-color: var(--ink);
+}
+.wb-task:is([data-ink="red"], [data-ink="blue"], [data-ink="yellow"]) .titems::before {
+  content: ''; position: absolute; left: 0; right: 0; top: -1px; height: 1px;
+  background: var(--ink);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--ink) 75%, transparent);
+  pointer-events: none;
+}
+.wb-acts { display: flex; gap: 14px; align-items: center; margin: 10px 0 0 2px; font-size: var(--text-caption); }
+.wb-acts a { color: var(--color-neon-cyan); }
+/* 一件一色(Oscar 2026-11-02):招牌旁的件數、展開後每一件前面那一點、main 推了沒那一行,照那一件的種類上色——
+   紅招牌裡的還差也是藍的,所以燈號列亮的每一盞,看板上都找得到那一色。只是說明的那幾件不上色 */
+.titems li { --ink: var(--color-text-muted); }
 :is(.wb, .titems) [data-k="ask"] { --ink: var(--color-marker-red); }
 :is(.wb, .titems) [data-k="todo"] { --ink: var(--color-marker-blue); }
 :is(.wb, .titems) [data-k="unknown"] { --ink: var(--color-marker-gray); }
@@ -596,39 +845,60 @@ a.ext { color: var(--color-lake-blue); }
 .wb-line[data-k]::before {
   content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 7px; vertical-align: 1px; background: var(--ink);
 }
-/* 筆槽:白板下緣的托盤,四支馬克筆跟它的意思排在一起(Oscar 2026-11-02)。白板上畫到哪一色,那一支的筆頭就亮(data-lit,ui/app.js 照畫出來的每一處顏色算);
-   沒亮的筆頭淡掉、字也淡。亮不亮之外,字一直都在——不只靠光 */
+/* 招牌燈號列:毛玻璃板面下緣,四盞招牌小燈管跟它的意思排在一起。看板上有哪一色,紅／藍／黃小燈管就亮(data-lit);灰（不亮燈）維持靜止暗淡 */
 .wb-tray {
-  display: flex; flex-wrap: wrap; gap: 8px 22px; margin-top: 16px; padding: 8px 14px; border-radius: 4px;
-  background: var(--color-whiteboard-frame); font-size: var(--text-caption);
+  display: flex; flex-wrap: wrap; gap: 8px 22px; margin-top: 16px; padding: 8px 14px; border-radius: 8px;
+  background: color-mix(in srgb, var(--color-whiteboard-tray) 72%, transparent);
+  -webkit-backdrop-filter: blur(12px) saturate(1.3);
+  backdrop-filter: blur(12px) saturate(1.3);
+  border: 1px solid color-mix(in srgb, var(--color-text-primary) 12%, var(--color-night-border));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--color-text-primary) 10%, transparent);
+  font-size: var(--text-caption);
 }
-.wb-pen { --ink: var(--color-marker-gray); display: inline-flex; align-items: center; gap: 8px; color: var(--color-smoke); }
+.wb-pen { --ink: var(--color-marker-gray); display: inline-flex; align-items: center; gap: 8px; color: var(--color-text-muted); }
 .wb-pen[data-ink="red"] { --ink: var(--color-marker-red); }
 .wb-pen[data-ink="blue"] { --ink: var(--color-marker-blue); }
 .wb-pen[data-ink="gray"] { --ink: var(--color-marker-gray); }
 .wb-pen[data-ink="yellow"] { --ink: var(--color-marker-yellow); }
-/* 筆身是白的、筆頭是那一色;筆頭亮了就發光。筆頭朝左、筆尾挨著字(Oscar 2026-11-02:筆頭轉到另一邊);左邊讓出筆頭那一截,不擠到前一支的字 */
-.wb-pen i { position: relative; display: block; flex: none; width: 34px; height: 9px; margin-left: 7px; border-radius: 2px 5px 5px 2px; background: var(--color-paper); }
-.wb-pen i::after {
-  content: ''; position: absolute; left: -7px; top: 1px; width: 9px; height: 7px; border-radius: 50% 1px 1px 50%;
-  background: var(--ink); opacity: .28;
+/* 迷你招牌燈管:未亮時暗色細管;紅／藍／黃亮起時燈管發光閃動並帶白光燈芯,灰（不亮燈）維持靜止暗淡 */
+.wb-pen i {
+  position: relative; display: block; flex: none; width: 24px; height: 6px;
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--ink) 20%, var(--color-pen-body));
+  border: 1px solid var(--color-night-border-strong);
 }
-.wb-pen[data-lit="1"] { color: var(--color-off-black); font-weight: 600; }
-.wb-pen[data-lit="1"] i::after { opacity: 1; animation: pen-light 2.4s ease-in-out infinite; }
+.wb-pen i::after {
+  content: ''; position: absolute; inset: 1.5px 4px; border-radius: var(--radius-full);
+  background: var(--color-hat-reflect); opacity: 0;
+}
+.wb-pen[data-lit="1"] { color: var(--color-text-primary); font-weight: 600; }
+.wb-pen[data-lit="1"] i {
+  background: var(--ink);
+  border-color: color-mix(in srgb, var(--ink) 75%, var(--color-text-primary));
+  animation: pen-light 2.4s ease-in-out infinite;
+}
+.wb-pen[data-lit="1"] i::after { opacity: .55; }
+.wb-pen[data-ink="gray"][data-lit="1"] i {
+  background: color-mix(in srgb, var(--color-marker-gray) 26%, var(--color-pen-body));
+  border-color: var(--color-night-border-strong);
+  box-shadow: none;
+  animation: none;
+}
+.wb-pen[data-ink="gray"][data-lit="1"] i::after { opacity: 0; }
 @keyframes pen-light {
   0%, 100% { box-shadow: 0 0 3px 1px var(--ink); }
-  50%      { box-shadow: 0 0 9px 3px var(--ink); }
+  50%      { box-shadow: 0 0 10px 3px var(--ink); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .wb-pen[data-lit="1"] i::after { animation: none; box-shadow: 0 0 6px 2px var(--ink); }
+  .wb-task:is([data-ink="red"], [data-ink="blue"], [data-ink="yellow"]),
+  .wb-task:is([data-ink="red"], [data-ink="blue"], [data-ink="yellow"])::before { animation: none; }
+  .wb-pen[data-lit="1"] i { animation: none; box-shadow: 0 0 6px 2px var(--ink); }
+  .wb-pen[data-ink="gray"][data-lit="1"] i { box-shadow: none; }
 }
-/* 每一件(白板展開之後、F 工地主任那一列共用):問不到的、只是說明的淡一點,等你決定的粗一點;「沒有還差的事」跟其他行同一個顏色 */
-.titems { margin: 4px 0 0; padding-left: 1.1em; font-size: var(--text-caption); color: var(--color-off-black); }
-.titems li[data-k="unknown"], .titems li[data-k="note"] { color: var(--color-smoke); }
+/* 每一件(白板展開之後、F 工地主任那一列共用):問不到的、只是說明的淡一點,等你決定的粗一點 */
+.titems { margin: 4px 0 0; padding-left: 1.1em; font-size: var(--text-caption); color: var(--color-text-primary); }
+.titems li[data-k="unknown"], .titems li[data-k="note"] { color: var(--color-text-muted); }
 .titems li[data-k="ask"] { font-weight: 600; }
-/* 記號預設是空心小圈(只是說明、不是還差的事:F 那一格的建議卡、叫主任,白板展開後的說明與「沒有還差的事」);
-   只有等你決定／還差／看不到才是紅藍灰的實心點——說明也畫成灰點,會被讀成「看不到」(規格:主任條列與工地帽 AC-4)。
-   「沒有還差的事」不另外點名,照舊跟說明同一個樣子(老毛病 P10) */
+/* 記號預設是空心小圈(只是說明、不是還差的事);只有等你決定／還差／看不到才是紅藍灰的實心點(規格:主任條列與工地帽 AC-4) */
 .titems li { list-style-type: circle; }
 .titems li:is([data-k="ask"], [data-k="todo"], [data-k="unknown"]) { list-style-type: disc; }
-

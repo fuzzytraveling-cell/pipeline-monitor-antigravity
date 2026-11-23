@@ -358,10 +358,11 @@ function whiteboard(p) {
   const used = new Set(sec.rows.flatMap((r) => [inkOf(r), ...r.items.map((i) => INK[i.kind]), r.clear ? INK.clear : null]));
   if (pushKind) used.add(INK[pushKind]);
   if (sec.note) used.add(INK.unknown);
-  const pens = [['red', zhEn('紅筆＝等你決定', 'Red = your call')], ['blue', zhEn('藍筆＝還差什麼', 'Blue = what\'s still to do')],
-    ['gray', zhEn('灰筆＝看不到', 'Gray = can\'t see')], ['yellow', zhEn('黃筆＝只差按結案', 'Yellow = only closing left')]];
-  const tray = pens.map(([ink, label]) => `<span class="wb-pen" data-ink="${ink}" data-lit="${used.has(ink) ? 1 : 0}" title="${used.has(ink)
-    ? zhEn('筆頭亮著：白板上有這一色', 'Lit: this color is on the board') : zhEn('筆頭沒亮：白板上沒有這一色', 'Off: this color isn\'t on the board')}"><i></i>${esc(label)}</span>`).join('');
+  const pens = [['red', zhEn('紅燈＝等你決定', 'Red light = your call')], ['blue', zhEn('藍燈＝還差什麼', 'Blue light = what\'s still to do')],
+    ['gray', zhEn('灰（不亮燈）＝看不到', 'Gray (unlit) = can\'t see')], ['yellow', zhEn('黃燈＝只差按結案', 'Yellow light = only closing left')]];
+  const tray = pens.map(([ink, label]) => `<span class="wb-pen" data-ink="${ink}" data-lit="${used.has(ink) ? 1 : 0}" title="${esc(ink === 'gray'
+    ? (used.has(ink) ? zhEn('看板上有「看不到」項目（灰招牌不亮燈）', 'There is a "can\'t see" item on the board (gray stays unlit)') : zhEn('看板上沒有這一項', 'This state isn\'t on the board'))
+    : (used.has(ink) ? zhEn('招牌燈亮著：看板上有這一色', 'Sign light on: this color is on the board') : zhEn('招牌燈未亮：看板上沒有這一色', 'Sign light off: this color isn\'t on the board')))}"><i></i>${esc(label)}</span>`).join('');
   return `<div class="block">
     <div class="wb">
       <div class="wb-head">
@@ -754,13 +755,9 @@ function workflow(c) {
       </div>`;
   }).join('');
 
-  // ⚠️ 一條貫穿 A→E 的線,絕對定位在整個左欄上——不是每一格各畫一段。
-  // 分段畫的話,卡片高度不同就會在接縫處斷開。
-  return `<div class="wf">
-    <svg class="wf-line" preserveAspectRatio="none" viewBox="0 0 10 1000">
-      <path d="M5 6 C2.6 130, 7.8 250, 4.6 372 C1.8 480, 8 600, 5.2 720
-               C3 820, 7.4 900, 5 994"/>
-    </svg>${rows}${c.director ? directorRow(c) : ''}</div>`;
+  // ⚠️ 一條貫穿 A→E 的高亮度流動彩虹霓虹燈管,絕對定位在整個左欄上——不是每一格各畫一段。
+  // 分段畫的話,卡片高度不同就會在接縫處斷開;流動效果用 CSS 雙週期漸層往下滑動並與 --t 同步。
+  return `<div class="wf"><div class="wf-line" aria-hidden="true"></div>${rows}${c.director ? directorRow(c) : ''}</div>`;
 }
 
 /** F 工地主任要的那一份:這個對話在總表裡的收尾狀況(lib/todo.mjs 的 desk)、它提的建議卡。舊的服務沒有 todo → 那一列講服務是舊的 */

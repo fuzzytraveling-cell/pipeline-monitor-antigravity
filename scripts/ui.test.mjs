@@ -723,4 +723,26 @@ section('誰說處理完了只算一次(lib/rounds.mjs 的 doneBy):那一格的�
   eq('舊的服務只給 closedBy:human、沒給 doneBy → 不笑(網頁不自己猜)', faceOf(paint(y.map((s) => (s.id === 'A' ? { ...s, closedBy: 'human', doneBy: undefined } : s))), 'A'), 'open');
 }
 
+section('夜間工班主題：ui/ui.css 零色碼（全部吃 tokens.css）且 server.mjs 的 appVersion 納入 /tokens.css', 'P4');
+{
+  const stripCssComments = (s) => String(s ?? '').replace(/\/\*[\s\S]*?\*\//g, '');
+  const hasHardcodedColor = (css) => /#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?)\s*\(/i.test(stripCssComments(css));
+  const uiCss = readFileSync(join(ROOT, 'ui', 'ui.css'), 'utf8');
+  check('ui/ui.css 不含任何寫死色碼（全部透過 var(--...) 吃 variables.css）', !hasHardcodedColor(uiCss),
+    stripCssComments(uiCss).split('\n').filter((l) => hasHardcodedColor(l)).slice(0, 5).join('\n      '));
+  check('反向測試：必須抓到 color: #fff; 與 rgba(0, 0, 0, .5)',
+    hasHardcodedColor('body { color: #fff; }') && hasHardcodedColor('.x { background: rgba(0, 0, 0, .5); }'));
+  check('反向測試：必須放過 var(--color-text-primary) 與註解裡的 #fff',
+    !hasHardcodedColor('/* #fff rgb(0,0,0) */\nbody { color: var(--color-text-primary); }'));
+
+  const srvSrc = readFileSync(join(ROOT, 'server.mjs'), 'utf8');
+  check("server.mjs 的 appVersion() 納入 SERVE['/tokens.css']", /SERVE\['\/tokens\.css'\]/.test(srvSrc.match(/function appVersion\(\)[\s\S]*?\n\}/)?.[0] ?? ''));
+  const server = createApp();
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const json = await fetch(`http://127.0.0.1:${server.address().port}/api/status`).then((r) => r.json());
+  check('/api/status 的 appVersion 帶有 3 段時間戳（app.js + ui.css + variables.css）',
+    /^\d+(?:\.\d+)?-\d+(?:\.\d+)?-\d+(?:\.\d+)?$/.test(String(json.appVersion ?? '')), String(json.appVersion));
+  server.close();
+}
+
 process.exit(summary());

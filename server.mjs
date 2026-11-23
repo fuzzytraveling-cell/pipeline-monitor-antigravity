@@ -79,9 +79,9 @@ function pageIn(lang, html) {
   return tagged.replace(/(<([a-z0-9]+)\b[^>]*\sdata-en="([^"]*)"[^>]*>)[^<]*(<\/\2>)/gi, (m, open, tag, en, close) => `${open}${en}${close}`);
 }
 
-/** 畫面程式的版本:兩個檔的修改時間。讀不到就是 null——畫面不會因為問不到版本就一直重新載入。 */
+/** 畫面程式的版本:三個檔的修改時間(含色票)。讀不到就是 null——畫面不會因為問不到版本就一直重新載入。 */
 function appVersion() {
-  try { return [SERVE['/app.js'], SERVE['/ui.css']].map((f) => statSync(f).mtimeMs).join('-'); } catch { return null; }
+  try { return [SERVE['/app.js'], SERVE['/ui.css'], SERVE['/tokens.css']].map((f) => statSync(f).mtimeMs).join('-'); } catch { return null; }
 }
 
 /**

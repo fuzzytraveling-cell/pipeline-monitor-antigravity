@@ -229,7 +229,7 @@ section('伺服器:首頁照語言送(第一眼就是對的語言);按鈕跟其�
   const status = async () => JSON.parse((await send('GET', '/api/status')).body);
 
   const zhPage = (await send('GET', '/')).body;
-  check('從來沒選過:首頁是中文、<html lang="zh-Hant" data-lang="zh">', zhPage.includes('<html lang="zh-Hant" data-lang="zh">') && zhPage.includes('<title data-en="Pipeline Monitor">產線監視器</title>'), zhPage.slice(0, 300));
+  check('從來沒選過:首頁是中文、<html lang="zh-Hant" data-lang="zh">', zhPage.includes('<html lang="zh-Hant" data-lang="zh">') && zhPage.includes('<title data-en="Pipeline Monitor · Antigravity">產線監視器 · Antigravity</title>') && zhPage.includes('<span class="brand-badge">Antigravity</span>'), zhPage.slice(0, 350));
   check('……按鈕寫「English」(寫成要切過去的那一種)', />English<\/button>/.test(zhPage), zhPage);
   const s1 = await status();
   eq('資料帶著「這份是哪一種」:中文', s1.lang, 'zh');
@@ -251,7 +251,7 @@ section('伺服器:首頁照語言送(第一眼就是對的語言);按鈕跟其�
   eq('換了之後共用的那份作廢了:下一次就是英文(不用等它過期)', s2.lang, 'en');
   const enPage = (await send('GET', '/')).body;
   check('首頁:<html lang="en" data-lang="en">', enPage.includes('<html lang="en" data-lang="en">'), enPage.slice(0, 200));
-  check('首頁:標題、載入中、正在連線換成英文', enPage.includes('<title data-en="Pipeline Monitor">Pipeline Monitor</title>') && enPage.includes('>Loading…</p>') && enPage.includes('>Connecting…</span>'), enPage);
+  check('首頁:標題、載入中、正在連線換成英文（含 Antigravity 識別）', enPage.includes('<title data-en="Pipeline Monitor · Antigravity">Pipeline Monitor · Antigravity</title>') && enPage.includes('<span class="brand-badge">Antigravity</span>') && enPage.includes('>Loading…</p>') && enPage.includes('>Connecting…</span>'), enPage);
   check('首頁:按鈕寫「中文」', />中文<\/button>/.test(enPage), enPage);
   noZh('首頁(拿掉標籤):除了按鈕那個「中文」,沒有中文', strip(enPage), ['中文']);
 
