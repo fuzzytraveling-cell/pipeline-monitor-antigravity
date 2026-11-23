@@ -670,6 +670,7 @@ a.ext { color: var(--color-neon-cyan); }
 .mini span[data-s="seen"] { background: color-mix(in srgb, var(--color-neon-blue) 45%, var(--color-night-surface-2)); }
 .acard .mini-btn { margin-top: 8px; }
 .srow .sact { grid-column: 2; grid-row: 1 / span 2; display: flex; gap: 8px; align-items: center; }
+.srow .sact button.copy { margin-top: 0; }
 /* 建議卡:說明那幾行裡的連結(來自哪個對話、要開在哪個專案、已開始的對話、別的專案那一頁),跟麵包屑同一個顏色 */
 .srow .smeta a, .section-note a { color: var(--color-neon-cyan); text-decoration: none; }
 .srow .smeta a:hover, .section-note a:hover { text-decoration: underline; }
