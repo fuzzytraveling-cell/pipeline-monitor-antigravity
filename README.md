@@ -24,6 +24,8 @@ agy-pipeline              # 看現況（還原點 + 改動體檢 + 五關）
 agy-pipeline --checkpoint # 跑完整檢查，全綠就蓋一個還原點
 agy-pipeline --clear E    # 記下「E 驗收過了」（A 到 D 由儀表板自動辨識）；AI 替你記要附你的原話：--clear E "你的原話"
 agy-pipeline --spec <規格檔>  # 照別的對話寫好的規格施工：AI 在施工的對話裡記一筆照哪份（--spec 無＝沒有照哪份）
+agy-pipeline --round precheck  # 規格預審的規格路徑、預測分級與可用死法清單（spec-precheck 開工第一步）
+agy-pipeline --precheck ok|found "…"   # 記下規格預審結論（掛在 A 底下，與程式 D 徹底隔離）
 agy-pipeline --round D    # D 這一輪第幾次、怎麼跑、第一次之後改了哪些檔（AI 跑 D 的第一步；問你要不要再跑之前也看它）
 agy-pipeline --decide D skip "你的原話"   # 你說這一輪不用再跑 D：AI 代記，儀表板附你在 D 之後說的最後一句
 agy-pipeline --round E    # E 驗收這一輪照哪份規格、要驗哪幾條、第幾趟、專案怎麼跑起來（AI 跑 verify 的第一步）
@@ -48,7 +50,7 @@ agy-pipeline --install
 它在 `~/.gemini/config/plugins/agy-pipeline` 放一個捷徑指向這個資料夾，Antigravity 會一次載入：
 - **Hooks**（`hooks.json`）：`SessionStart`（`remind.sh`）、`PreToolUse`（`guard.sh`／`guard.mjs`：改危險清單前強制彈窗問你確認）、`PostToolUse`（`hook.sh`）、`Stop`（`gate.sh`）
 - **常駐規則**（`rules/AGENTS.md`）：五關紀律、三條紅線、何時跑 `agy-pipeline` 指令
-- **6 支通用技能**（`skills/*/SKILL.md`）：`spec`、`cleanup`、`chaos-check`、`verify`、`tier-setup`、`director`
+- **7 支通用技能**（`skills/*/SKILL.md`）：`spec`、`spec-precheck`、`cleanup`、`chaos-check`、`verify`、`tier-setup`、`director`
 
 拆掉用 `agy-pipeline --uninstall`。
 
@@ -62,11 +64,12 @@ agy-pipeline --install
 
 「掛在哪」看設定，「活著嗎」看紀錄——兩件事分開講，證據跟設定打架時證據贏。
 
-### plugin 帶的 6 支技能（通用版）
+### plugin 帶的 7 支技能（通用版）
 
 | 技能 | 做什麼 | 不做什麼 |
 |---|---|---|
-| `spec` | A 寫規格：一句需求 → 一頁可以打勾的驗收條件，寫到 `docs/規劃中/`，停下來等你點頭 | 不寫程式、不改既有檔案 |
+| `spec` | A 寫規格：一句需求 → 一頁可以打勾的驗收條件，寫到 `docs/規劃中/`，停下來等你點頭（已設定分級專案預測最高級時先銜接一輪 `spec-precheck`） | 不寫程式、不改既有檔案 |
+| `spec-precheck` | A → D 規格預審：寫完規格後、動手前拿已知死法對照規格本身跑一輪預審，收尾記 `--precheck` | 不改檔案、不自動重跑、**不寫進 `--report D`** |
 | `cleanup` | C 打掃：只刪證明得出來是死的東西，其餘出建議清單 | 不碰測試檔、不改控制流 |
 | `chaos-check` | D 魔鬼教官：拿這個專案自己的 `docs/FAILURE-PATTERNS.md` 對照這次改動 | 不改檔案、**不說「通過」** |
 | `verify` | E 驗收：照這一輪的規格在畫面上走一遍（透過 Antigravity 內建 `browser` subagent），每條記看到了（附畫面原文）／沒看到／驗不了 | 不改程式、不存截圖、**不說「驗收過了」**（那句只有你能說） |

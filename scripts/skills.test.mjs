@@ -59,7 +59,7 @@ for (const s of stages) {
   check(`${s.id} ${s.name} → skills/${s.skill}/SKILL.md 存在`, existsSync(file));
 }
 const ALL = readdirSync(SKILLS).filter((d) => existsSync(join(SKILLS, d, 'SKILL.md'))).sort();
-eq('共有 6 支技能', ALL.length, 6);
+eq('共有 7 支技能', ALL.length, 7);
 for (const d of ALL) {
   const fm = frontmatter(readFileSync(join(SKILLS, d, 'SKILL.md'), 'utf8'));
   check(`skills/${d}: 有 frontmatter`, fm !== null);
@@ -115,6 +115,7 @@ section('AC-1：每一支技能的說明中英兩段——英文觸發句完整�
   check('必須放過：中英都有的說明', bilingual(`${zhOnly} English — use it when the user says "write a spec".`));
   const want = {
     spec: ['write a spec'],
+    'spec-precheck': ['spec precheck', 'precheck the spec', 'chaos check the spec'],
     cleanup: ['clean up'],
     'chaos-check': ['chaos check'],
     verify: ['walk through it', 'verify'],
@@ -149,8 +150,9 @@ section('AC-2：每一支技能的用語對照、三條通用判準的英文那�
     check(`skills/${d}：講明用使用者講的語言回`, /用使用者講的語言回/.test(t) && /Reply in the language the user writes in/.test(t) && /is the meaning, not words to copy/.test(t));
   }
   check('對照表每一列都有「不准說」', termsTable().slice(2).every((l) => l.split('|')[3]?.trim()), table);
-  const chaos = textOf('chaos-check'), verify = textOf('verify');
+  const chaos = textOf('chaos-check'), verify = textOf('verify'), precheck = textOf('spec-precheck');
   check('魔鬼教官：英文結論是 didn\'t match any known failure pattern，固定結尾講 looked 不是 passed', /This change didn't match any known failure pattern\./.test(chaos) && /This is "looked", not "passed"/.test(chaos));
+  check('規格預審：英文結論是 didn\'t match any known failure pattern，固定結尾講 looked 不是 passed', /This spec didn't match any known failure pattern\./.test(precheck) && /This is "looked", not "passed"/.test(precheck));
   check('驗收：英文固定結尾是 This is a walk-through, not an acceptance.', verify.includes('**This is a walk-through, not an acceptance.**'));
   check('驗收：英文三種結果（seen／not seen／can\'t verify）寫在格式裡', /AC-3 seen: "the original text on the screen"/.test(verify) && /AC-4 not seen:/.test(verify) && /AC-5 can't verify: reason/.test(verify));
 }
@@ -165,7 +167,7 @@ section('AC-5：技能裡照指令英文分路的那幾句，真的是指令印�
     check(`魔鬼教官的表有「${k}」`, chaos.includes(k));
     check('……那是 runMode 英文真的會印的字', modes[i].includes(k), modes[i]);
   });
-  for (const k of ['Can\'t get which files changed after the first time', 'Couldn\'t get the list after the first round, so this time I looked at the whole batch', 'This round\'s scope']) {
+  for (const k of ['Can\'t get which files changed after the first time', 'Couldn\'t get the list after the first round, so this time I looked at the whole batch', 'This round\'s scope', 'Split reminder']) {
     check(`魔鬼教官的表有「${k}」，而且是 --round D 英文真的會印的字`, chaos.includes(k) && src.includes(k), k);
   }
   for (const k of ['Verify against this spec: ', 'Verify against these ', 'Done in batches: this batch only verifies', 'the spec is in the main folder', 'This round has no spec', 'can\'t find this round\'s spec file', 'walking through it again would be number', 'There\'s nothing to verify against']) {

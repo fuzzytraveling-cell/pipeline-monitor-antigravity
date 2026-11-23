@@ -95,7 +95,7 @@
 | 分享給別人（紀錄搬家、雙語、公開、上架、非 Claude） | [ROADMAP](docs/ROADMAP.md)「分享給別人」；第 1 段：[紀錄搬到固定的家](docs/升級摘要/紀錄搬到固定的家.md)；第 2 段雙語：[儀表板與終端機中英切換](docs/升級摘要/儀表板與終端機中英切換.md)、[技能與寫給AI的話中英切換](docs/升級摘要/技能與寫給AI的話中英切換.md)；鍵盤切中英：[dashboard-language-shortcut](docs/升級摘要/dashboard-language-shortcut.md) |
 | 改收工 hook（`gate.mjs`）、五關怎麼辨識與結案 | [五關自動結案](docs/升級摘要/五關自動結案.md) |
 | plugin 帶的 A／C／D skill；C、D 看哪些檔 | [通用三關](docs/升級摘要/通用三關.md)、[skill範圍跟收工hook對齊](docs/升級摘要/skill範圍跟收工hook對齊.md) |
-| D 要不要再跑 | [D多輪先問人](docs/升級摘要/D多輪先問人.md) |
+| D 要不要再跑；A 寫完規格後 D 先預審 | [D多輪先問人](docs/升級摘要/D多輪先問人.md)；[spec-chaos-precheck](docs/升級摘要/spec-chaos-precheck.md) |
 | E 驗收 | [E自動驗收](docs/升級摘要/E自動驗收.md) |
 | 「這一輪」從哪算起、新對話接手舊資料夾、從 main 併進來的算不算 | [這一輪的起點](docs/升級摘要/這一輪的起點.md)、[新對話接手舊資料夾](docs/升級摘要/新對話接手舊資料夾.md)、[多份規格與新資料夾的起點](docs/升級摘要/多份規格與新資料夾的起點.md)；從 main 併進來、別的對話寫的檔：[併進來的不算這一輪](docs/升級摘要/併進來的不算這一輪.md) |
 | 這一輪照哪份規格（別的對話寫的、搬過家、一輪好幾份） | [施工對話認規格](docs/升級摘要/施工對話認規格.md)、[規格搬家](docs/升級摘要/規格搬家.md)、[多份規格與新資料夾的起點](docs/升級摘要/多份規格與新資料夾的起點.md) |

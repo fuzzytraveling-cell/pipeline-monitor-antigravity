@@ -34,6 +34,7 @@ import { isSubagentPayload } from './lib/transcript.mjs';
 import { GATE_FILE, SENSOR_FILE } from './lib/faults.mjs';
 import { ago } from './lib/git.mjs';
 import { readTierConfig, codeFileFn, changeTimeOf, RANKS, DANGER_ASK, dangerAskLine, laterOf } from './lib/tier.mjs';
+import { predictsDanger, isOpenSpec } from './lib/checklist.mjs';
 import { changeScope } from './lib/scope.mjs';
 import { commandFor as findCommand, pluginName } from './lib/skills.mjs';
 import { optOutState } from './lib/mount.mjs';
@@ -98,18 +99,11 @@ export function decide({ payload, monitorDir = MONITOR_DIR, skillHome = undefine
   const { card, events, stages, ctx } = got;
   if (card.gone || card.notGit) return null;
   if (optOutState(ctx.root, ctx.mainRoot)) return null;          // 退出記錄的專案,連感測器都不記,也不擋
+  const cfg = readTierConfig(ctx.root, ctx.mainRoot, monitorDir);
+  if (cfg.state !== 'ok') return null;                          // 沒設定分級／讀不懂／不分級：不擋（含規格預審，Oscar 2026-11-23 拍板）
   // 這個對話的分級:跟對話頁同一個函式。共用工作區時從這個對話自己的起點算,別的對話更早存的檔不算到它頭上
   const shared = sessionsOf(events).find((s) => s.id === sid)?.sharesCwd === true;
   const mineNow = sessionTier({ card, events, stages, session: sid, cwd: path, shared, monitorDir });
-  const tier = mineNow.tier;
-  if (!tier || tier.state !== 'ok') return null;                  // 沒設定分級就沒有「該跑的關」;只看得到還沒存檔的而且沒有(unseen)也要不了
-  const requires = tier.final?.requires ?? [];
-  // 危險清單定好之後才新加、沒人判斷過的程式檔(規格:收工hook問危險清單 AC-1、AC-4):分級卡算好的那一份(buildTier 的 stale),不另算。
-  const top = (tier.final?.rank ?? RANKS.length - 1) >= RANKS.length - 1;
-  const fresh = !top && tier.stale?.since && Array.isArray(tier.stale.fresh) ? tier.stale.fresh : [];
-  if (!requires.length && !fresh.length) return null;
-  const cfg = readTierConfig(ctx.root, ctx.mainRoot, monitorDir);
-  if (cfg.state !== 'ok') return null;
 
   const mine = events.filter((e) => !e._subagent && e.session === sid);
   const timesOf = (pick) => mine.filter(pick).map((e) => Date.parse(e.ts)).filter(Number.isFinite).sort((a, b) => a - b);
@@ -122,7 +116,8 @@ export function decide({ payload, monitorDir = MONITOR_DIR, skillHome = undefine
   const blocked = blockedFrom(turnStart), blockedOdd = blockedFrom(oddStart);
   if (again && !blockedOdd.size) return null;
 
-  const hits = [...(tier.machine?.hits?.danger ?? []), ...(tier.machine?.hits?.code ?? [])];
+  const tier = mineNow.tier;
+  const hits = tier?.state === 'ok' ? [...(tier.machine?.hits?.danger ?? []), ...(tier.machine?.hits?.code ?? [])] : [];
   const mtimes = hits.map((f) => changeTimeOf(ctx.root, f)).filter((t) => t !== null);
   const inArea = codeFileFn(ctx.root, cfg.config);
   // 用單一真相來源 isEditEvent（AC-4）：read_file / view_file 絕不當成改過程式檔
@@ -137,6 +132,53 @@ export function decide({ payload, monitorDir = MONITOR_DIR, skillHome = undefine
   // 規格連結只認這個對話記的(施工對話認規格 AC-2):五關、分級卡、這裡都從同一份 specContext 算(sessionTier 裡的 sessionView)
   const view = mineNow.view.stages;
   const specStage = stages.find((s) => s.skill);   // 寫規格的那一關 = 第一個指令關(跟一輪的分界同一個認法,不寫死代號)
+  const bStage = view.find((v) => v.type === 'main-conversation') ?? null;
+  const aStage = specStage ? view.find((v) => v.id === specStage.id) ?? null : null;
+
+  // A → D 規格預審(寫規格後、動手前):純寫規格回合機器分級只到 T0(requires 為空),所以檢查擺在 tier.requires 之前。
+  // 只在尚未開工(!bStage?.ranAt && !changedThisTurn && !changedOdd)且非 --spec 連結(!aStage?.link)時檢查：
+  //   1. 叫了 spec-precheck 卻還沒記結論(no-report) → 擋一次 A:precheck:report
+  //   2. 本回合寫完預測達最高級的規格(state==='none') → 擋一次 A:precheck；之後再改規格不重擋(AC-4)
+  if (!bStage?.ranAt && !changedThisTurn && !changedOdd && !aStage?.link && aStage?.precheck) {
+    const blockedAlready = (key) => blocked.has(key) && blockedOdd.has(key);
+    if (aStage.precheck.state === 'no-report' && !blockedAlready('A:precheck:report')) {
+      const reason = [
+        zhEn('[產線監視器] 這一輪叫了規格預審，還沒記結論：', '[Pipeline Monitor] This round called spec precheck, and no conclusion has been recorded yet:'),
+        zhEn(
+          '- 規格預審：叫了，還沒記結論。還在背景跑就照實說還在跑，不准先記 ok 交差；跑完照這支技能收尾記：agy-pipeline --precheck ok|found "…"。沒跑完（中斷了）就再叫一次',
+          '- Spec precheck: called, no conclusion recorded yet. If it is still running in the background, say truthfully that it is still running; never record ok early just to finish. When it is done, record it with: agy-pipeline --precheck ok|found "…". If it did not finish (it was interrupted), call it again',
+        ),
+        zhEn('先把這一步補完（或還在跑就照實告訴使用者）再收工。', 'Finish this step (or tell the user truthfully if it is still running) before wrapping up.'),
+      ].join('\n');
+      return { reason, missing: ['A:precheck:report'], level: cfg.config.levels.none.id, project: got.project, cwd: path, session: sid, logDir: got.logDir, again };
+    }
+    const dangerId = cfg.config.levels.danger.id;
+    const precheckCmd = commandFor('spec-precheck', ctx.root, ctx.mainRoot, skillHome);
+    const aInTurn = [aStage.ranAt, aStage.doneAt, ...mine.filter((e) => isEditEvent(e) && isOpenSpec(e.file)).map((e) => e.ts)]
+      .map((t) => Date.parse(t)).some((ms) => Number.isFinite(ms) && ms >= turnStart - SKEW_MS);
+    if (aStage.precheck.state === 'none' && aStage.checklist?.parsed === true && aInTurn
+        && predictsDanger(aStage.checklist, dangerId) === true && precheckCmd && !blockedAlready('A:precheck')) {
+      const reason = [
+        zhEn(
+          `[產線監視器] 這一輪寫了預測至少 ${dangerId} 的規格，還沒開始寫程式，收工前還缺：`,
+          `[Pipeline Monitor] This round wrote a spec predicting at least ${dangerId}, and coding has not started yet. Still missing before wrapping up:`,
+        ),
+        zhEn(
+          `- 規格預審：這一輪還沒跑 → 跑 ${precheckCmd}（派 1 個獨立唯讀子 agent 對照已知死法與通用三條紅線 R1–R3；不改任何檔；收尾記 agy-pipeline --precheck ok|found "…"）。記完就停，不要自己重跑`,
+          `- Spec precheck: not run yet this round → run ${precheckCmd} (send 1 independent read-only subagent against known failure patterns and R1-R3; change no files; record with agy-pipeline --precheck ok|found "…"). Stop once recorded and never run again on your own`,
+        ),
+        zhEn('先補完再收工；記完就停，不要自己再重跑。', 'Finish this before wrapping up; once recorded, stop and don\'t run it again on your own.'),
+      ].join('\n');
+      return { reason, missing: ['A:precheck'], level: dangerId, project: got.project, cwd: path, session: sid, logDir: got.logDir, again };
+    }
+  }
+
+  if (!tier || tier.state !== 'ok') return null;                  // 沒設定分級就沒有「該跑的關」;只看得到還沒存檔的而且沒有(unseen)也要不了
+  const requires = tier.final?.requires ?? [];
+  // 危險清單定好之後才新加、沒人判斷過的程式檔(規格:收工hook問危險清單 AC-1、AC-4):分級卡算好的那一份(buildTier 的 stale),不另算。
+  const top = (tier.final?.rank ?? RANKS.length - 1) >= RANKS.length - 1;
+  const fresh = !top && tier.stale?.since && Array.isArray(tier.stale.fresh) ? tier.stale.fresh : [];
+  if (!requires.length && !fresh.length) return null;
   const missing = [];
   // 危險清單(規格:收工hook問危險清單 AC-1)排第一:他的答案會改這一輪的等級,其他缺的關跟著變。
   // 這個對話說過「這次先不看」、而且算數的那幾個檔不再問(AC-3;--tier-later 記的,用 by_session 記,所以給整份紀錄、不給 mine)

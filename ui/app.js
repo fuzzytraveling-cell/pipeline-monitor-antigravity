@@ -203,7 +203,7 @@ const mark = (text, part, tag = 'b') => { const t = esc(text), m = esc(part ?? '
  *  todo 是「還差什麼」那一版才有的(規格:還差什麼總表 AC-7):要重啟那一句是服務自己講的,舊的服務講不出來——
  *  不算進來的話,併進去、還沒重啟的那段時間,只有點進案件頁的白板才看得到要重啟,首頁一句都不講(魔鬼教官第二輪,R1) */
 function oldServerBanner() {
-  return latest && (!('sharedLines' in latest) || !('stampHelp' in latest) || !('todo' in latest) || !('guardSupport' in latest))
+  return latest && (!('sharedLines' in latest) || !('stampHelp' in latest) || !('todo' in latest) || !('guardSupport' in latest) || !('precheckSupport' in latest))
     ? zhEn('<p class="fault" data-tone="amber">🟡 儀表板的服務還在跑舊的程式，有幾句畫不出來——跑 <code>agy-pipeline --serve-restart</code></p>',
       '<p class="fault" data-tone="amber">🟡 The dashboard service is still running the old program, so a few lines can\'t be drawn: run <code>agy-pipeline --serve-restart</code></p>') : '';
 }
@@ -689,6 +689,11 @@ function workflow(c) {
       ? `<div class="said">${zhEn(`「${esc(st.args.slice(0, 90))}${st.args.length > 90 ? '…' : ''}」`, `“${esc(st.args.slice(0, 90))}${st.args.length > 90 ? '…' : ''}”`)}</div>` : '';
     // 寫規格那一關的旁白(規格在哪、另寫了一份…):伺服器給的,跟終端機同一句。舊的服務沒給:那一格的狀態列已經講了舊的程式
     const notes = (Array.isArray(st.notes) ? st.notes : []).map((n) => `<div class="said">${esc(n)}</div>`).join('');
+    // 規格預審(A → D 規格預審):伺服器照 lib/stageLines.mjs 算好,跟終端機同一句,不打勾不笑臉(P2/P10)
+    const pcHtml = st.precheck?.line
+      ? `<div class="said">${esc(st.precheck.line)}</div>${Array.isArray(st.precheck.items) && st.precheck.items.length
+          ? `<ul class="rnote">${st.precheck.items.map((l) => `<li>${esc(l.replace(/^[-•]\s*/, ''))}</li>`).join('')}</ul>` : ''}`
+      : '';
     // A 的清單就是規格檔裡的 AC,照檔案畫(AC-5)。解析不了就照原文、找不到就說找不到——不假裝
     // 只有 A 帶完整的清單(有 items);B 只帶進度摘要,進度已經寫在狀態列,這裡不畫——畫下去就是 undefined 的 .map(2026-09-16 實際炸過一次)
     const cl = st.checklist && Array.isArray(st.checklist.items) ? st.checklist : null;
@@ -724,7 +729,7 @@ function workflow(c) {
     // 要處理的、有「你說驗收過了」按鈕的不縮——縮起來就看不到了
     const here = st.id === hereId;
     const foldKey = `stage|${c.path ?? ''}|${st.id}`;
-    const detail = `<div class="adoes">${esc(r.does)}</div>${saidArgs}${notes}${clHtml}${noteHtml}${eList}`;
+    const detail = `<div class="adoes">${esc(r.does)}</div>${saidArgs}${notes}${pcHtml}${clHtml}${noteHtml}${eList}`;
     const body = here || s === 'stale' || stamp ? `${detail}${stamp}`
       : `<details class="amore" data-fold="${esc(foldKey)}"${foldOpen(foldKey, false) ? ' open' : ''}><summary>${zhEn('細節', 'Details')}</summary>${detail}</details>`;
 

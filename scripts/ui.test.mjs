@@ -594,7 +594,7 @@ section('還原點那一行照實講:有沒 commit 的才說會丟掉幾個、�
   const bannerOf = (latest) => (banner ? new Function('latest', `const zhEn = (zh) => zh; const many = (n, one, more = one + 's') => n + ' ' + (n === 1 ? one : more);\n${banner}; return oldServerBanner();`)(latest) : '');
   check('從 ui/app.js 拿得出 oldServerBanner', !!banner);
   check('上一版的服務(有 sharedLines、沒有 stampHelp)→ 最上面講服務還在跑舊的程式', /--serve-restart/.test(bannerOf({ projects: [], sharedLines: {} })));
-  check('這一版的服務 → 不講', bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true }) === '');
+  check('這一版的服務 → 不講', bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true, precheckSupport: true }) === '');
 }
 
 section('舊的服務認得出來:「還差什麼」那一版以前的服務(有 stampHelp、沒有 todo)要重啟那一句講不出來 → 每一頁最上面講服務還在跑舊的程式(規格:還差什麼總表 AC-7,魔鬼教官第二輪)', 'P2');
@@ -606,7 +606,9 @@ section('舊的服務認得出來:「還差什麼」那一版以前的服務(有
   check('必抓:有 stampHelp、沒有 todo → 每一頁最上面講服務還在跑舊的程式', /--serve-restart/.test(bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP })));
   check('必抓:有 todo 但沒有 guardSupport（v0.1 舊服務）→ 每一頁最上面講服務還在跑舊的程式',
     /--serve-restart/.test(bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] } })));
-  check('必放:有 todo 且 guardSupport → 不講', bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true }) === '');
+  check('必抓:有 guardSupport 但沒有 precheckSupport（v0.2 舊服務）→ 每一頁最上面講服務還在跑舊的程式',
+    /--serve-restart/.test(bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true })));
+  check('必放:有 todo、guardSupport 且 precheckSupport → 不講', bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true, precheckSupport: true }) === '');
 }
 
 section('感測器列（sensorLine）：有 q.guard 時一併畫出改檔把關小標籤', 'P2');

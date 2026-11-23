@@ -86,6 +86,11 @@ description: A 寫規格這一關（產線監視器 agy-pipeline 帶的通用版
 6. **告訴儀表板規格在哪**：跑 `agy-pipeline --report A ok "docs/規劃中/<slug>.md"`（英文那一套就寫 `"docs/planned/<slug>.md"`；沒有這個指令的話：`node "<agy-pipeline 的資料夾>/status.mjs" --report A ok "…"`，
    那個資料夾就是 `~/.gemini/config/plugins/agy-pipeline` 指向的位置）。儀表板靠這一行找到這一輪的清單；用終端機指令寫檔時感測器看不到那次寫檔，這一行就是唯一的線索。
    **寫了幾份就記幾次**（一份一行）——儀表板、收工 hook 只認得記過的那幾份，漏記的那份清單不會被要求對。規格搬家（規劃中 → 進行中）之後再記一次新位置也可以。
+6.5. **預測達最高級（預設 T2）且專案已設定分級時，自動跑一輪規格預審**：
+   - 先確認專案已設定分級（`.agents/pipeline-stages.json` 或 `.claude/pipeline-stages.json` 含有效 `tiers`，且非 `tiers.off`），且本份規格（或多份中的任一份）預測到該專案的最高級（`tiers.levels.danger.id`，預設 `T2`）。
+   - **兩者都成立**：停下來等使用者點頭之前，先讀 `skills/spec-precheck/SKILL.md` 跑一輪規格預審（`agy-pipeline --round precheck` → 派 1 個獨立唯讀 `research` subagent 對照已知死法與通用三條紅線 → 記 `agy-pipeline --precheck ok|found "…"`），**不自動改寫規格檔**，再把 AC 清單與預審結果一併交給使用者決定。
+   - **未設定分級、設成不分級、預測未達最高級或讀不出預測分級**：不自動跑預審，直接進步驟 7 等使用者點頭（只有使用者主動點名才跑）。
+   - **只自動跑這一輪**：之後使用者要求調整規格並改完時，不自動重跑第二輪預審。
 7. **回報並停下**。
 
 ## 最小格式（專案沒有自己的範本時）

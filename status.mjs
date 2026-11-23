@@ -38,7 +38,7 @@ import { renderSensor, render } from './lib/cliView.mjs';
 import { renderStages } from './lib/cliStages.mjs';
 import { renderTier, doTierInit, doTierOff, doTierReview, doTierChecked, doTierLater, doTierSet, doTierRetract } from './lib/cliTier.mjs';
 import { doCheckpoint } from './lib/cliStamp.mjs';
-import { doClear, doSpec, doReport, doSuggest } from './lib/cliReport.mjs';
+import { doClear, doSpec, doReport, doPrecheck, doSuggest } from './lib/cliReport.mjs';
 import { doRound, doDecide } from './lib/cliRerun.mjs';
 import { doMount } from './lib/cliOnOff.mjs';
 import { doTodo, doCards } from './lib/cliTodo.mjs';
@@ -114,6 +114,7 @@ async function main(L = { lang: 'zh', state: 'ok' }) {
   if (at('--clear') !== -1) return doClear(ctx, after('--clear'));
   if (at('--spec') !== -1) return doSpec(ctx, ev, after('--spec'));
   if (at('--report') !== -1) { const [id, verdict, ...note] = after('--report'); return doReport(ctx, id, verdict, note.join(' ')); }
+  if (at('--precheck') !== -1) { const [verdict, ...note] = after('--precheck'); return doPrecheck(ctx, ev, verdict, note.join(' ')); }
   if (at('--decide') !== -1) return doDecide(ctx, ev, after('--decide'));
   if (at('--tier-later') !== -1) return doTierLater(ctx, ev, after('--tier-later').join(' '));
   if (at('--round') !== -1) return doRound(ctx, ev, argv[at('--round') + 1]);

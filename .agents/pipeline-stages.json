@@ -29,13 +29,12 @@
       "lib/checkpoint.mjs"
     ],
     "checked": {
-      "at": "2026-11-20T08:32:56.406Z",
+      "at": "2026-11-23T02:42:08.256Z",
       "said": "2.照建議",
       "by": "ai",
-      "commit": "4fad47a9ed6e3bbf5e18ca5132f35a5b9e4d8a29",
+      "commit": "a8b66eff45762efa22e60e5a2fc543aa7dc6d857",
       "files": [
-        "guard.mjs",
-        "guard.sh"
+        "skills/spec-precheck/SKILL.md"
       ]
     }
   }
