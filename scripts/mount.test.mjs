@@ -162,17 +162,19 @@ section('接點清單只有一份：根目錄 hooks.json 與專案級掛載跑�
     !!spec['agy-pipeline-sensor']?.PostToolUse?.length && !spec['agy-pipeline-sensor']?.PreToolUse);
   check('PreToolUse → guard.sh（agy-pipeline-guard）',
     spec['agy-pipeline-guard']?.PreToolUse?.[0]?.hooks?.[0]?.command === 'sh ./guard.sh' && !spec['agy-pipeline-guard']?.PostToolUse);
+  check('PreInvocation → escalate.sh（agy-pipeline-escalate）',
+    spec['agy-pipeline-escalate']?.PreInvocation?.[0]?.command === 'sh ./escalate.sh' && !spec['agy-pipeline-escalate']?.PostToolUse);
   check('Stop → gate.sh', spec['agy-pipeline-gate']?.Stop?.[0]?.command === 'sh ./gate.sh');
   r.cleanup();
 }
 
-section('plugin 目錄缺 guard.sh 或 guard.mjs 時 mountState 回 broken（P3）', 'P3');
+section('plugin 目錄缺 guard.sh/guard.mjs 或 escalate.sh/escalate.mjs 時 mountState 回 broken（P3）', 'P3');
 {
   const r = makeRepo({ files: { 'a.js': '1\n' } });
-  for (const drop of ['guard.sh', 'guard.mjs']) {
+  for (const drop of ['guard.sh', 'guard.mjs', 'escalate.sh', 'escalate.mjs']) {
     const home = mkdtempSync(join(tmpdir(), 'pm-mhome-'));
     const fakePlugin = mkdtempSync(join(tmpdir(), 'pm-mplugin-'));
-    for (const f of ['plugin.json', 'hooks.json', 'hook.sh', 'remind.sh', 'gate.sh', 'gate.mjs', 'guard.sh', 'guard.mjs']) {
+    for (const f of ['plugin.json', 'hooks.json', 'hook.sh', 'remind.sh', 'gate.sh', 'gate.mjs', 'guard.sh', 'guard.mjs', 'escalate.sh', 'escalate.mjs']) {
       if (f === drop) continue;
       copyFileSync(join(ROOT, f), join(fakePlugin, f));
     }

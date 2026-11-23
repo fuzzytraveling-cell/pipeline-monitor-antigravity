@@ -203,7 +203,7 @@ const mark = (text, part, tag = 'b') => { const t = esc(text), m = esc(part ?? '
  *  todo 是「還差什麼」那一版才有的(規格:還差什麼總表 AC-7):要重啟那一句是服務自己講的,舊的服務講不出來——
  *  不算進來的話,併進去、還沒重啟的那段時間,只有點進案件頁的白板才看得到要重啟,首頁一句都不講(魔鬼教官第二輪,R1) */
 function oldServerBanner() {
-  return latest && (!('sharedLines' in latest) || !('stampHelp' in latest) || !('todo' in latest) || !('guardSupport' in latest) || !('precheckSupport' in latest))
+  return latest && (!('sharedLines' in latest) || !('stampHelp' in latest) || !('todo' in latest) || !('guardSupport' in latest) || !('precheckSupport' in latest) || !('escalateSupport' in latest))
     ? zhEn('<p class="fault" data-tone="amber">🟡 儀表板的服務還在跑舊的程式，有幾句畫不出來——跑 <code>agy-pipeline --serve-restart</code></p>',
       '<p class="fault" data-tone="amber">🟡 The dashboard service is still running the old program, so a few lines can\'t be drawn: run <code>agy-pipeline --serve-restart</code></p>') : '';
 }
@@ -646,7 +646,7 @@ function sensorLine(c) {
     if (!q || !('noneLine' in c.sensor)) return zhEn(`<p class="section-note">感測器：已掛上${restart}</p>`, `<p class="section-note">Sensor: hooked up${restart}</p>`);
     // 收工 hook 活著沒:看心跳,不看設定——「掛著」不等於「活著」(L13)。
     // 三件事各放一顆小標籤,字照伺服器給的、一段都不拆(終端機同一句;工地工班風畫面 AC-10)
-    const chips = [q.mounted, q.seen ?? c.sensor.noneLine ?? '', q.gate, ...(q.guard ? [q.guard] : [])];
+    const chips = [q.mounted, q.seen ?? c.sensor.noneLine ?? '', q.gate, ...(q.guard ? [q.guard] : []), ...(q.escalate ? [q.escalate] : [])];
     return `<p class="section-note chips">${chips.map((t) => `<span class="chip">${esc(t)}</span>`).join('')}</p>`;
   }
   // 設定裡沒掛上的那兩種(你退出了、設定裡找不到但紀錄還有 → 它在記):伺服器照終端機同一個函式算好給的那一句(lib/faults.mjs 的 sensorOffLine)

@@ -48,7 +48,7 @@ agy-pipeline --install
 ```
 
 它在 `~/.gemini/config/plugins/agy-pipeline` 放一個捷徑指向這個資料夾，Antigravity 會一次載入：
-- **Hooks**（`hooks.json`）：`SessionStart`（`remind.sh`）、`PreToolUse`（`guard.sh`／`guard.mjs`：改危險清單前強制彈窗問你確認）、`PostToolUse`（`hook.sh`）、`Stop`（`gate.sh`）
+- **Hooks**（`hooks.json`）：`SessionStart`（`remind.sh`）、`PreToolUse`（`guard.sh`／`guard.mjs`：改危險清單前強制彈窗問你確認）、`PreInvocation`（`escalate.sh`／`escalate.mjs`：改到一半升到最高級時即時通知 AI 補關卡）、`PostToolUse`（`hook.sh`）、`Stop`（`gate.sh`）
 - **常駐規則**（`rules/AGENTS.md`）：五關紀律、三條紅線、何時跑 `agy-pipeline` 指令
 - **7 支通用技能**（`skills/*/SKILL.md`）：`spec`、`spec-precheck`、`cleanup`、`chaos-check`、`verify`、`tier-setup`、`director`
 
@@ -111,9 +111,9 @@ npm start                      # 不裝服務的話：這個視窗開著它就�
 
 ⚠️ **畫面隨時會說出「這些資料是什麼時候的」，斷線時整頁會承認。**
 
-## 感測器與即時把關（PreToolUse ＋ PostToolUse ＋ Transcript 補齊）
+## 感測器與即時把關（PreToolUse ＋ PreInvocation ＋ PostToolUse ＋ Transcript 補齊）
 
-`hook.sh` 掛在 Antigravity 的 `PostToolUse` hook 上，工具動作一發生就記一行到 `~/.pipeline-monitor-agy/logs/<專案>.jsonl`；獨立的 `guard.sh`／`guard.mjs` 掛在 `PreToolUse` 上，只在寫／改檔工具即將動到 `tiers.danger` 危險清單上的檔案（或分級設定檔讀不懂）時回傳 `force_ask` 強制跳出確認視窗（不受「總是允許」快取影響），其餘情況與出錯一律 0 bytes 空輸出＋`exit 0` 交回 Antigravity 原本權限、絕不回 `"allow"`。改檔把關守的是寫／改檔工具，用終端機指令繞道改檔它看不到，收工前仍由 `Stop` 門禁依 git 事實查核。
+`hook.sh` 掛在 Antigravity 的 `PostToolUse` hook 上，工具動作一發生就記一行到 `~/.pipeline-monitor-agy/logs/<專案>.jsonl`；獨立的 `guard.sh`／`guard.mjs` 掛在 `PreToolUse` 上，只在寫／改檔工具即將動到 `tiers.danger` 危險清單上的檔案（或分級設定檔讀不懂）時回傳 `force_ask` 強制跳出確認視窗（不受「總是允許」快取影響），其餘情況與出錯一律 0 bytes 空輸出＋`exit 0` 交回 Antigravity 原本權限、絕不回 `"allow"`；另一支獨立的 `escalate.sh`／`escalate.mjs` 掛在 `PreInvocation` 上，當這一輪因實際動到危險檔或手動調高而首度升到最高級（預設 T2）且仍有缺項時，在下一次模型呼叫前注入純 `systemMessage` 即時通知 AI（同輪只通知一次、子 agent 與無關專案靜默 `{}`）。改檔把關守的是寫／改檔工具，用終端機指令繞道改檔它看不到，但 `PreInvocation` 仍會依 git 事實察覺並通知，最後再由 `Stop` 門禁兜底。
 
 - 熱路徑是 **`/bin/sh` + `jq`**，不是 node；單筆 `< 4096 bytes`，**失敗一律靜默、永遠 `exit 0` 並輸出 `{}`**，絕不影響對話。
 - 同時支援 Antigravity 新版工具（`read_file`、`write_file`、`edit_file`、`run_command`、`ask_question`、`send_message`、`invoke_subagent`）與舊版別名（`view_file`、`write_to_file`、`replace_file_content`、`multi_replace_file_content`）。

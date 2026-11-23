@@ -594,7 +594,7 @@ section('還原點那一行照實講:有沒 commit 的才說會丟掉幾個、�
   const bannerOf = (latest) => (banner ? new Function('latest', `const zhEn = (zh) => zh; const many = (n, one, more = one + 's') => n + ' ' + (n === 1 ? one : more);\n${banner}; return oldServerBanner();`)(latest) : '');
   check('從 ui/app.js 拿得出 oldServerBanner', !!banner);
   check('上一版的服務(有 sharedLines、沒有 stampHelp)→ 最上面講服務還在跑舊的程式', /--serve-restart/.test(bannerOf({ projects: [], sharedLines: {} })));
-  check('這一版的服務 → 不講', bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true, precheckSupport: true }) === '');
+  check('這一版的服務 → 不講', bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true, precheckSupport: true, escalateSupport: true }) === '');
 }
 
 section('舊的服務認得出來:「還差什麼」那一版以前的服務(有 stampHelp、沒有 todo)要重啟那一句講不出來 → 每一頁最上面講服務還在跑舊的程式(規格:還差什麼總表 AC-7,魔鬼教官第二輪)', 'P2');
@@ -608,18 +608,21 @@ section('舊的服務認得出來:「還差什麼」那一版以前的服務(有
     /--serve-restart/.test(bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] } })));
   check('必抓:有 guardSupport 但沒有 precheckSupport（v0.2 舊服務）→ 每一頁最上面講服務還在跑舊的程式',
     /--serve-restart/.test(bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true })));
-  check('必放:有 todo、guardSupport 且 precheckSupport → 不講', bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true, precheckSupport: true }) === '');
+  check('必抓:有 precheckSupport 但沒有 escalateSupport（v0.3 舊服務）→ 每一頁最上面講服務還在跑舊的程式',
+    /--serve-restart/.test(bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true, precheckSupport: true })));
+  check('必放:有 todo、guardSupport、precheckSupport 且 escalateSupport → 不講', bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true, precheckSupport: true, escalateSupport: true }) === '');
 }
 
-section('感測器列（sensorLine）：有 q.guard 時一併畫出改檔把關小標籤', 'P2');
+section('感測器列（sensorLine）：有 q.guard 與 q.escalate 時一併畫出小標籤', 'P2');
 {
   const src = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8');
   const markSrc = src.match(/^const mark = .*;$/m)?.[0] ?? null;
   const sl = src.match(/^function sensorLine\(c\) \{\n[\s\S]*?\n\}\n/m)?.[0] ?? null;
   check('從 ui/app.js 拿得出 sensorLine', !!sl && !!markSrc);
   const line = sl && markSrc ? new Function('latest', 'esc', 'ago', `const zhEn = (zh) => zh;\n${markSrc}\n${sl}; return sensorLine;`)({ faults: {} }, (v) => String(v ?? ''), () => '') : () => '';
-  const html = line({ sensor: { mount: { state: 'ok', where: 'plugin' }, noneLine: null, lines: { mounted: '感測器：已掛上', seen: '最後一筆：剛剛', gate: '收工 hook：還沒跑過', guard: '改檔把關：最後一次跑 1 分鐘前' } } });
+  const html = line({ sensor: { mount: { state: 'ok', where: 'plugin' }, noneLine: null, lines: { mounted: '感測器：已掛上', seen: '最後一筆：剛剛', gate: '收工 hook：還沒跑過', guard: '改檔把關：最後一次跑 1 分鐘前', escalate: '分級通知：最後一次跑 1 分鐘前' } } });
   check('畫面上畫得出「改檔把關：最後一次跑 1 分鐘前」chip', html.includes('<span class="chip">改檔把關：最後一次跑 1 分鐘前</span>'), html);
+  check('畫面上畫得出「分級通知：最後一次跑 1 分鐘前」chip', html.includes('<span class="chip">分級通知：最後一次跑 1 分鐘前</span>'), html);
 }
 
 section('上一手的對話頁:講明資料夾換人了,不畫資料夾現在的分支、還原點、改動、分級;五關那一格不給按資料夾記的按鈕(真的跑 ui/app.js 的 sessionPage;規格:新對話接手舊資料夾 AC-5)', 'P6');

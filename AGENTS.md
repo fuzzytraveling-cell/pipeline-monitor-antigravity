@@ -71,7 +71,7 @@
 - **`checkpoints/` 與 `logs/` 不進版控。** 章記的是「**在這台電腦上**跑過檢查」，換一台機器那句話就不成立。
 - **`mountState` 分三態：`off` / `ok` / `broken`，不准折成布林。**
   「掛著」不等於「活著」——搬走資料夾後，hook 路徑指空會完全靜默地停止記錄。
-- **四支 hook 契約分明：`hook.sh`（`PostToolUse`）永遠靜默輸出 `{}`；`guard.sh`／`guard.mjs`（`PreToolUse`）只在命中危險清單或設定讀不懂時回傳 `decision:"force_ask"`，其餘與出錯一律 0 bytes 空輸出＋`exit 0`；`remind.sh`（`SessionStart`）只在對話開始、還沒設定分級時注入一行；`gate.sh`／`gate.mjs`（`Stop`）只在該跑的沒跑時回傳 `decision:"continue"` 一次。**
+- **五支 hook 契約分明：`hook.sh`（`PostToolUse`）永遠靜默輸出 `{}`；`guard.sh`／`guard.mjs`（`PreToolUse`）只在命中危險清單或設定讀不懂時回傳 `decision:"force_ask"`，其餘與出錯一律 0 bytes 空輸出＋`exit 0`；`escalate.sh`／`escalate.mjs`（`PreInvocation`）只在該輪首度升到最高級且有缺項時回傳純 `injectSteps`（`systemMessage`，絕不帶 `metadata.user_markdown`），其餘與出錯一律輸出 `{}`＋`exit 0`；`remind.sh`（`SessionStart`）只在對話開始、還沒設定分級時注入一行；`gate.sh`／`gate.mjs`（`Stop`）只在該跑的沒跑時回傳 `decision:"continue"` 一次。**
 - **沒有清單就不分級；工具不猜危險清單。** 「改錯了會不會靜默丟資料」只有人判斷得了。
   沒設定要說「還沒設定」，不准折成最低那一級——那是 R1。危險清單空的要明講「永遠不會出現第三級」。
 - **儀表板靠 launchd 常駐（`--serve-install`），不靠任何對話活著。** 更新程式之後要 `--serve-restart`。
@@ -99,7 +99,7 @@
 | E 驗收 | [E自動驗收](docs/升級摘要/E自動驗收.md) |
 | 「這一輪」從哪算起、新對話接手舊資料夾、從 main 併進來的算不算 | [這一輪的起點](docs/升級摘要/這一輪的起點.md)、[新對話接手舊資料夾](docs/升級摘要/新對話接手舊資料夾.md)、[多份規格與新資料夾的起點](docs/升級摘要/多份規格與新資料夾的起點.md)；從 main 併進來、別的對話寫的檔：[併進來的不算這一輪](docs/升級摘要/併進來的不算這一輪.md) |
 | 這一輪照哪份規格（別的對話寫的、搬過家、一輪好幾份） | [施工對話認規格](docs/升級摘要/施工對話認規格.md)、[規格搬家](docs/升級摘要/規格搬家.md)、[多份規格與新資料夾的起點](docs/升級摘要/多份規格與新資料夾的起點.md) |
-| 分級、危險清單 | [分級](docs/升級摘要/分級.md)（沒有清單就不分級，工具不猜危險清單）、[危險清單會過期](docs/升級摘要/危險清單會過期.md)、[收工hook問危險清單](docs/升級摘要/收工hook問危險清單.md)；改危險檔前即時 `force_ask` 把關（v0.2）：[danger-guard-force-ask](docs/升級摘要/danger-guard-force-ask.md) |
+| 分級、危險清單 | [分級](docs/升級摘要/分級.md)（沒有清單就不分級，工具不猜危險清單）、[危險清單會過期](docs/升級摘要/危險清單會過期.md)、[收工hook問危險清單](docs/升級摘要/收工hook問危險清單.md)；改危險檔前即時 `force_ask` 把關（v0.2）：[danger-guard-force-ask](docs/升級摘要/danger-guard-force-ask.md)；改到一半碰到危險檔動態升級通知 AI：[tier-escalation-notify](docs/升級摘要/tier-escalation-notify.md) |
 | 誰說的話才算你說的、感測器或收工 hook 壞了 | [agent回報與故障記號](docs/升級摘要/agent回報與故障記號.md) |
 | 儀表板刷新慢、改怎麼叫 git | [儀表板刷新少等git](docs/升級摘要/儀表板刷新少等git.md) |
 | 歷史：Claude Desktop app 建議卡規格（歸檔參考） | [app建議卡](docs/升級摘要/app建議卡.md)、[app建議卡換工具](docs/升級摘要/app建議卡換工具.md)、[建議卡開的對話認得出已開始](docs/升級摘要/建議卡開的對話認得出已開始.md)、[當場問的卡也收進來](docs/升級摘要/當場問的卡也收進來.md) |

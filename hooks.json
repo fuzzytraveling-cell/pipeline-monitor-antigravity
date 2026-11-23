@@ -74,5 +74,14 @@
         ]
       }
     ]
+  },
+  "agy-pipeline-escalate": {
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "sh ./escalate.sh",
+        "timeout": 10
+      }
+    ]
   }
 }

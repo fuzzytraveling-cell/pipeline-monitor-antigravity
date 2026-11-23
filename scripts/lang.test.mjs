@@ -26,7 +26,7 @@ import { tierLines, requirementStatus, emptyDangerLine } from '../lib/tier.mjs';
 import { stageLine, specNotes, clProg, clDoneNote, checklistWhy, checklistHead, checklistPartLine, checklistLines, linkLine, calledIsNotPassed } from '../lib/stageLines.mjs';
 import { rerunLine, tookLine, noRecordLine, stagesBrokenLine, unknownPromptLine, noWords, loadStages } from '../lib/rounds.mjs';
 import { eLines, eWhere, summaryLine, walkItems, walkSummary, parseWalk } from '../lib/verify.mjs';
-import { faultBanner, faultNotes, sensorParts, sensorOffLine, gateLine, guardLine, moveLine, noneHereLine, optedOutLine, unreadableLine } from '../lib/faults.mjs';
+import { faultBanner, faultNotes, sensorParts, sensorOffLine, gateLine, guardLine, escalateLine, moveLine, noneHereLine, optedOutLine, unreadableLine } from '../lib/faults.mjs';
 import { createApp } from '../server.mjs';
 import { decide } from '../gate.mjs';
 import { safeName } from '../lib/events.mjs';
@@ -88,6 +88,7 @@ const CODES = {
   'lib/cliReport.mjs': ['無'],
   'gate.mjs': ['記不了 gate_blocked：'],
   'guard.mjs': ['記不了 guard_asked：', '輸入不是合法 JSON'],
+  'escalate.mjs': ['記不了 tier_notified：', '輸入不是合法 JSON'],
 };
 /**
  * 刻意寫成另一種語言的字:中英切換那顆按鈕的提示,寫成「要切過去的那一種」——英文的畫面寫中文,看不懂英文、想換回中文的人才看得懂
@@ -96,7 +97,7 @@ const CODES = {
 const OTHER_LANG = {
   'ui/app.js': ['切換成中文（快速鍵：L）'],
 };
-const FILES = [...readdirSync(join(ROOT, 'lib')).filter((f) => f.endsWith('.mjs')).map((f) => `lib/${f}`), 'ui/app.js', 'status.mjs', 'server.mjs', 'gate.mjs', 'guard.mjs'];
+const FILES = [...readdirSync(join(ROOT, 'lib')).filter((f) => f.endsWith('.mjs')).map((f) => `lib/${f}`), 'ui/app.js', 'status.mjs', 'server.mjs', 'gate.mjs', 'guard.mjs', 'escalate.mjs'];
 
 section('AC-4:中文只准住在 zhEn(中文, English) 裡——lib、ui/app.js、status.mjs、server.mjs、gate.mjs 新加一句只寫中文、或英文是空的,這裡紅', 'P2');
 {
@@ -664,16 +665,17 @@ section('五關的其他句子:要不要再跑、花了多久、規格在哪、�
       ...specNotes({ extraSpecs: ['a', 'b'] }),
       ...faultBanner({ logDir: '/x/logs', retainDays: 90, sensor: { state: 'broken', from: t, count: 3, why: 'jq' }, gateNode: { state: 'broken', from: t, count: 2 }, gateError: { state: 'broken', last: t, count: 1 },
         guardNode: { state: 'broken', from: t, count: 2 }, guardError: { state: 'broken', last: t, count: 1 },
+        escalateNode: { state: 'broken', from: t, count: 2 }, escalateError: { state: 'broken', last: t, count: 1 },
         move: { kinds: ['logs', 'checkpoints'], from: '/old', to: '/new', why: 'EXDEV' } }).map((b) => b.text),
-      ...faultBanner({ retainDays: 90, sensor: { state: 'broken', lastGood: t, count: 1 }, gateError: { state: 'unclear', last: t, cwd: '/r/app' }, guardError: { state: 'unclear', last: t, cwd: '/r/app' }, move: { kinds: ['logs'], from: '/o', to: '/n', both: true } }).map((b) => b.text),
-      ...faultBanner({ retainDays: 90, sensor: { state: 'flaky', lastBad: t, count: 4 }, gateError: { state: 'unclear', last: t }, guardError: { state: 'unclear', last: t }, move: { kinds: ['logs'], from: '/o', to: '/n', why: 'EWHAT' } }).map((b) => b.text),
-      ...faultNotes({ retainDays: 90, sensor: { state: 'recovered', from: T(-3 * 3600), to: T(-3600) }, gateNode: { state: 'recovered', to: t, count: 2 }, gateError: { state: 'recovered', to: t }, guardNode: { state: 'recovered', to: t, count: 2 }, guardError: { state: 'recovered', to: t } }),
+      ...faultBanner({ retainDays: 90, sensor: { state: 'broken', lastGood: t, count: 1 }, gateError: { state: 'unclear', last: t, cwd: '/r/app' }, guardError: { state: 'unclear', last: t, cwd: '/r/app' }, escalateError: { state: 'unclear', last: t, cwd: '/r/app' }, move: { kinds: ['logs'], from: '/o', to: '/n', both: true } }).map((b) => b.text),
+      ...faultBanner({ retainDays: 90, sensor: { state: 'flaky', lastBad: t, count: 4 }, gateError: { state: 'unclear', last: t }, guardError: { state: 'unclear', last: t }, escalateError: { state: 'unclear', last: t }, move: { kinds: ['logs'], from: '/o', to: '/n', why: 'EWHAT' } }).map((b) => b.text),
+      ...faultNotes({ retainDays: 90, sensor: { state: 'recovered', from: T(-3 * 3600), to: T(-3600) }, gateNode: { state: 'recovered', to: t, count: 2 }, gateError: { state: 'recovered', to: t }, guardNode: { state: 'recovered', to: t, count: 2 }, guardError: { state: 'recovered', to: t }, escalateNode: { state: 'recovered', to: t, count: 2 }, escalateError: { state: 'recovered', to: t } }),
       unreadableLine({ unreadable: 2 }),
-      ...Object.values(sensorParts({ mount: { where: 'plugin' }, lastSeen: t, gate: { ts: t }, guard: { ts: t } })).filter(Boolean),
-      sensorParts({ mount: { where: 'main' } }).mounted, sensorParts({ mount: { where: 'user' } }).mounted, sensorParts({}).gate, sensorParts({}).guard, sensorParts({}).notMounted,
+      ...Object.values(sensorParts({ mount: { where: 'plugin' }, lastSeen: t, gate: { ts: t }, guard: { ts: t }, escalate: { ts: t } })).filter(Boolean),
+      sensorParts({ mount: { where: 'main' } }).mounted, sensorParts({ mount: { where: 'user' } }).mounted, sensorParts({}).gate, sensorParts({}).guard, sensorParts({}).escalate, sensorParts({}).notMounted,
       sensorOffLine({ mount: { state: 'off', optedOut: { at: t } }, days: 90, ago }), sensorOffLine({ mount: { state: 'off', optedOut: {} } }),
       sensorOffLine({ mount: { state: 'off' }, lastSeen: t, now: 'broken', here: 'the bar at the very top', ago }), sensorOffLine({ mount: { state: 'off' }, lastSeen: t, now: 'flaky', here: 'x', ago }),
-      gateLine(null), gateLine({ ts: t }), guardLine(null), guardLine({ ts: t }), noneHereLine({ hasLog: false }), noneHereLine({ hasLog: true, days: 90 }), noneHereLine({}),
+      gateLine(null), gateLine({ ts: t }), guardLine(null), guardLine({ ts: t }), escalateLine(null), escalateLine({ ts: t }), noneHereLine({ hasLog: false }), noneHereLine({ hasLog: true, days: 90 }), noneHereLine({}),
       optedOutLine({ at: t, days: 90 }), optedOutLine({}),
     ];
     for (const l of lines) noZh(`英文:${String(l).slice(0, 60)}`, l);

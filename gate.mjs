@@ -29,11 +29,11 @@ import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { cardFor, sessionTier } from './lib/collect.mjs';
 import { logFileOf } from './lib/events.mjs';
-import { sessionsOf, saidByHuman, promptKind, rerunLine, runMode, SKEW_MS, isEditEvent } from './lib/rounds.mjs';
+import { sessionsOf, saidByHuman, promptKind, SKEW_MS, isEditEvent } from './lib/rounds.mjs';
 import { isSubagentPayload } from './lib/transcript.mjs';
 import { GATE_FILE, SENSOR_FILE } from './lib/faults.mjs';
 import { ago } from './lib/git.mjs';
-import { readTierConfig, codeFileFn, changeTimeOf, RANKS, DANGER_ASK, dangerAskLine, laterOf } from './lib/tier.mjs';
+import { readTierConfig, codeFileFn, changeTimeOf, RANKS, DANGER_ASK, dangerAskLine, laterOf, pendingRequirements } from './lib/tier.mjs';
 import { predictsDanger, isOpenSpec } from './lib/checklist.mjs';
 import { changeScope } from './lib/scope.mjs';
 import { commandFor as findCommand, pluginName } from './lib/skills.mjs';
@@ -222,79 +222,12 @@ export function decide({ payload, monitorDir = MONITOR_DIR, skillHome = undefine
         `- Check the spec's checklist: the marks in ${file} were made before it was linked, so it can't tell whether this conversation made them. After changing code, check it again (change the date on items you've gone over to today; mark ones to discuss "⏳ to discuss: <reason>")`) });
     }
   }
-  for (const key of requires) {
-    if (key === 'tests') {
-      const n = mineNow.health?.touchedTests ?? null;
-      if (n === null || n > 0) continue;                           // 問不到就不要求(R1)
-      missing.push({ key, line: zhEn('- 補測試：這一輪還沒新增或修改任何測試檔', '- Add tests: this round hasn\'t added or changed any test file yet') });
-      continue;
-    }
-    const st = view.find((s) => s.id === key);
-    if (!st || !st.skill) continue;                                // B、未建的關、沒有指令的瀏覽器關:不是 hook 能要求的
-    // 規格是別的對話寫的、Claude 記了照哪份施工 → 不叫重跑 A(AC-7);連結分不出是哪個對話記的、而這個對話可能就是 → 不擋(AC-2)
-    if (st.id === specStage?.id && (st.link || st.unsure)) continue;
-    const cmd = commandFor(st.skill, ctx.root, ctx.mainRoot, skillHome);
-    const name = `${st.id} ${st.name}`;
-    // E 驗收(瀏覽器那一關,E 自動驗收 AC-8):分級把 E 放進清單時,要的是「Claude 照規格走過一遍」,不是要使用者按——
-    // 讀 roundView 算好的 E 這一輪在哪(acceptStateOf),跟五關那一格、分級卡同一份。使用者說驗收過了(之後沒再改程式)就不要求
-    if (st.rerunAfterChange && st.rerun && st.type === 'browser') {
-      const es = st.estate ?? st.rerun.estate ?? st.rerun.state;
-      if (es === 'none') {
-        if (!cmd) continue;                                        // 指令不存在,要求了也做不到
-        missing.push({ key, line: zhEn(`- ${name}：這一輪還沒走 → 跑 ${cmd}（照這一輪的規格逐條在畫面上看，每條記看到了（附畫面上的原文）／沒看到／驗不了；`
-          + '「驗收過了」只有使用者能說）。走完不要自己再走，要再走先問使用者',
-          `- ${name}: not walked through yet this round → run ${cmd} (look at this round's spec item by item on the screen, recording each as seen (with the original text from the screen) / not seen / can't verify; `
-          + 'only the user can say "accepted"). After walking through it, don\'t walk through it again on your own; to walk through it again, ask the user first') });
-      } else if (es === 'no-report') {
-        missing.push({ key: `${key}:report`, anyTurn: true,
-          line: zhEn(`- ${name}：叫了，還沒記結論。還在走就照實說還在走，不准先記結論交差；走完照那支指令的收尾記：agy-pipeline --report ${st.id} ok|found "…"。`
-            + `沒走完（中斷了）就再叫一次，那還算第一趟；使用者說不用走了就 agy-pipeline --decide ${st.id} skip "使用者的原話"`,
-          `- ${name}: called, no conclusion recorded yet. If it's still walking through, say truthfully that it's still walking through; never record a conclusion early just to finish. When it's done, record it the way that command's ending says: agy-pipeline --report ${st.id} ok|found "…". `
-            + `If it didn't finish (it was interrupted), call it again; that still counts as the first walk-through. If the user says there's no need to walk through it: agy-pipeline --decide ${st.id} skip "the user's own words"`) });
-      } else if (es === 'ask' || es === 'accepted-stale') {
-        const why = es === 'accepted-stale' ? zhEn('使用者說驗收過了之後，又改了程式檔', 'code files changed after the user said it\'s accepted') : rerunLine(st.rerun, { ago });
-        missing.push({ key: `${key}:ask`, ask: true,
-          line: zhEn(`- ${name}：${why}。不要自己再走——先停下來問使用者（白話＋舉例）：之後改了什麼、可能影響哪幾條、上一趟從叫到記結論花了多久`
-            + `（跑 agy-pipeline --round ${st.id} 拿）、不再走的風險，最後一行給建議。使用者說走才走；說不用就 agy-pipeline --decide ${st.id} skip "使用者的原話"；`
-            + `說看過了、可以（驗收現在這一版），才照他的原話 agy-pipeline --clear ${st.id} "使用者的原話"——「不用再走」不是「驗收過了」，不准記成 --clear`,
-          `- ${name}: ${why}. Don't walk through it again on your own; stop and ask the user first (plain words plus examples): what changed since, which items it might affect, how long the last walk-through took from the call to the recorded conclusion `
-            + `(run agy-pipeline --round ${st.id} to get it), and the risk of not walking through again; the last line gives a recommendation. Walk through it only if the user says so. If they say no need: agy-pipeline --decide ${st.id} skip "the user's own words". `
-            + `Only if they say they've looked and it's fine (accepting this version): agy-pipeline --clear ${st.id} "the user's own words". "No need to walk through again" isn't "accepted": never record it as --clear`) });
-      }
-      continue;
-    }
-    if (st.rerunAfterChange && st.rerun) {
-      const r = st.rerun;
-      if (r.state === 'none') {
-        if (!cmd) continue;
-        const how = runMode({ nth: 1, tierState: 'ok', levelId: tier.final.id, agents: tier.final.agents === true }).line;
-        missing.push({ key, line: zhEn(`- ${name}：${rerunLine(r)} → 跑 ${cmd}（${how}）。修完不要自己再跑這一關，要再跑先問使用者`,
-          `- ${name}: ${rerunLine(r)} → run ${cmd} (${how}). After fixing, don't run this stage again on your own; to run it again, ask the user first`) });
-      } else if (r.state === 'no-report') {
-        missing.push({ key: `${key}:report`, anyTurn: true,
-          line: zhEn(`- ${name}：叫了，還沒記結論。還在背景跑就照實說還在跑，不准先記 ok 交差；跑完照那支指令的收尾記：agy-pipeline --report ${st.id} ok|found "…"。`
-            + `沒跑完（中斷了）就再叫一次，那還算第一輪；使用者說不用跑了就 agy-pipeline --decide ${st.id} skip "使用者的原話"`,
-          `- ${name}: called, no conclusion recorded yet. If it's still running in the background, say truthfully that it's still running; never record ok early just to finish. When it's done, record it the way that command's ending says: agy-pipeline --report ${st.id} ok|found "…". `
-            + `If it didn't finish (it was interrupted), call it again; that still counts as the first round. If the user says there's no need to run it: agy-pipeline --decide ${st.id} skip "the user's own words"`) });
-      } else if (r.state === 'ask') {
-        missing.push({ key: `${key}:ask`, ask: true,
-          line: zhEn(`- ${name}：${rerunLine(r, { ago })}。不要自己再跑——先停下來問使用者（白話＋舉例）：第一輪之後改了什麼、每條修法標「小修」或「建議再看」、`
-            + `上一輪從叫到記結論花了多久、不跑的風險（前三件跑 agy-pipeline --round ${st.id} 拿），最後一行給建議。使用者說跑才跑；說不用就 agy-pipeline --decide ${st.id} skip "使用者的原話"`,
-          `- ${name}: ${rerunLine(r, { ago })}. Don't run it again on your own; stop and ask the user first (plain words plus examples): what changed after the first round, each fix marked "small fix" or "worth another look", `
-            + `how long the last round took from the call to the recorded conclusion, and the risk of not running it (run agy-pipeline --round ${st.id} to get the first three); the last line gives a recommendation. Run it only if the user says so. If they say no need: agy-pipeline --decide ${st.id} skip "the user's own words"`) });
-      }
-      continue;
-    }
-    if (st.ranAt) continue;
-    if (!cmd) continue;
-    const why = zhEn('這一輪還沒跑', 'not run yet this round');
-    if (st.id === specStage?.id) {
-      const hint = st.hint && !st.hint.cut ? zhEn(`（從第一句話看，可能是 ${st.hint.path}）`, ` (from the first message, it might be ${st.hint.path})`) : '';
-      missing.push({ key, line: zhEn(`- ${name}：${why}。照別的對話寫好的規格施工的話跑 agy-pipeline --spec <規格檔>${hint}；還沒有規格才跑 ${cmd}`,
-        `- ${name}: ${why}. If you're building from a spec another conversation wrote, run agy-pipeline --spec <spec file>${hint}; run ${cmd} only if there's no spec yet`) });
-      continue;
-    }
-    missing.push({ key, line: zhEn(`- ${name}：${why} → 跑 ${cmd}`, `- ${name}: ${why} → run ${cmd}`) });
+  for (const m of pendingRequirements({
+    requires, stages, view, health: mineNow.health, tier,
+    commandFor: (sk) => commandFor(sk, ctx.root, ctx.mainRoot, skillHome), ago,
+  })) {
+    if (!m.gateLine) continue;
+    missing.push({ key: m.key, ...(m.anyTurn ? { anyTurn: true } : {}), ...(m.ask ? { ask: true } : {}), line: m.gateLine });
   }
   // 只在這一回合改到程式時才擋(契約 3);例外只有「叫了還沒記結論」(AC-6)。這一回合擋過的種類不再擋(AC-7)。
   // 兩種讀法(上面)任何一種要擋就擋;沒有沒見過的訊息時兩種一樣

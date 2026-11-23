@@ -15,9 +15,10 @@ import { join, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
-import { faultState, faultsNow, faultBanner, faultNotes, sensorNow, unreadableLine, hookTimesIn, roundStartFor, sensorOffLine, sensorParts, guardHeartbeat, guardLine } from '../lib/faults.mjs';
+import { faultState, faultsNow, faultBanner, faultNotes, sensorNow, unreadableLine, hookTimesIn, roundStartFor, sensorOffLine, sensorParts, guardHeartbeat, guardLine, escalateHeartbeat, escalateLine } from '../lib/faults.mjs';
 import { readEvents, safeName, RETAIN_DAYS } from '../lib/events.mjs';
 import { collectAll } from '../lib/collect.mjs';
+import { real } from '../lib/git.mjs';
 import { installPlugin, mountState, mountFix, mount, hookPathsIn } from '../lib/mount.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -493,6 +494,109 @@ section('改檔把關故障（guard_broken）與心跳（_guard.json / guardLine
   writeFileSync(join(tmpLog, '_guard.json'), JSON.stringify({ ts: H(1), cwd: '/x' }));
   eq('讀得到 _guard.json', guardHeartbeat(tmpLog)?.cwd, '/x');
   rmSync(tmpLog, { recursive: true, force: true });
+}
+
+section('分級通知故障（escalate_broken）與心跳（_escalate.json / escalateLine）、collect.mjs anyRecovered 與 notGit', 'P3');
+{
+  const eNode = (h) => ({ ts: H(h), event: 'escalate_broken', why: '找不到 node' });
+  const eErr = (h, cwd) => ({ ts: H(h), event: 'escalate_broken', why: 'TypeError: bad secret', ...(cwd ? { cwd } : {}) });
+  const eState = (faults, escalateHb = null) => faultState({ faults, sensorTimes: () => [], heartbeat: null, guardHb: null, escalateHb, now: NOW, retainDays: RETAIN_DAYS });
+
+  const fsNode = eState([eNode(3)], { ts: H(5), cwd: '/a' });
+  check('分級通知找不到 node → 紅燈且說明可能沒即時通知 AI',
+    /分級通知找不到 node/.test(texts(fsNode)) && /分級往上升可能沒即時通知 AI/.test(texts(fsNode)), texts(fsNode));
+
+  const fsErr = eState([eErr(3, '/w/a')], { ts: H(3.001), cwd: '/w/a' });
+  const errText = texts(fsErr);
+  check('分級通知自己出錯 → 紅燈且錯誤原文不上畫面',
+    /分級通知自己出錯/.test(errText) && /分級往上升可能沒即時通知 AI/.test(errText) && !/TypeError|bad secret/.test(errText), errText);
+
+  const fsUnclear = eState([eErr(3, '/w/a')], { ts: H(1), cwd: '/w/b' });
+  check('之後只有別的資料夾跑過 → 黃燈「a 之後有沒有跑過看不到」',
+    faultBanner(fsUnclear)[0]?.tone === 'amber' && /分級通知/.test(texts(fsUnclear)) && /a 之後有沒有跑過看不到/.test(texts(fsUnclear)), texts(fsUnclear));
+
+  const fsRec = eState([eErr(3, '/w/a'), eNode(4)], { ts: H(1), cwd: '/w/a' });
+  eq('分級通知恢復後 → 不上橫條', faultBanner(fsRec).length, 0);
+  const notes = faultNotes(fsRec, { since: H(5), cwd: '/w/a' });
+  check('分級通知恢復後 → 五關旁講最近一次或在此出錯過', notes.length === 2 && notes.every((x) => /分級通知/.test(x)), JSON.stringify(notes));
+
+  check('escalateLine 沒心跳 → 還沒跑過', /分級通知：還沒跑過/.test(escalateLine(null)));
+  check('escalateLine 有心跳 → 最後一次跑', /分級通知：最後一次跑/.test(escalateLine({ ts: H(1) })));
+
+  const tmpLog = mkdtempSync(join(tmpdir(), 'pm-ehb-'));
+  eq('沒有 _escalate.json → null', escalateHeartbeat(tmpLog), null);
+  writeFileSync(join(tmpLog, '_escalate.json'), JSON.stringify({ ts: H(1), cwd: '/x' }));
+  eq('讀得到 _escalate.json', escalateHeartbeat(tmpLog)?.cwd, '/x');
+  rmSync(tmpLog, { recursive: true, force: true });
+
+  // collectAll 真實整合：僅 escalateNode 恢復／僅 escalateError 恢復時 anyRecovered 必亮 faultNotes；notGit 卡片（含同專案內混合）實測帶 escalate 與 lines.escalate
+  const m = mkdtempSync(join(tmpdir(), 'pm-col-esc-'));
+  const logDir = join(m, 'logs');
+  mkdirSync(logDir, { recursive: true });
+  mkdirSync(join(m, 'checkpoints'), { recursive: true });
+  copyFileSync(join(ROOT, 'stages.json'), join(m, 'stages.json'));
+  const r = makeRepo({ files: { 'a.js': '1\n' } });
+  const nonGit = mkdtempSync(join(tmpdir(), 'pm-nongit-'));
+  const escTs = new Date(Date.now() - 30 * 60_000).toISOString();
+  writeFileSync(join(logDir, '_escalate.json'), JSON.stringify({ ts: escTs, cwd: r.dir }) + '\n');
+  writeFileSync(join(logDir, '_sensor.jsonl'), JSON.stringify({ ts: new Date(Date.now() - 60 * 60_000).toISOString(), event: 'escalate_broken', why: '找不到 node' }) + '\n');
+  writeFileSync(join(logDir, `${safeName(basename(r.dir))}.jsonl`), [
+    JSON.stringify({ ts: new Date(Date.now() - 90 * 60_000).toISOString(), hook: 'UserPrompt', session: 's1', cwd: r.dir, prompt: 'hi' }),
+    JSON.stringify({ ts: new Date(Date.now() - 40 * 60_000).toISOString(), hook: 'PostToolUse', session: 's2', cwd: nonGit, tool: 'read_file' }),
+  ].join('\n') + '\n');
+  const prevLog = process.env.AGY_PIPELINE_LOG_DIR;
+  const prevHome = process.env.AGY_PIPELINE_HOME;
+  process.env.AGY_PIPELINE_LOG_DIR = logDir;
+  process.env.AGY_PIPELINE_HOME = m;
+  try {
+    const all = collectAll({ monitorDir: m });
+    const sess = all.projects.flatMap((p) => p.sessions).find((x) => x.id === 's1');
+    check('collectAll：只有 escalateNode 恢復時對話 faultNotes 照講（anyRecovered）',
+      sess?.faultNotes?.some((n) => /分級通知最近一次找不到 node/.test(n)), JSON.stringify(sess?.faultNotes));
+    const ngCard = all.projects.flatMap((p) => p.cards).find((c) => c.path === nonGit);
+    check('collectAll：notGit 卡片實測產生且 sensor / lines 帶 escalate（絕不短路跳過）',
+      Boolean(ngCard) && ngCard.notGit === true && ngCard.sensor?.escalate?.cwd === r.dir && /分級通知：最後一次跑/.test(ngCard.sensor?.lines?.escalate ?? ''),
+      JSON.stringify(ngCard));
+    const gitCard = all.projects.flatMap((p) => p.cards).find((c) => c.path === r.dir);
+    check('collectAll：git 卡片 sensor.lines.escalate 顯示最後一次跑',
+      /分級通知：最後一次跑/.test(gitCard?.sensor?.lines?.escalate ?? ''), JSON.stringify(gitCard?.sensor?.lines));
+
+    // 僅 escalateError 恢復時（非找不到 node）anyRecovered 也照樣觸發 faultNotes
+    writeFileSync(join(logDir, '_sensor.jsonl'),
+      JSON.stringify({ ts: new Date(Date.now() - 60 * 60_000).toISOString(), event: 'escalate_broken', why: 'TypeError: boom', cwd: r.dir }) + '\n');
+    const allErr = collectAll({ monitorDir: m });
+    const sessErr = allErr.projects.flatMap((p) => p.sessions).find((x) => x.id === 's1');
+    check('collectAll：只有 escalateError 恢復時對話 faultNotes 照講（anyRecovered）',
+      sessErr?.faultNotes?.some((n) => /分級通知.*在這裡出錯過/.test(n)) && !/TypeError|boom/.test(JSON.stringify(sessErr?.faultNotes)),
+      JSON.stringify(sessErr?.faultNotes));
+  } finally {
+    if (prevLog === undefined) delete process.env.AGY_PIPELINE_LOG_DIR; else process.env.AGY_PIPELINE_LOG_DIR = prevLog;
+    if (prevHome === undefined) delete process.env.AGY_PIPELINE_HOME; else process.env.AGY_PIPELINE_HOME = prevHome;
+    rmSync(m, { recursive: true, force: true });
+    rmSync(nonGit, { recursive: true, force: true });
+    r.cleanup();
+  }
+
+  // D 第 1 輪 #5 回歸：子目錄或 symlink cwd 恢復的故障，網頁對話頁（symSub）與終端機（ctx.root）一致亮 faultNotes；跨 repo／嵌套獨立 git repo 不互混
+  const rSub = makeRepo({ files: { 'sub/a.js': '1\n' } });
+  const rOther = makeRepo({ files: { 'o.js': '1\n' } });
+  const subRoot = real(rSub.dir);
+  const symHost = mkdtempSync(join(tmpdir(), 'pm-flt-sym-'));
+  const symSub = join(symHost, 'sublink');
+  symlinkSync(join(subRoot, 'sub'), symSub);
+  const nestedDir = join(subRoot, 'nested-repo');
+  mkdirSync(nestedDir, { recursive: true });
+  execFileSync('git', ['init', '-q'], { cwd: nestedDir });
+  const fsSymRec = eState([eErr(3, symSub)], { ts: H(1), cwd: symSub });
+  check('D 第 1 輪 #5：symlink 子目錄恢復之 escalateError，網頁（symSub）與終端機（ctx.root）同亮 faultNotes',
+    faultNotes(fsSymRec, { since: H(5), cwd: symSub }).length === 1 && faultNotes(fsSymRec, { since: H(5), cwd: subRoot }).length === 1,
+    JSON.stringify({ ui: faultNotes(fsSymRec, { since: H(5), cwd: symSub }), cli: faultNotes(fsSymRec, { since: H(5), cwd: subRoot }) }));
+  const fsRootRec = eState([eErr(3, subRoot)], { ts: H(1), cwd: subRoot });
+  eq('D 第 1 輪 #5：別的 repo 不誤收 faultNotes', faultNotes(fsSymRec, { since: H(5), cwd: real(rOther.dir) }).length, 0);
+  eq('D 第 1 輪 #5：嵌套獨立 git repo 不誤收外層 repo 之 faultNotes', faultNotes(fsRootRec, { since: H(5), cwd: real(nestedDir) }).length, 0);
+  rmSync(symHost, { recursive: true, force: true });
+  rOther.cleanup();
+  rSub.cleanup();
 }
 
 process.exit(summary());

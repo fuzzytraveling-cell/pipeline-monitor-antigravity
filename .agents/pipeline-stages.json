@@ -14,12 +14,16 @@
       "gate.sh",
       "guard.mjs",
       "guard.sh",
+      "escalate.mjs",
+      "escalate.sh",
       "skills/"
     ],
     "danger": [
       "hook.sh",
       "guard.sh",
       "guard.mjs",
+      "escalate.sh",
+      "escalate.mjs",
       "hooks.json",
       "plugin.json",
       "lib/events.mjs",
@@ -29,12 +33,13 @@
       "lib/checkpoint.mjs"
     ],
     "checked": {
-      "at": "2026-11-23T02:42:08.256Z",
-      "said": "2.照建議",
+      "at": "2026-11-23T06:16:37.012Z",
+      "said": "都照建議（新增 escalate.sh、escalate.mjs 進程式區與危險清單）",
       "by": "ai",
-      "commit": "a8b66eff45762efa22e60e5a2fc543aa7dc6d857",
+      "commit": "d0949926ed84d98a331c2ca7ff6030a31be0abdf",
       "files": [
-        "skills/spec-precheck/SKILL.md"
+        "escalate.mjs",
+        "escalate.sh"
       ]
     }
   }

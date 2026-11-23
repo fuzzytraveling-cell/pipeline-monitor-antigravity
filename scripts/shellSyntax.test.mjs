@@ -24,7 +24,7 @@ function parseError(sh, file) {
 section('根目錄 hooks.json 接的每一支 .sh 都讀得懂：這台的 sh 讀一次，有 dash 再用 dash 讀一次', 'P8');
 {
   check(`從 hooks.json 讀到接了哪幾支：${shells.join('、') || '一支都沒有'}`, shells.length > 0);
-  check('包含 hook.sh、remind.sh、gate.sh、guard.sh', ['gate.sh', 'guard.sh', 'hook.sh', 'remind.sh'].every((s) => shells.includes(s)), shells.join('、'));
+  check('包含 hook.sh、remind.sh、gate.sh、guard.sh、escalate.sh', ['escalate.sh', 'gate.sh', 'guard.sh', 'hook.sh', 'remind.sh'].every((s) => shells.includes(s)), shells.join('、'));
   for (const f of shells) {
     check(`${f} 在`, existsSync(join(ROOT, f)));
     const shErr = parseError('sh', f);
