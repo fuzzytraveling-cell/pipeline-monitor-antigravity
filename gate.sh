@@ -2,7 +2,7 @@
 # gate.sh —— Antigravity 收工 hook（Stop）的殼。規格:antigravity-v01-foundation（路徑看 AGENTS.md 的表）
 #
 # 判斷住在 gate.mjs（node）：這支只找 node 並把 stdin 原封不動交給 gate.mjs；
-# 找不到 node 就留一筆 gate_broken 記號，輸出 {} 並安靜放行（exit 0）。
+# 找不到 node 就先確保 $LOGS 目錄存在並留一筆 gate_broken 記號，輸出 {} 並安靜放行（exit 0）。
 
 DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 NODE=$(command -v node 2>/dev/null)
@@ -18,6 +18,7 @@ if [ -z "$NODE" ]; then
   else
     LOGS="${AGY_PIPELINE_HOME:-$HOME/.pipeline-monitor-agy}/logs"
   fi
+  [ -d "$LOGS" ] || (umask 077 && mkdir -p "$LOGS") 2>/dev/null
   [ -d "$LOGS" ] && printf '{"ts":"%s","event":"gate_broken","why":"找不到 node"}\n' \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$LOGS/_sensor.jsonl" 2>/dev/null
   printf '{}\n'

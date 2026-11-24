@@ -1,6 +1,6 @@
 {
   "name": "agy-pipeline",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "private": true,
   "type": "module",
   "description": "把「我在哪、我回得去哪、這次動了多少」變成一個指令（Antigravity 專用版）。規格見專案的 AGENTS.md",

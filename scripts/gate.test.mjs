@@ -8,7 +8,7 @@
  *   ④ transcriptPath 直接提供人類 USER_EXPLICIT 發言，即使沒有 UserPromptSubmit hook 也抓得到這一回合改了程式
  *   ⑤ T1/T2 缺關、D 之後改檔先問人、清單未對完、存檔不繞過、新對話接手舊資料夾、危險清單新檔先問人
  */
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { writeFileSync, mkdtempSync, mkdirSync, rmSync, copyFileSync, utimesSync, readFileSync, symlinkSync, existsSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname, basename } from 'node:path';
@@ -460,6 +460,33 @@ section('收工 hook（gate.sh）按資料夾留心跳（byCwd）：切到別的
     faultState({ faults: readFaults(logDir), heartbeat: hb, retainDays: 90 }).gateError?.state, 'recovered');
   r2.cleanup();
   s1.cleanup();
+}
+
+section('gate.sh 找不到 node 且 $LOGS 尚未建立：自動建 $LOGS 並記 gate_broken + 輸出 {}', 'P8');
+{
+  const noNodeDir = mkdtempSync(join(tmpdir(), 'pm-gate-nonode-'));
+  const fakeBin = join(noNodeDir, 'bin');
+  const freshLogs = join(noNodeDir, 'fresh', 'logs');
+  mkdirSync(fakeBin, { recursive: true });
+  for (const cmd of ['dirname', 'mkdir', 'date']) {
+    const src = ['/usr/bin', '/bin'].map((d) => join(d, cmd)).find((p) => existsSync(p));
+    if (src) symlinkSync(src, join(fakeBin, cmd));
+  }
+  const fakeSh = join(noNodeDir, 'gate.sh');
+  const origSh = readFileSync(join(ROOT, 'gate.sh'), 'utf8')
+    .replace('/opt/homebrew/bin/node /usr/local/bin/node "$HOME"/.nvm/versions/node/*/bin/node', '/nonexistent/no-node-here');
+  writeFileSync(fakeSh, origSh, { mode: 0o755 });
+  const res = spawnSync('/bin/sh', [fakeSh], {
+    input: JSON.stringify({ cwd: noNodeDir }),
+    env: { PATH: fakeBin, HOME: noNodeDir, AGY_PIPELINE_LOG_DIR: freshLogs },
+    encoding: 'utf8',
+  });
+  eq('缺 node → exit 0', res.status, 0);
+  eq('缺 node → 輸出 {}', (res.stdout || '').trim(), '{}');
+  check('缺 node 且 $LOGS 不存在 → 自動建立 $LOGS 並記 gate_broken (why: 找不到 node)',
+    existsSync(join(freshLogs, '_sensor.jsonl'))
+    && readFaults(freshLogs).some((x) => x.event === 'gate_broken' && x.why === '找不到 node'));
+  rmSync(noNodeDir, { recursive: true, force: true });
 }
 
 process.exit(summary());
