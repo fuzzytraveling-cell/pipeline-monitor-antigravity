@@ -107,8 +107,11 @@ export function decide({ payload, monitorDir = MONITOR_DIR, skillHome = undefine
 
   const mine = events.filter((e) => !e._subagent && e.session === sid);
   const timesOf = (pick) => mine.filter(pick).map((e) => Date.parse(e.ts)).filter(Number.isFinite).sort((a, b) => a - b);
-  const said = timesOf(saidByHuman), odd = timesOf((e) => promptKind(e) === 'unknown');
-  const turnStart = said.at(-1) ?? odd[0] ?? null;
+  // 選項卡點選回覆（via:'ask_question'）只代表同回合中途拍板，不移動這一回合的起點，以免剛改完程式點卡就被當成新回合沒改檔（AC-3 / P7）
+  const typed = timesOf((e) => saidByHuman(e) && e.via !== 'ask_question');
+  const anyHuman = timesOf(saidByHuman);
+  const odd = timesOf((e) => promptKind(e) === 'unknown');
+  const turnStart = typed.at(-1) ?? anyHuman.at(-1) ?? odd[0] ?? null;
   if (turnStart === null) return null;
   const oddStart = Math.max(turnStart, odd.at(-1) ?? -Infinity);
   const blockedFrom = (from) => new Set(mine.filter((e) => e.event === 'gate_blocked' && Date.parse(e.ts) >= from)
