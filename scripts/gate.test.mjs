@@ -21,6 +21,7 @@ import { collectAll, cardFor } from '../lib/collect.mjs';
 import { safeName } from '../lib/events.mjs';
 import { sessionsOf } from '../lib/rounds.mjs';
 import { laterOf } from '../lib/tier.mjs';
+import { readFaults, faultState, gateHeartbeat } from '../lib/faults.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const PLUGIN = JSON.parse(readFileSync(join(ROOT, 'plugin.json'), 'utf8')).name;
@@ -433,6 +434,32 @@ section('危險清單定好之後才新加的程式檔：收工 hook 先問人�
   const hb = JSON.parse(readFileSync(join(s.monitorDir, 'logs', '_gate.json'), 'utf8'));
   eq('gate.mjs 遇空 cwd 退回 workspacePaths[0] 寫進心跳', hb.cwd, s.root);
   s.cleanup();
+}
+
+section('收工 hook（gate.sh）按資料夾留心跳（byCwd）：切到別的專案不讓已恢復的 gate_broken 復活', 'P3');
+{
+  const s1 = scene();
+  const r2 = makeRepo({ files: { 'b.js': '1\n' } });
+  const logDir = join(s1.monitorDir, 'logs');
+  writeFileSync(join(logDir, '_sensor.jsonl'),
+    JSON.stringify({ ts: T(-120), event: 'gate_broken', why: 'boom', cwd: s1.root }) + '\n');
+  const { ANTIGRAVITY_CONVERSATION_ID: _drop, ...baseEnv } = process.env;
+  const env = { ...baseEnv, HOME: s1.home, AGY_PIPELINE_HOME: s1.monitorDir, AGY_PIPELINE_LOG_DIR: logDir, AGY_PIPELINE_CODE_HOME: ROOT };
+  execFileSync('sh', [join(ROOT, 'gate.sh')], {
+    input: JSON.stringify({ conversationId: 's1', cwd: s1.root, terminationReason: 'NO_TOOL_CALL', fullyIdle: true, executionNum: 0 }),
+    env, encoding: 'utf8',
+  });
+  execFileSync('sh', [join(ROOT, 'gate.sh')], {
+    input: JSON.stringify({ conversationId: 's2', cwd: r2.dir, terminationReason: 'NO_TOOL_CALL', fullyIdle: true, executionNum: 0 }),
+    env, encoding: 'utf8',
+  });
+  const hb = gateHeartbeat(logDir);
+  check('_gate.json 的 byCwd 同時保有兩個資料夾的心跳',
+    Boolean(hb?.byCwd?.[s1.root]) && Boolean(hb?.byCwd?.[r2.dir]), JSON.stringify(hb));
+  eq('切去 r2 跑完 gate.sh 後，s1.root 的 gateError 仍維持 recovered（不復活）',
+    faultState({ faults: readFaults(logDir), heartbeat: hb, retainDays: 90 }).gateError?.state, 'recovered');
+  r2.cleanup();
+  s1.cleanup();
 }
 
 process.exit(summary());

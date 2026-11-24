@@ -9,13 +9,13 @@
  *   ⑤ 外掛的捷徑壞了:照畫面的修法做,什麼都沒變;--on 回「本來就在記錄中」(AC-6)
  */
 import { execFileSync } from 'node:child_process';
-import { writeFileSync, mkdtempSync, mkdirSync, rmSync, readFileSync, symlinkSync, readlinkSync, copyFileSync } from 'node:fs';
+import { writeFileSync, mkdtempSync, mkdirSync, rmSync, readFileSync, symlinkSync, readlinkSync, copyFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
-import { faultState, faultsNow, faultBanner, faultNotes, sensorNow, unreadableLine, hookTimesIn, roundStartFor, sensorOffLine, sensorParts, guardHeartbeat, guardLine, escalateHeartbeat, escalateLine } from '../lib/faults.mjs';
+import { faultState, faultsNow, faultBanner, faultNotes, sensorNow, unreadableLine, hookTimesIn, roundStartFor, sensorOffLine, sensorParts, guardHeartbeat, guardLine, escalateHeartbeat, escalateLine, recordHeartbeat } from '../lib/faults.mjs';
 import { readEvents, safeName, RETAIN_DAYS } from '../lib/events.mjs';
 import { collectAll } from '../lib/collect.mjs';
 import { real } from '../lib/git.mjs';
@@ -597,6 +597,199 @@ section('分級通知故障（escalate_broken）與心跳（_escalate.json / esc
   rmSync(symHost, { recursive: true, force: true });
   rOther.cleanup();
   rSub.cleanup();
+}
+
+section('各資料夾各自留心跳（byCwd）：跨 worktree 不復活、多資料夾部分恢復／紅燈不掩蓋、舊格式遷移與併發配對不造假', 'P3');
+{
+  // 1. 跨 worktree 與跨專案不復活（AC-1）
+  const hbDir = mkdtempSync(join(tmpdir(), 'pm-hb-'));
+  const rA = makeRepo({ files: { 'a.js': '1\n', 'sub1/x.js': '1\n', 'sub2/y.js': '1\n' } });
+  const rB = makeRepo({ files: { 'b.js': '1\n' } });
+  const wtHost = mkdtempSync(join(tmpdir(), 'pm-hb-wt-'));
+  const wtA = join(wtHost, 'wt-a');
+  execFileSync('git', ['worktree', 'add', '-q', '-b', 'wt-a', wtA], { cwd: rA.dir });
+  const gErr = (h, cwd) => ({ ts: H(h), event: 'guard_broken', why: 'boom', ...(cwd ? { cwd } : {}) });
+
+  recordHeartbeat(hbDir, '_guard.json', rA.dir, { retainDays: RETAIN_DAYS, now: ms(3) });
+  recordHeartbeat(hbDir, '_guard.json', wtA, { retainDays: RETAIN_DAYS, now: ms(2) });
+  recordHeartbeat(hbDir, '_guard.json', rB.dir, { retainDays: RETAIN_DAYS, now: ms(1) });
+  const fsKeep = faultState({ faults: [gErr(5, rA.dir)], guardHb: guardHeartbeat(hbDir), now: NOW, retainDays: RETAIN_DAYS });
+  eq('A 恢復後切到同 repo 的 worktree 與別的專案，A 不會復活成 unclear', fsKeep.guardError?.state, 'recovered');
+  eq('已恢復切去別處 → 不亮橫條', faultBanner(fsKeep).length, 0);
+
+  // 2. A 自最後一次錯誤後沒再跑過，就算 worktree 與 B 一直跑仍維持 unclear（R1）
+  recordHeartbeat(hbDir, '_guard.json', wtA, { retainDays: RETAIN_DAYS, now: ms(0.2) });
+  recordHeartbeat(hbDir, '_guard.json', rB.dir, { retainDays: RETAIN_DAYS, now: ms(0.1) });
+  const fsStillUnclear = faultState({ faults: [gErr(0.5, rA.dir)], guardHb: guardHeartbeat(hbDir), now: NOW, retainDays: RETAIN_DAYS });
+  eq('A 在較晚的錯誤後從沒跑過 → 維持 unclear', fsStillUnclear.guardError?.state, 'unclear');
+  check('黃燈指名未恢復的 A', faultBanner(fsStillUnclear).some((b) => b.tone === 'amber' && b.text.includes(basename(rA.dir))), texts(fsStillUnclear));
+
+  // 3. 統一 sameWorkspace（預審 #2）：平級子資料夾認得同一 repo、symlink 認同、已刪嵌套 worktree 不混算
+  const hbDir2 = mkdtempSync(join(tmpdir(), 'pm-hb2-'));
+  recordHeartbeat(hbDir2, '_guard.json', join(rA.dir, 'sub2'), { retainDays: RETAIN_DAYS, now: ms(2) });
+  const fsSibling = faultState({ faults: [gErr(4, join(rA.dir, 'sub1'))], guardHb: guardHeartbeat(hbDir2), now: NOW, retainDays: RETAIN_DAYS });
+  eq('同 repo 平級子資料夾（sub1 出錯、sub2 跑過）→ recovered', fsSibling.guardError?.state, 'recovered');
+  eq('同 repo 平級子資料夾 faultNotes 也認得出', faultNotes(fsSibling, { since: H(5), cwd: join(rA.dir, 'sub2') }).length, 1);
+  eq('終端機傳 repo root 也認得出', faultNotes(fsSibling, { since: H(5), cwd: real(rA.dir) }).length, 1);
+
+  const symHost = mkdtempSync(join(tmpdir(), 'pm-hb-sym-'));
+  const symA = join(symHost, 'link-a');
+  symlinkSync(rA.dir, symA);
+  const hbDirSym = mkdtempSync(join(tmpdir(), 'pm-hbsym-'));
+  recordHeartbeat(hbDirSym, '_guard.json', symA, { retainDays: RETAIN_DAYS, now: ms(2) });
+  eq('symlink 指向同一工作區 → 認得出已恢復',
+    faultState({ faults: [gErr(4, rA.dir)], guardHb: guardHeartbeat(hbDirSym), now: NOW, retainDays: RETAIN_DAYS }).guardError?.state, 'recovered');
+
+  const nestedWt = join(rA.dir, '.nested-wt');
+  execFileSync('git', ['worktree', 'add', '-q', '-b', 'wt-nested', nestedWt], { cwd: rA.dir });
+  const hbDirNested = mkdtempSync(join(tmpdir(), 'pm-hbnest-'));
+  recordHeartbeat(hbDirNested, '_guard.json', nestedWt, { retainDays: RETAIN_DAYS, now: ms(2) });
+  execFileSync('git', ['worktree', 'remove', '--force', nestedWt], { cwd: rA.dir });
+  const fsDeletedNested = faultState({ faults: [gErr(4, rA.dir)], guardHb: guardHeartbeat(hbDirNested), now: NOW, retainDays: RETAIN_DAYS });
+  eq('已刪除的嵌套 worktree 心跳絕不誤判主資料夾已恢復（R1）', fsDeletedNested.guardError?.state, 'unclear');
+  eq('主資料夾恢復時，已刪除的嵌套 worktree 絕不誤收主資料夾的 faultNotes（P2/R1）',
+    faultNotes(faultState({ faults: [gErr(4, rA.dir)], guardHb: { ts: H(2), cwd: rA.dir, byCwd: { [rA.dir]: H(2) } }, now: NOW, retainDays: RETAIN_DAYS }), { since: H(5), cwd: nestedWt }).length, 0);
+
+  // 4. 多資料夾部分恢復、全部恢復與他處紅燈（AC-2、預審 #1）
+  const hbDir3 = mkdtempSync(join(tmpdir(), 'pm-hb3-'));
+  recordHeartbeat(hbDir3, '_guard.json', wtA, { retainDays: RETAIN_DAYS, now: ms(0.5) });
+  const twoErrs = [gErr(5, rA.dir), gErr(2, rB.dir)];
+  const fsBoth = faultState({ faults: twoErrs, guardHb: guardHeartbeat(hbDir3), now: NOW, retainDays: RETAIN_DAYS });
+  eq('A 與 B 都還沒恢復時 → 各自輸出一條黃燈（共 2 條）', faultBanner(fsBoth).length, 2);
+  check('多筆黃燈依時間由新到舊排列（B 在前、A 在後）',
+    faultBanner(fsBoth)[0].text.includes(basename(rB.dir)) && faultBanner(fsBoth)[1].text.includes(basename(rA.dir)), texts(fsBoth));
+
+  recordHeartbeat(hbDir3, '_guard.json', rB.dir, { retainDays: RETAIN_DAYS, now: ms(0.3) });
+  const fsPartial = faultState({ faults: twoErrs, guardHb: guardHeartbeat(hbDir3), now: NOW, retainDays: RETAIN_DAYS });
+  eq('只修好後出錯的 B，前面沒跑過的 A 仍維持 unclear 黃燈（AC-2）', fsPartial.guardError?.state, 'unclear');
+  eq('只剩 1 條黃燈', faultBanner(fsPartial).length, 1);
+  check('剩下那一條黃燈指名 A、不指 B', faultBanner(fsPartial)[0].text.includes(basename(rA.dir)) && !faultBanner(fsPartial)[0].text.includes(basename(rB.dir)), texts(fsPartial));
+  eq('整體 unclear 期間，已恢復的 B 在五關旁照亮註記（預審 #1）', faultNotes(fsPartial, { since: H(6), cwd: rB.dir }).length, 1);
+  eq('還沒恢復的 A 不會誤收 B 的恢復註記', faultNotes(fsPartial, { since: H(6), cwd: rA.dir }).length, 0);
+
+  recordHeartbeat(hbDir3, '_guard.json', rA.dir, { retainDays: RETAIN_DAYS, now: ms(0.2) });
+  const fsAllOk = faultState({ faults: twoErrs, guardHb: guardHeartbeat(hbDir3), now: NOW, retainDays: RETAIN_DAYS });
+  eq('A 與 B 都恢復 → 0 條橫條', faultBanner(fsAllOk).length, 0);
+  eq('全部恢復時各自保留獨立時段：B 在 B 出錯前（3 小時前）已結案的對話不誤掛 A 的時段（預審 #1）',
+    faultNotes(fsAllOk, { since: H(6), until: H(3), cwd: rB.dir }).length, 0);
+  eq('B 在出錯期間內的對話照樣亮註記', faultNotes(fsAllOk, { since: H(6), until: H(1), cwd: rB.dir }).length, 1);
+
+  const fsBrokenWithRec = faultState({ faults: [...twoErrs, gErr(0.1, rB.dir)], guardHb: guardHeartbeat(hbDir3), now: NOW, retainDays: RETAIN_DAYS });
+  eq('B 再出新錯使整體為 broken（紅燈）時，先恢復的 A 仍保有 recovered（預審 #1）', fsBrokenWithRec.guardError?.state, 'broken');
+  eq('整體 broken 時 A 對話頁五關旁照亮註記', faultNotes(fsBrokenWithRec, { since: H(6), cwd: rA.dir }).length, 1);
+  eq('整體 broken 時出錯中的 B 不亮恢復註記', faultNotes(fsBrokenWithRec, { since: H(6), cwd: rB.dir }).length, 0);
+
+  const fsWithLegacy = faultState({ faults: [gErr(6), gErr(4, rA.dir)], guardHb: guardHeartbeat(hbDir3), now: NOW, retainDays: RETAIN_DAYS });
+  eq('有 cwd 的 A 恢復後，無 cwd 的舊記號仍留 unclear', fsWithLegacy.guardError?.state, 'unclear');
+  check('無 cwd 舊記號維持既有文案', /看不出是不是同一個資料夾/.test(texts(fsWithLegacy)) && !texts(fsWithLegacy).includes(basename(rA.dir)), texts(fsWithLegacy));
+
+  // collectAll 整合實測：整體 unclear 與整體 broken 時，anyRecovered 照樣讓已恢復工作區的對話帶出 faultNotes（預審 #1）
+  const colMon = mkdtempSync(join(tmpdir(), 'pm-col-rec-'));
+  const colLogs = join(colMon, 'logs');
+  mkdirSync(colLogs, { recursive: true });
+  mkdirSync(join(colMon, 'checkpoints'), { recursive: true });
+  copyFileSync(join(ROOT, 'stages.json'), join(colMon, 'stages.json'));
+  const curMs = Date.now();
+  const curH = (h) => new Date(curMs - h * 3600_000).toISOString();
+  recordHeartbeat(colLogs, '_guard.json', rA.dir, { retainDays: RETAIN_DAYS, now: curMs - 1 * 3600_000 });
+  recordHeartbeat(colLogs, '_guard.json', wtA, { retainDays: RETAIN_DAYS, now: curMs - 0.5 * 3600_000 });
+  writeFileSync(join(colLogs, '_sensor.jsonl'), [
+    JSON.stringify({ ts: curH(5), event: 'guard_broken', why: 'boom-a', cwd: rA.dir }),
+    JSON.stringify({ ts: curH(2), event: 'guard_broken', why: 'boom-b', cwd: rB.dir }),
+  ].join('\n') + '\n');
+  writeFileSync(join(colLogs, `${safeName(basename(rA.dir))}.jsonl`),
+    JSON.stringify({ ts: curH(6), hook: 'UserPrompt', session: 'sa1', cwd: rA.dir, prompt: 'hi' }) + '\n');
+  const keepHomeCol = process.env.AGY_PIPELINE_HOME;
+  const keepLogCol = process.env.AGY_PIPELINE_LOG_DIR;
+  process.env.AGY_PIPELINE_HOME = colMon;
+  process.env.AGY_PIPELINE_LOG_DIR = colLogs;
+  try {
+    const resUnclear = collectAll({ monitorDir: colMon });
+    const saUnclear = resUnclear.projects.flatMap((p) => p.sessions).find((x) => x.id === 'sa1');
+    check('collectAll：整體 unclear（B 未恢復）時，已恢復的 A 對話仍帶出 faultNotes',
+      saUnclear?.faultNotes?.some((n) => /改檔把關.*在這裡出錯過/.test(n)), JSON.stringify(saUnclear?.faultNotes));
+    writeFileSync(join(colLogs, '_sensor.jsonl'), [
+      JSON.stringify({ ts: curH(5), event: 'guard_broken', why: 'boom-a', cwd: rA.dir }),
+      JSON.stringify({ ts: curH(0.1), event: 'guard_broken', why: 'boom-b', cwd: rB.dir }),
+    ].join('\n') + '\n');
+    const resBroken = collectAll({ monitorDir: colMon });
+    const saBroken = resBroken.projects.flatMap((p) => p.sessions).find((x) => x.id === 'sa1');
+    check('collectAll：整體 broken（B 新出錯）時，已恢復的 A 對話仍帶出 faultNotes',
+      saBroken?.faultNotes?.some((n) => /改檔把關.*在這裡出錯過/.test(n)), JSON.stringify(saBroken?.faultNotes));
+  } finally {
+    if (keepHomeCol === undefined) delete process.env.AGY_PIPELINE_HOME; else process.env.AGY_PIPELINE_HOME = keepHomeCol;
+    if (keepLogCol === undefined) delete process.env.AGY_PIPELINE_LOG_DIR; else process.env.AGY_PIPELINE_LOG_DIR = keepLogCol;
+    rmSync(colMon, { recursive: true, force: true });
+  }
+
+  // 5. 舊格式遷移、壞檔自癒、90 天清理、空 cwd、原型鍵、併發配對、寫入失敗容錯（AC-3、預審 #3）
+  const hbDir4 = mkdtempSync(join(tmpdir(), 'pm-hb4-'));
+  writeFileSync(join(hbDir4, '_guard.json'), JSON.stringify({ ts: H(2), cwd: '/legacy/old' }));
+  recordHeartbeat(hbDir4, '_guard.json', '/legacy/new', { retainDays: RETAIN_DAYS, now: NOW });
+  const migrated = guardHeartbeat(hbDir4);
+  check('舊格式心跳檔自動遷移舊 cwd 進 byCwd，且同時寫入新 cwd',
+    migrated?.byCwd?.['/legacy/old'] === H(2) && migrated?.byCwd?.['/legacy/new'] === new Date(NOW).toISOString(), JSON.stringify(migrated));
+
+  writeFileSync(join(hbDir4, '_guard.json'), '{壞掉的 json');
+  recordHeartbeat(hbDir4, '_guard.json', '/healed', { retainDays: RETAIN_DAYS, now: NOW });
+  const healed = guardHeartbeat(hbDir4);
+  eq('損毀心跳檔下次寫入自癒覆寫', healed?.cwd, '/healed');
+  eq('原子替換後不殘留 .tmp 暫存檔', readdirSync(hbDir4).filter((f) => f.endsWith('.tmp')).length, 0);
+
+  writeFileSync(join(hbDir4, '_guard.json'), JSON.stringify({
+    ts: H(1), cwd: '/keep', byCwd: { '/old91': H(91 * 24), '/keep89': H(89 * 24) },
+  }));
+  recordHeartbeat(hbDir4, '_guard.json', '/keep', { retainDays: RETAIN_DAYS, now: NOW });
+  const pruned = guardHeartbeat(hbDir4);
+  check('寫入時自動清理超過保留期限（90 天）的過期鍵、保留 89 天前鍵',
+    !('/old91' in (pruned?.byCwd ?? {})) && pruned?.byCwd?.['/keep89'] === H(89 * 24), JSON.stringify(pruned));
+
+  recordHeartbeat(hbDir4, '_guard.json', '', { retainDays: RETAIN_DAYS, now: NOW });
+  recordHeartbeat(hbDir4, '_guard.json', null, { retainDays: RETAIN_DAYS, now: NOW });
+  const afterEmpty = guardHeartbeat(hbDir4);
+  check('空 cwd 不寫入空鍵且保留既有 byCwd',
+    !('' in (afterEmpty?.byCwd ?? {})) && afterEmpty?.byCwd?.['/keep89'] === H(89 * 24), JSON.stringify(afterEmpty));
+
+  writeFileSync(join(hbDir4, '_guard.json'), '{"ts":"' + H(1) + '","cwd":"/x","byCwd":{"__proto__":"' + H(2) + '","constructor":"' + H(2) + '"}}');
+  recordHeartbeat(hbDir4, '_guard.json', '__proto__', { retainDays: RETAIN_DAYS, now: NOW });
+  eq('原型鍵 __proto__／constructor 不污染 Object.prototype', ({}).polluted === undefined && typeof ({}).toString === 'function', true);
+
+  const hbDirConc = mkdtempSync(join(tmpdir(), 'pm-hb-conc-'));
+  recordHeartbeat(hbDirConc, '_guard.json', '/A', { retainDays: RETAIN_DAYS, now: ms(1) });
+  recordHeartbeat(hbDirConc, '_guard.json', '/B', { retainDays: RETAIN_DAYS, now: ms(4) });
+  const conc = guardHeartbeat(hbDirConc);
+  check('併發寫入時間較舊者不蓋掉較新頂層 ts/cwd 配對（預審 #3）',
+    conc?.ts === H(1) && conc?.cwd === '/A' && conc?.byCwd?.['/A'] === H(1) && conc?.byCwd?.['/B'] === H(4), JSON.stringify(conc));
+
+  const mismatched = { ts: H(1), cwd: '/B', byCwd: { '/A': H(1), '/B': H(5) } };
+  eq('已有合法 byCwd 時不退回讀頂層 cwd，防止假恢復（預審 #3）',
+    faultState({ faults: [gErr(3, '/B')], guardHb: mismatched, now: NOW, retainDays: RETAIN_DAYS }).guardError?.state, 'unclear');
+
+  const blockedDir = mkdtempSync(join(tmpdir(), 'pm-hb-blk-'));
+  const notADir = join(blockedDir, 'file-not-dir');
+  writeFileSync(notADir, 'x');
+  let threw = false;
+  try { recordHeartbeat(notADir, '_guard.json', '/A', { retainDays: RETAIN_DAYS, now: NOW }); } catch { threw = true; }
+  eq('寫入失敗時靜默不拋錯（不鎖死對話／編輯）', threw, false);
+
+  for (const d of [hbDir, hbDir2, hbDirSym, hbDirNested, hbDir3, hbDir4, hbDirConc, blockedDir, wtHost, symHost]) rmSync(d, { recursive: true, force: true });
+  rA.cleanup(); rB.cleanup();
+}
+
+section('各資料夾心跳：終端機與儀表板多資料夾橫條一字不差', 'P2');
+{
+  const s = scene();
+  s.faults([
+    { ts: H(5), event: 'guard_broken', why: 'err-1', cwd: s.root },
+    { ts: H(3), event: 'guard_broken', why: 'err-2', cwd: '/elsewhere/projB' },
+  ]);
+  recordHeartbeat(s.logDir, '_guard.json', '/other/projC', { retainDays: RETAIN_DAYS, now: NOW });
+  const a = s.all();
+  const out = s.cli().out;
+  eq('儀表板多資料夾橫條 2 條', a.faults.banner.length, 2);
+  check('終端機最上面與儀表板每一條橫條一字不差',
+    a.faults.banner.every((b) => out.includes(b.text)), `${JSON.stringify(a.faults.banner)}\n---\n${out}`);
+  s.cleanup();
 }
 
 process.exit(summary());

@@ -10,7 +10,7 @@
  *
  * ⚠️ 熱路徑原則：只問目標檔所屬 repo 的 rev-parse 與讀設定檔；絕不跑 git log、dangerSince、readTranscript 或 cardFor。
  */
-import { readFileSync, writeFileSync, appendFileSync, lstatSync, readlinkSync, realpathSync, statSync } from 'node:fs';
+import { readFileSync, appendFileSync, lstatSync, readlinkSync, realpathSync, statSync } from 'node:fs';
 import { join, dirname, basename, resolve, relative, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
@@ -18,8 +18,8 @@ import { git, real } from './lib/git.mjs';
 import { EDIT_TOOLS, loadStages } from './lib/rounds.mjs';
 import { readTierConfig, computeTier, dangerRuleFor } from './lib/tier.mjs';
 import { optOutState } from './lib/mount.mjs';
-import { logFileOf } from './lib/events.mjs';
-import { GUARD_FILE, SENSOR_FILE } from './lib/faults.mjs';
+import { logFileOf, RETAIN_DAYS } from './lib/events.mjs';
+import { GUARD_FILE, SENSOR_FILE, recordHeartbeat } from './lib/faults.mjs';
 import { codeHome, dataDir, makeDataDir } from './lib/paths.mjs';
 import { zhEn, readLang, withLang } from './lib/lang.mjs';
 
@@ -226,9 +226,7 @@ function main() {
   const cwd = (typeof payload?.cwd === 'string' && payload.cwd) ? payload.cwd
     : (typeof payload?.workspacePaths?.[0] === 'string' && payload.workspacePaths[0]) ? payload.workspacePaths[0] : null;
   try {
-    const dir = logDir();
-    makeDataDir(dir);
-    writeFileSync(join(dir, GUARD_FILE), JSON.stringify({ ts: new Date().toISOString(), cwd }) + '\n');
+    recordHeartbeat(logDir(), GUARD_FILE, cwd, { retainDays: RETAIN_DAYS });
   } catch { /* 心跳寫不了不影響把關 */ }
 
   let res = null;

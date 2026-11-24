@@ -666,4 +666,25 @@ section('預審 #5、寫失敗防迴圈與隔離：tier_notified 寫失敗不注
   e.cleanup();
 }
 
+section('分級通知（escalate.sh）按資料夾留心跳（byCwd）：切到別的專案不讓已恢復的 escalate_broken 復活', 'P3');
+{
+  const e2 = makeEnv();
+  const rA = makeRepo({ files: { 'a.js': '1\n' } });
+  const rB = makeRepo({ files: { 'b.js': '1\n' } });
+  writeFileSync(join(e2.logDir, '_sensor.jsonl'),
+    JSON.stringify({ ts: T(-120), event: 'escalate_broken', why: 'boom', cwd: rA.dir }) + '\n');
+  const resA = e2.run({ conversationId: 's-a', cwd: rA.dir, lastUserInput: 'hi' });
+  eq('rA 正常跑完 escalate.sh → exit 0', resA.status, 0);
+  const resB = e2.run({ conversationId: 's-b', cwd: rB.dir, lastUserInput: 'hi' });
+  eq('rB 正常跑完 escalate.sh → exit 0', resB.status, 0);
+  const hb = escalateHeartbeat(e2.logDir);
+  check('_escalate.json 的 byCwd 同時保有兩個資料夾的心跳',
+    Boolean(hb?.byCwd?.[rA.dir]) && Boolean(hb?.byCwd?.[rB.dir]), JSON.stringify(hb));
+  eq('切去 rB 跑完 escalate.sh 後，rA.dir 的 escalateError 仍維持 recovered（不復活）',
+    faultState({ faults: readFaults(e2.logDir), escalateHb: hb, retainDays: 90 }).escalateError?.state, 'recovered');
+  rA.cleanup();
+  rB.cleanup();
+  e2.cleanup();
+}
+
 process.exit(summary());

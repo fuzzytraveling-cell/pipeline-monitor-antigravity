@@ -23,15 +23,15 @@
  *   decide 自己不讀——測試直接叫它,沒包就是中文,跟改之前一字不差。借來的句子(rerunLine、changeScope、ago)跟著同一種。
  * 「這次改了什麼」從這一輪的起點算(規格:這一輪的起點):Claude 收工前先存檔,該擋的照樣擋——以前沒章時比的是上一次存檔,一存就全部放行。
  */
-import { readFileSync, writeFileSync, appendFileSync, existsSync, realpathSync } from 'node:fs';
+import { readFileSync, appendFileSync, existsSync, realpathSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { cardFor, sessionTier } from './lib/collect.mjs';
-import { logFileOf } from './lib/events.mjs';
+import { logFileOf, RETAIN_DAYS } from './lib/events.mjs';
 import { sessionsOf, saidByHuman, promptKind, SKEW_MS, isEditEvent } from './lib/rounds.mjs';
 import { isSubagentPayload } from './lib/transcript.mjs';
-import { GATE_FILE, SENSOR_FILE } from './lib/faults.mjs';
+import { GATE_FILE, SENSOR_FILE, recordHeartbeat } from './lib/faults.mjs';
 import { ago } from './lib/git.mjs';
 import { readTierConfig, codeFileFn, changeTimeOf, RANKS, DANGER_ASK, dangerAskLine, laterOf, pendingRequirements } from './lib/tier.mjs';
 import { predictsDanger, isOpenSpec } from './lib/checklist.mjs';
@@ -266,7 +266,7 @@ function main() {
   const cwd = (typeof payload?.cwd === 'string' && payload.cwd) ? payload.cwd
     : (typeof payload?.workspacePaths?.[0] === 'string' && payload.workspacePaths[0]) ? payload.workspacePaths[0] : null;
   // 心跳:每次跑都留時間(不是紀錄,是一個會被蓋掉的小檔)。沒有它,「hook 掛著但從沒被觸發」跟「一切正常」長得一模一樣(L13、老毛病 P3)
-  try { const dir = logDir(); makeDataDir(dir); writeFileSync(join(dir, GATE_FILE), JSON.stringify({ ts: new Date().toISOString(), cwd }) + '\n'); } catch { /* 留不了就算了,不影響判斷 */ }
+  try { recordHeartbeat(logDir(), GATE_FILE, cwd, { retainDays: RETAIN_DAYS }); } catch { /* 留不了就算了,不影響判斷 */ }
   let d = null;
   try { d = withLang(readLang().lang, () => decide({ payload })); } catch (e) { noteBroken(e?.message ?? e, undefined, cwd); return allow(); }
   if (!d) return allow();

@@ -530,9 +530,21 @@ section('魔鬼教官第 2 輪回歸測試：符號連結工作區配 ../ 不漏
   const fsNow = faultState({ faults: readFaults(e.logDir), guardHb: guardHeartbeat(e.logDir), retainDays: 90 });
   eq('子資料夾恢復後 guardError 轉為 recovered（不卡在 unclear 黃燈）', fsNow.guardError?.state, 'recovered');
 
+  // 3. 恢復後再切到另一個專案（或 worktree）觸發 guard.sh → byCwd 同時保有兩者，不會讓 subCwd 復活成 unclear（P3）
+  const rOther2 = makeRepo({ files: { 'x.js': '1\n' } });
+  writeTierCfg(rOther2.dir, { tiers: { code: ['x.js'], danger: ['x.js'] } });
+  const outOther2 = e.run({ conversationId: 's-other2', cwd: rOther2.dir, toolCall: { name: 'edit_file', args: { TargetFile: join(rOther2.dir, 'x.js') } } });
+  check('切去別的專案照樣觸發 force_ask', JSON.parse(outOther2.stdout || '{}').decision === 'force_ask', outOther2.stdout);
+  const hbAfter = guardHeartbeat(e.logDir);
+  check('切去別的專案後 _guard.json 的 byCwd 同時保有原資料夾與新資料夾',
+    Boolean(hbAfter?.byCwd?.[subCwd]) && Boolean(hbAfter?.byCwd?.[rOther2.dir]), JSON.stringify(hbAfter));
+  eq('切去別的專案後重算 guardError 仍維持 recovered（不復活）',
+    faultState({ faults: readFaults(e.logDir), guardHb: hbAfter, retainDays: 90 }).guardError?.state, 'recovered');
+
   rmSync(symHost, { recursive: true, force: true });
   r.cleanup();
   rErr.cleanup();
+  rOther2.cleanup();
   e.cleanup();
 }
 

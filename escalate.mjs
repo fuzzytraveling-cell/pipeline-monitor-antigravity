@@ -12,19 +12,19 @@
  *   - 先寫入 tier_notified 成功才輸出 injectSteps；寫入失敗記 escalate_broken 並回 {}（防每步重複注入洗版）。
  *   - 非命中與任何錯誤一律輸出 {} 並 exit 0，絕不阻擋對話。
  */
-import { readFileSync, writeFileSync, appendFileSync, existsSync, statSync, realpathSync } from 'node:fs';
+import { readFileSync, appendFileSync, existsSync, statSync, realpathSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { cardFor, sessionTier } from './lib/collect.mjs';
 import { git, real, ago } from './lib/git.mjs';
-import { logFileOf } from './lib/events.mjs';
+import { logFileOf, RETAIN_DAYS } from './lib/events.mjs';
 import { sessionsOf, runsPerStage } from './lib/rounds.mjs';
 import { readTranscript } from './lib/transcript.mjs';
 import { readTierConfig, RANKS, pendingRequirements } from './lib/tier.mjs';
 import { optOutState } from './lib/mount.mjs';
 import { commandFor as findCommand, pluginName } from './lib/skills.mjs';
-import { ESCALATE_FILE, SENSOR_FILE } from './lib/faults.mjs';
+import { ESCALATE_FILE, SENSOR_FILE, recordHeartbeat } from './lib/faults.mjs';
 import { codeHome, dataDir, makeDataDir } from './lib/paths.mjs';
 import { zhEn, readLang, withLang } from './lib/lang.mjs';
 
@@ -262,9 +262,7 @@ function main() {
   const cwd = (typeof payload?.cwd === 'string' && payload.cwd) ? payload.cwd
     : (typeof payload?.workspacePaths?.[0] === 'string' && payload.workspacePaths[0]) ? payload.workspacePaths[0] : null;
   try {
-    const dir = logDir();
-    makeDataDir(dir);
-    writeFileSync(join(dir, ESCALATE_FILE), JSON.stringify({ ts: new Date().toISOString(), cwd }) + '\n');
+    recordHeartbeat(logDir(), ESCALATE_FILE, cwd, { retainDays: RETAIN_DAYS });
   } catch { /* 心跳寫不了不影響正常對話 */ }
 
   let res = null;
