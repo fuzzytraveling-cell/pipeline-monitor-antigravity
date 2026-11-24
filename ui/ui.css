@@ -59,6 +59,26 @@ h1 { font-size: var(--text-subheading); letter-spacing: var(--tracking-subheadin
 .lang-note { font-size: var(--text-caption); color: var(--color-text-secondary); }
 .lang-note:empty { display: none; }
 
+/* 三段風格切換器(白天工班／夜間工班／自動切換) */
+.theme-seg {
+  display: inline-flex; align-items: center; gap: 2px; padding: 2px;
+  border: 1px solid var(--color-night-border-strong); border-radius: var(--radius-full);
+  background: var(--color-night-surface);
+}
+.theme-opt {
+  font: inherit; font-size: var(--text-caption); line-height: 1.2; cursor: pointer;
+  border: 1px solid transparent; border-radius: var(--radius-full); padding: 4px 10px;
+  background: transparent; color: var(--color-text-secondary); white-space: nowrap;
+  transition: background .15s, color .15s, border-color .15s, box-shadow .15s;
+}
+.theme-opt:hover { color: var(--color-text-primary); }
+.theme-opt[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--color-neon-cyan) 18%, var(--color-night-surface-2));
+  border-color: color-mix(in srgb, var(--color-neon-cyan) 75%, transparent);
+  color: var(--color-neon-cyan);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--color-neon-cyan) 28%, transparent);
+}
+
 main { padding: var(--spacing-24); max-width: var(--page-max-width); margin: 0 auto; }
 h2.section { font-size: var(--text-subheading); letter-spacing: var(--tracking-subheading);
   margin: 0 0 4px; color: var(--color-text-primary); }
@@ -263,6 +283,8 @@ h2.section { font-size: var(--text-subheading); letter-spacing: var(--tracking-s
   background: var(--color-hat-reflect); opacity: .48; filter: blur(.5px);
   pointer-events: none;
 }
+/* 夜間版隱藏白天灰線 SVG,切換至白天版才顯示 */
+.wf-day-line { display: none; }
 @keyframes wf-rainbow-flow {
   from { background-position: 0% 100%; }
   to   { background-position: 0% 0%; }
@@ -431,7 +453,9 @@ h2.section { font-size: var(--text-subheading); letter-spacing: var(--tracking-s
 
 /* 系統設定「減少動態效果」:全部不動(AC-9)。A→E 那條彩虹燈管不動的時候改為穩定常亮 */
 @media (prefers-reduced-motion: reduce) {
-  .ag-float, .ag-ground, .agent .halo, .agent .ag-face, .wf-line, .wf-line::before { animation: none; }
+  .ag-float, .ag-ground, .agent .halo, .agent .ag-face,
+  .agent[data-here="1"]:is([data-face="look"], [data-face="open"]) .ag-face,
+  .wf-line, .wf-line::before { animation: none; }
 }
 
 /* ───────── 檔案清單 ───────── */
@@ -522,7 +546,7 @@ a.ext { color: var(--color-neon-cyan); }
 }
 .ov-right .odot { background: var(--color-text-muted); box-shadow: none; }
 
-/* 中央的匯流點:夜間四色漸層流動核心(類 After Effects 4-Color Gradient + 霓虹燈管微閃爍) */
+/* 中央的匯流點:夜間四色漸層流動核心(類 After Effects 4-Color Gradient，只做漸層流動、不閃爍) */
 /* ⚠️ hub 必須落在**線匯流的那個高度**(50%)。
    原本 hub 與文字疊成一欄,文字把 hub 往上推,線就對不到球心。 */
 .ov-mid { position: relative; display: grid; place-items: center; z-index: 1; min-height: 244px; }
@@ -544,20 +568,14 @@ a.ext { color: var(--color-neon-cyan); }
     radial-gradient(circle at 24% 76%, color-mix(in srgb, var(--color-hub-4) 90%, transparent), transparent 56%),
     linear-gradient(135deg, var(--color-hub-1), var(--color-hub-2), var(--color-hub-3), var(--color-hub-4));
   background-size: 220% 220%;
-  animation:
-    hubflow 4.2s ease-in-out infinite,
-    hubflicker 3.6s linear infinite;
-  animation-delay: calc(var(--t, 0) * -1s), calc(var(--t, 0) * -1s);
+  filter: brightness(1.08) saturate(1.25);
+  animation: hubflow 4.2s ease-in-out infinite;
+  animation-delay: calc(var(--t, 0) * -1s);
 }
 @keyframes hubflow {
   0%, 100% { background-position: 0% 0%, 100% 0%, 100% 100%, 0% 100%, 0% 50%; }
   33%      { background-position: 100% 35%, 30% 100%, 0% 45%, 85% 0%, 60% 20%; }
   66%      { background-position: 35% 100%, 0% 40%, 85% 0%, 100% 80%, 100% 70%; }
-}
-@keyframes hubflicker {
-  0%, 19%, 21%, 54%, 56%, 100% { filter: brightness(1.08) saturate(1.25); }
-  20%, 55%                     { filter: brightness(.82) saturate(1.05); }
-  38%                          { filter: brightness(1.26) saturate(1.4); }
 }
 .ov-hub span {
   position: absolute; inset: 0; border-radius: 50%;
@@ -903,3 +921,410 @@ a.ext { color: var(--color-neon-cyan); }
 /* 記號預設是空心小圈(只是說明、不是還差的事);只有等你決定／還差／看不到才是紅藍灰的實心點(規格:主任條列與工地帽 AC-4) */
 .titems li { list-style-type: circle; }
 .titems li:is([data-k="ask"], [data-k="todo"], [data-k="unknown"]) { list-style-type: disc; }
+
+/* ═══════════════ 白天工地風還原（<html data-theme="day">，對照原版 526e0e4） ═══════════════ */
+:root[data-theme="day"] { color-scheme: light; }
+[data-theme="day"] body { background: var(--color-parchment); color: var(--color-off-black); }
+[data-theme="day"] a { color: var(--color-lake-blue); }
+[data-theme="day"] body.dim main { opacity: .45; filter: grayscale(.85); }
+
+/* 頂列與三段切換 */
+[data-theme="day"] header {
+  background: var(--color-parchment); border-bottom-color: var(--color-ash); box-shadow: none;
+}
+[data-theme="day"] h1 { color: var(--color-off-black); }
+[data-theme="day"] .brand-badge {
+  color: var(--color-lake-blue);
+  border-color: color-mix(in srgb, var(--color-lake-blue) 35%, var(--color-ash));
+  background: var(--color-periwinkle-mist);
+  box-shadow: none;
+}
+[data-theme="day"] .crumb { color: var(--color-off-black); }
+[data-theme="day"] .crumb a { color: var(--color-lake-blue); }
+[data-theme="day"] .crumb .sep { color: var(--color-ash); }
+[data-theme="day"] #freshness {
+  color: var(--color-graphite); background: transparent; border-color: var(--color-ash);
+}
+[data-theme="day"] #freshness[data-state="stale"],
+[data-theme="day"] #freshness[data-state="disconnected"],
+[data-theme="day"] #freshness[data-state="unknown"] {
+  background: var(--color-off-black); color: var(--color-parchment); border-color: var(--color-off-black);
+  font-weight: var(--font-weight-regular); box-shadow: none;
+}
+[data-theme="day"] .lang-note { color: var(--color-smoke); }
+[data-theme="day"] .theme-seg { border-color: var(--color-ash); background: var(--color-paper); }
+[data-theme="day"] .theme-opt { color: var(--color-graphite); }
+[data-theme="day"] .theme-opt:hover { color: var(--color-off-black); }
+[data-theme="day"] .theme-opt[aria-pressed="true"] {
+  background: var(--color-periwinkle-mist);
+  border-color: color-mix(in srgb, var(--color-lake-blue) 45%, var(--color-ash));
+  color: var(--color-lake-blue); font-weight: var(--font-weight-medium); box-shadow: none;
+}
+
+[data-theme="day"] h2.section { color: var(--color-off-black); }
+[data-theme="day"] .section-note { color: var(--color-smoke); }
+[data-theme="day"] .fault {
+  border-left-color: var(--color-coral); border-radius: 0; background: transparent; color: var(--color-off-black);
+}
+[data-theme="day"] .fault[data-tone="amber"] { border-left-color: var(--color-gold); background: transparent; }
+
+/* 案件列表與小縮圖 */
+[data-theme="day"] .pcard {
+  border-color: var(--color-ash); color: inherit;
+  background:
+    linear-gradient(var(--color-grid) 1px, transparent 1px) 0 0 / 22px 22px,
+    linear-gradient(90deg, var(--color-grid) 1px, transparent 1px) 0 0 / 22px 22px,
+    var(--color-paper);
+  box-shadow: var(--shadow-note);
+}
+[data-theme="day"] .pcard:hover { border-color: var(--color-lake-blue); box-shadow: var(--shadow-note); }
+[data-theme="day"] .pcard h3 { color: inherit; }
+[data-theme="day"] .pcard .meta { color: var(--color-smoke); }
+[data-theme="day"] .mini span { background: var(--color-ash); }
+[data-theme="day"] .mini span[data-s="ran"] { background: var(--color-lake-blue); box-shadow: none; }
+[data-theme="day"] .mini span[data-s="done"] { background: var(--color-off-black); }
+[data-theme="day"] .mini span[data-s="passed"] { background: var(--color-off-black); opacity: .5; }
+[data-theme="day"] .mini span[data-s="held"] { background: var(--color-smoke); opacity: .6; }
+[data-theme="day"] .mini span[data-s="seen"] { background: var(--color-ash); }
+
+/* 四張淡水彩便條紙與紙膠帶 */
+[data-theme="day"] .stat {
+  --paper: var(--color-paper); --wash: var(--color-ash);
+  border-color: color-mix(in srgb, var(--wash) 75%, var(--color-ash));
+  background:
+    radial-gradient(65% 50% at 90% 8%, color-mix(in srgb, var(--wash) 75%, transparent), transparent 72%),
+    radial-gradient(55% 45% at 6% 96%, color-mix(in srgb, var(--wash) 55%, transparent), transparent 72%),
+    linear-gradient(var(--color-grid) 1px, transparent 1px) 0 0 / 22px 22px,
+    linear-gradient(90deg, var(--color-grid) 1px, transparent 1px) 0 0 / 22px 22px,
+    var(--paper);
+  box-shadow: var(--shadow-note);
+}
+[data-theme="day"] .stat[data-note="restore"] { --paper: var(--color-note-sky);    --wash: var(--color-note-sky-deep); }
+[data-theme="day"] .stat[data-note="ladder"]  { --paper: var(--color-note-lilac);  --wash: var(--color-note-lilac-deep); }
+[data-theme="day"] .stat[data-note="changes"] { --paper: var(--color-note-butter); --wash: var(--color-note-butter-deep); }
+[data-theme="day"] .stat[data-note="tier"]    { --paper: var(--color-note-peach);  --wash: var(--color-note-peach-deep); }
+[data-theme="day"] .stats > .stat:hover { box-shadow: var(--shadow-note); }
+[data-theme="day"] .stat::after,
+[data-theme="day"] .pcard::after { background: var(--color-tape); border: none; box-shadow: none; }
+[data-theme="day"] .stat[data-tone="alert"]::after {
+  background: repeating-linear-gradient(-45deg, var(--color-coral) 0 7px, var(--color-paper) 7px 14px);
+  border: none; box-shadow: none;
+}
+[data-theme="day"] .stat .ctitle,
+[data-theme="day"] .stat .big { color: var(--color-off-black); }
+[data-theme="day"] .stat .label {
+  color: var(--color-smoke);
+  border-bottom-color: color-mix(in srgb, var(--wash, var(--color-ash)), var(--color-off-black) 10%);
+}
+[data-theme="day"] .stat .sub { color: var(--color-graphite); }
+[data-theme="day"] .stat .hint { color: var(--color-smoke); }
+
+/* 全綠膠囊與三階梯 */
+[data-theme="day"] .pill {
+  border-color: var(--color-ash);
+  background: color-mix(in srgb, var(--color-paper) 70%, transparent);
+  color: var(--color-graphite);
+}
+[data-theme="day"] .pill.ok::before { color: var(--color-lake-blue); }
+[data-theme="day"] .cap {
+  border-color: color-mix(in srgb, var(--color-lilac-ink) 28%, transparent);
+  background: color-mix(in srgb, var(--color-paper) 72%, transparent);
+}
+[data-theme="day"] .capn {
+  border-color: color-mix(in srgb, var(--color-lilac-ink) 45%, transparent);
+  color: var(--color-lilac-ink);
+}
+[data-theme="day"] .cap[data-ok="yes"] {
+  border-color: color-mix(in srgb, var(--color-lilac-ink) 50%, transparent);
+  background:
+    radial-gradient(70% 140% at 12% 20%, var(--color-note-lilac-deep), transparent 72%),
+    radial-gradient(60% 120% at 92% 85%, color-mix(in srgb, var(--color-note-lilac-deep) 70%, transparent), transparent 70%),
+    var(--color-note-lilac);
+  box-shadow: none;
+}
+[data-theme="day"] .cap[data-ok="yes"] .capn {
+  background: var(--color-lilac-ink); color: var(--color-paper); border-color: var(--color-lilac-ink);
+  font-weight: var(--font-weight-regular);
+}
+[data-theme="day"] .capt b { color: var(--color-off-black); }
+[data-theme="day"] .capt small { color: var(--color-smoke); }
+
+/* 工作流左軌淡灰細線與五關卡片 */
+[data-theme="day"] .wf::before {
+  left: -10px; width: 88px;
+  background: radial-gradient(ellipse at 50% 20%, var(--color-sky-blue), transparent 62%),
+              radial-gradient(ellipse at 50% 85%, var(--color-coral), transparent 62%);
+  filter: blur(40px); opacity: .34;
+}
+[data-theme="day"] .wf-line {
+  left: 6px; top: 10px; width: 10px; height: calc(100% - 20px);
+  border-radius: 0; background: none; background-size: auto; animation: none; overflow: visible;
+}
+[data-theme="day"] .wf-line::before,
+[data-theme="day"] .wf-line::after { display: none; content: none; animation: none; }
+[data-theme="day"] .wf-day-line { display: block; width: 100%; height: 100%; overflow: visible; }
+[data-theme="day"] .wf-day-line path {
+  fill: none; stroke: var(--color-graphite); stroke-width: 1.7; stroke-linecap: round;
+  vector-effect: non-scaling-stroke; opacity: .55;
+  stroke-dasharray: 1400; stroke-dashoffset: 1400;
+  animation: draw 7s ease-in-out infinite;
+  animation-delay: calc(var(--t, 0) * -1s);
+}
+@keyframes draw {
+  0%   { stroke-dashoffset: 1400; }
+  55%  { stroke-dashoffset: 0; }
+  92%  { stroke-dashoffset: 0; opacity: .55; }
+  100% { stroke-dashoffset: 0; opacity: .15; }
+}
+[data-theme="day"] .railcell .rlab { color: var(--color-graphite); }
+[data-theme="day"] .railcell .dot { border-color: var(--color-ash); background: var(--color-parchment); }
+[data-theme="day"] .railcell[data-state="done"] .dot { background: var(--color-off-black); border-color: var(--color-off-black); }
+[data-theme="day"] .railcell[data-state="ran"] .dot { background: var(--color-lake-blue); border-color: var(--color-lake-blue); box-shadow: none; }
+[data-theme="day"] .railcell[data-state="director"][data-lit="1"] .dot { background: var(--color-agent-f); border-color: var(--color-agent-f); box-shadow: none; }
+[data-theme="day"] .railcell[data-state="passed"] .dot { background: var(--color-off-black); border-color: var(--color-off-black); opacity: .5; }
+[data-theme="day"] .railcell[data-state="seen"] .dot { background: transparent; border-color: var(--color-lake-blue); }
+[data-theme="day"] .railcell[data-state="stale"] .dot { background: transparent; border-color: var(--color-coral); }
+[data-theme="day"] .railcell[data-state="held"] .dot { background: transparent; border-color: var(--color-graphite); }
+
+[data-theme="day"] .acard { border-color: var(--color-ash); background: var(--color-paper); }
+[data-theme="day"] .acard[data-here="1"] {
+  border-color: var(--color-sky-blue);
+  background: radial-gradient(60% 120% at 0% 50%, color-mix(in srgb, var(--color-sky-blue) 22%, transparent), transparent 70%), var(--color-paper);
+  box-shadow: none;
+}
+[data-theme="day"] .atitle { color: var(--color-off-black); }
+[data-theme="day"] .ahouse,
+[data-theme="day"] .adoes,
+[data-theme="day"] .amore > summary,
+[data-theme="day"] .said,
+[data-theme="day"] .acard[data-state="none"] .astatus,
+[data-theme="day"] .acard[data-state="notbuilt"] .astatus,
+[data-theme="day"] .acard[data-state="main"] .astatus,
+[data-theme="day"] .acard[data-state="passed"] .astatus { color: var(--color-smoke); }
+[data-theme="day"] .amore > summary:hover { color: var(--color-off-black); }
+[data-theme="day"] .astatus { color: var(--color-off-black); }
+[data-theme="day"] .acard[data-state="done"] .atitle,
+[data-theme="day"] .acard[data-state="passed"] .atitle { text-decoration-color: var(--color-coral); }
+[data-theme="day"] .acard[data-state="stale"] .astatus { color: var(--color-coral); }
+[data-theme="day"] .lamp { border-color: var(--color-ash); }
+[data-theme="day"] .acard[data-state="ran"] .lamp { background: var(--color-lake-blue); border-color: var(--color-lake-blue); box-shadow: none; }
+[data-theme="day"] .acard[data-state="done"] .lamp { background: var(--color-off-black); border-color: var(--color-off-black); }
+[data-theme="day"] .acard[data-state="stale"] .lamp { background: transparent; border-color: var(--color-coral); }
+[data-theme="day"] .acard[data-state="seen"] .lamp { background: transparent; border-color: var(--color-lake-blue); }
+[data-theme="day"] .acard[data-state="held"] .lamp { background: transparent; border-color: var(--color-graphite); }
+[data-theme="day"] .titems li.call[data-k] {
+  color: var(--color-off-black);
+  background: color-mix(in srgb, var(--color-agent-f) 45%, transparent);
+  border-left-color: var(--color-agent-f);
+}
+
+/* 六個工班：黑眼、B 淡淡亮邊、同色系安全帽、天藍光暈 */
+[data-theme="day"] .agent { --agent: var(--color-graphite); }
+[data-theme="day"] .agent[data-id="A"] { --agent: var(--color-agent-a); }
+[data-theme="day"] .agent[data-id="B"] { --agent: var(--color-agent-b); }
+[data-theme="day"] .agent[data-id="C"] { --agent: var(--color-agent-c); }
+[data-theme="day"] .agent[data-id="D"] { --agent: var(--color-agent-d); }
+[data-theme="day"] .agent[data-id="E"] { --agent: var(--color-agent-e); }
+[data-theme="day"] .agent[data-id="director"] { --agent: var(--color-agent-f); }
+[data-theme="day"] .ag-body > * { filter: none; }
+[data-theme="day"] .ag-face { fill: var(--color-off-black); filter: none; }
+[data-theme="day"] .ag-face > :not(.ln) { stroke: none; stroke-width: 0; }
+[data-theme="day"] .ag-face .ln { stroke: var(--color-off-black); }
+[data-theme="day"] .agent[data-id="B"] .ag-face { --rim: color-mix(in srgb, var(--color-paper) 55%, var(--agent)); }
+[data-theme="day"] .agent[data-id="B"] .ag-face > :not(.ln) { stroke: var(--rim); stroke-width: 2; paint-order: stroke; }
+[data-theme="day"] .agent[data-id="B"] .ag-face .ln { stroke: var(--rim); }
+[data-theme="day"] .agent[data-id="director"] .ag-face { filter: none; }
+[data-theme="day"] .agent[data-id="director"] .ag-face > :not(.ln) { stroke: none; stroke-width: 0; }
+[data-theme="day"] .agent[data-id="director"][data-face="happy"] .ag-face .ln { filter: none; }
+[data-theme="day"] .agent:is([data-face="sleep"], [data-face="rest"]) .ag-face .ln { stroke: var(--color-off-black); }
+[data-theme="day"] .agent[data-id="B"]:is([data-face="sleep"], [data-face="rest"]) .ag-face .ln { stroke: var(--rim); }
+[data-theme="day"] .agent[data-id="director"]:is([data-face="sleep"], [data-face="rest"]) .ag-face .ln { stroke: var(--color-off-black); }
+[data-theme="day"] .ag-hat > * { fill: color-mix(in srgb, var(--agent) 70%, var(--color-paper)); }
+[data-theme="day"] .ag-hat :is(.hat-dome, .hat-brim) { stroke: color-mix(in srgb, var(--agent) 78%, var(--color-off-black)); stroke-width: .5; }
+[data-theme="day"] .ag-hat .hat-brim { fill: color-mix(in srgb, var(--agent) 84%, var(--color-paper)); }
+[data-theme="day"] .ag-hat .hat-ridge { fill: color-mix(in srgb, var(--agent) 50%, var(--color-paper)); filter: none; }
+[data-theme="day"] .ag-hat .hat-shade { fill: color-mix(in srgb, var(--agent) 55%, var(--color-off-black)); opacity: .35; }
+[data-theme="day"] .ag-hat .hat-ai-edge { stroke: color-mix(in srgb, var(--agent) 55%, var(--color-off-black)); stroke-width: 1.6; }
+[data-theme="day"] .ag-hat .hat-ai { stroke: var(--color-paper); stroke-width: .8; }
+[data-theme="day"] .ag-ground { fill: var(--color-off-black); opacity: .09; animation-name: ground-day; }
+@keyframes ground-day { 0%, 100% { transform: scaleX(1); opacity: .09; } 50% { transform: scaleX(.82); opacity: .05; } }
+[data-theme="day"] .ag-sweat { fill: var(--color-sky-blue); }
+[data-theme="day"] .ag-z { fill: var(--color-smoke); }
+[data-theme="day"] .agent[data-face="blank"] .ag-body > * { fill: none; stroke: var(--color-smoke); }
+[data-theme="day"] .agent[data-face="blank"] .ag-hat > *,
+[data-theme="day"] .agent[data-face="blank"] .ag-hat .hat-brim,
+[data-theme="day"] .agent[data-face="blank"] .ag-hat :is(.hat-dome, .hat-brim) {
+  fill: none; stroke: var(--color-smoke); stroke-width: 1; stroke-dasharray: 3 2;
+}
+[data-theme="day"] .agent[data-face="blank"] .ag-hat .hat-ridge { fill: none; }
+[data-theme="day"] .agent[data-here="1"]::before {
+  background: radial-gradient(circle, var(--color-sky-blue), transparent 68%); opacity: .6;
+}
+[data-theme="day"] .agent .halo { border-color: var(--color-sky-blue); }
+
+/* 檔案清單、說明文字與控制元件 */
+[data-theme="day"] .files { color: inherit; }
+[data-theme="day"] .fgroup .dir { color: var(--color-smoke); }
+[data-theme="day"] .isnew { color: var(--color-lake-blue); }
+[data-theme="day"] .note { border-top-color: var(--color-ash); color: var(--color-smoke); }
+[data-theme="day"] .hint.warn { color: var(--color-off-black); }
+[data-theme="day"] .why { color: var(--color-graphite); }
+[data-theme="day"] .why > summary,
+[data-theme="day"] .more > summary { color: var(--color-smoke); }
+[data-theme="day"] .why > summary:hover,
+[data-theme="day"] .more > summary:hover { color: var(--color-off-black); }
+[data-theme="day"] .why p { border-left-color: color-mix(in srgb, var(--color-sky-blue) 60%, transparent); }
+[data-theme="day"] .callout { color: inherit; }
+[data-theme="day"] .callout .tail { color: var(--color-smoke); }
+[data-theme="day"] .chip { border-color: var(--color-ash); background: var(--color-paper); color: inherit; }
+[data-theme="day"] code { background: var(--color-periwinkle-mist); color: inherit; border: none; }
+[data-theme="day"] button.copy {
+  border-color: var(--color-off-black); background: transparent; color: var(--color-off-black);
+}
+[data-theme="day"] button.copy:hover { background: var(--color-off-black); color: var(--color-parchment); }
+[data-theme="day"] a.ext { color: var(--color-lake-blue); }
+[data-theme="day"] .muted { color: var(--color-smoke); }
+[data-theme="day"] .warn { color: var(--color-off-black); }
+
+/* Overview 淡彩球與淡藍匯流線 */
+[data-theme="day"] .ov {
+  border-color: var(--color-ash);
+  background:
+    linear-gradient(var(--color-grid) 1px, transparent 1px) 0 0 / 28px 28px,
+    linear-gradient(90deg, var(--color-grid) 1px, transparent 1px) 0 0 / 28px 28px,
+    var(--color-paper);
+  box-shadow: none;
+}
+[data-theme="day"] .ov-h { color: var(--color-smoke); }
+[data-theme="day"] .ochip { border-color: var(--color-ash); background: var(--color-paper); color: var(--color-off-black); }
+[data-theme="day"] .ochip:hover { border-color: var(--color-lake-blue); box-shadow: none; }
+[data-theme="day"] .odot { background: var(--color-lake-blue); box-shadow: none; }
+[data-theme="day"] .ov-right .odot { background: var(--color-ash); }
+[data-theme="day"] .ov-hub {
+  background: radial-gradient(circle at 40% 35%, var(--color-mint), transparent 62%),
+              radial-gradient(circle at 65% 60%, var(--color-sky-blue), transparent 62%),
+              radial-gradient(circle at 45% 75%, var(--color-gold), transparent 62%);
+  border: none; box-shadow: none;
+}
+[data-theme="day"] .ov-hub::before { display: none; animation: none; }
+[data-theme="day"] .ov-hub span { border-color: var(--color-ash); }
+[data-theme="day"] .ov-state { color: var(--color-graphite); }
+[data-theme="day"] .ov-subject { color: var(--color-smoke); }
+[data-theme="day"] .ov-wires path { stroke: var(--color-sky-blue); stroke-width: 1.2; opacity: 1; filter: none; }
+[data-theme="day"] .ochip.ov-more { color: var(--color-graphite); }
+
+/* 對話清單、按鈕與分級表單 */
+[data-theme="day"] .srow {
+  border-color: var(--color-ash); background: var(--color-paper);
+  -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: none;
+}
+[data-theme="day"] .srow .sname { color: var(--color-off-black); }
+[data-theme="day"] .srow .sname:hover { color: var(--color-lake-blue); }
+[data-theme="day"] .srow .smeta { color: var(--color-smoke); }
+[data-theme="day"] .srow.closed .sname { text-decoration-color: var(--color-coral); color: var(--color-smoke); }
+[data-theme="day"] .mini-btn {
+  border-color: var(--color-ash); background: transparent; color: var(--color-graphite);
+}
+[data-theme="day"] .mini-btn:hover { border-color: var(--color-off-black); color: var(--color-off-black); }
+[data-theme="day"] .mini-btn:disabled { opacity: .5; }
+[data-theme="day"] .reqs { color: inherit; }
+[data-theme="day"] .reqs li[data-state="missing"] { color: var(--color-coral); }
+[data-theme="day"] .tierform input {
+  padding: 4px 8px; border-color: var(--color-smoke); background: transparent; color: inherit;
+}
+[data-theme="day"] .tierform input::placeholder { color: var(--color-smoke); }
+[data-theme="day"] .tierform select {
+  padding: 4px 6px; border: 1px solid var(--color-smoke); border-radius: 6px; background: var(--color-paper); color: inherit;
+}
+[data-theme="day"] .srow .smeta a,
+[data-theme="day"] .section-note a { color: var(--color-lake-blue); }
+[data-theme="day"] .acl { color: inherit; }
+[data-theme="day"] .acl .plain,
+[data-theme="day"] .acl .muted,
+[data-theme="day"] .acl.muted { color: var(--color-smoke); }
+[data-theme="day"] .acl li[data-state="checked"] { opacity: .7; }
+[data-theme="day"] .acl-box > summary { color: var(--color-smoke); }
+[data-theme="day"] .acl-box > summary:hover { color: var(--color-off-black); }
+[data-theme="day"] .rnote { color: var(--color-smoke); }
+
+/* 還差什麼白板：鋁框、手畫橢圓馬克筆圈與下緣筆槽 */
+[data-theme="day"] .wb {
+  background: var(--color-whiteboard); -webkit-backdrop-filter: none; backdrop-filter: none;
+  border: 6px solid var(--color-whiteboard-frame); box-shadow: var(--shadow-note);
+}
+[data-theme="day"] .wb-boss-name { color: var(--color-smoke); }
+[data-theme="day"] .wb-line { color: var(--color-graphite); }
+[data-theme="day"] .wb-tasks { margin: 10px 0 0; padding: 0 0 0 10px; gap: 16px; }
+[data-theme="day"] .wb-task,
+[data-theme="day"] .wb-task:is([data-ink="red"], [data-ink="blue"], [data-ink="yellow"]),
+[data-theme="day"] .wb-task[data-ink="gray"] {
+  border: none; border-radius: 0; padding: 0; background: none;
+  -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: none; animation: none;
+}
+[data-theme="day"] .wb-task:is([data-ink="red"], [data-ink="blue"], [data-ink="yellow"])::before {
+  display: none; content: none; animation: none;
+}
+[data-theme="day"] .wb-task > summary { gap: 6px 16px; padding: 6px 4px; }
+[data-theme="day"] .wb-ring {
+  flex: 0 1 auto; display: inline-block; padding: 2px 12px;
+  line-height: 1.5; font-weight: var(--font-weight-regular); color: var(--color-off-black); text-shadow: none;
+}
+[data-theme="day"] .wb-task:is([data-ink="red"], [data-ink="blue"], [data-ink="yellow"]) .wb-ring,
+[data-theme="day"] .wb-task[data-ink="gray"] .wb-ring { color: var(--color-off-black); text-shadow: none; }
+[data-theme="day"] .wb-ring::before {
+  content: ''; position: absolute; inset: -6px -10px; border: 2.5px solid var(--ink); pointer-events: none;
+  border-radius: 52% 48% 55% 45% / 58% 46% 54% 42%; transform: rotate(-2.5deg);
+  color: inherit; opacity: 1;
+}
+[data-theme="day"] .wb-item:nth-child(even) .wb-ring::before {
+  transform: rotate(2deg); border-radius: 47% 53% 44% 56% / 50% 58% 42% 50%;
+}
+[data-theme="day"] .wb-task[open] > summary .wb-ring::before { content: ''; }
+[data-theme="day"] .wb-count { color: var(--color-off-black); }
+[data-theme="day"] .wb-task .titems,
+[data-theme="day"] .wb-task:is([data-ink="red"], [data-ink="blue"], [data-ink="yellow"]) .titems {
+  margin: 8px 0 0 14px; padding-top: 0; padding-left: 1.1em; border-top: none;
+}
+[data-theme="day"] .wb-task:is([data-ink="red"], [data-ink="blue"], [data-ink="yellow"]) .titems::before {
+  display: none; content: none;
+}
+[data-theme="day"] .wb-acts { margin: 8px 0 0 14px; }
+[data-theme="day"] .wb-acts a { color: var(--color-lake-blue); }
+[data-theme="day"] .titems { color: var(--color-off-black); }
+[data-theme="day"] .titems li { --ink: var(--color-smoke); }
+[data-theme="day"] :is(.wb, .titems) [data-k="ask"] { --ink: var(--color-marker-red); }
+[data-theme="day"] :is(.wb, .titems) [data-k="todo"] { --ink: var(--color-marker-blue); }
+[data-theme="day"] :is(.wb, .titems) [data-k="unknown"] { --ink: var(--color-marker-gray); }
+[data-theme="day"] .titems li[data-k="unknown"],
+[data-theme="day"] .titems li[data-k="note"] { color: var(--color-smoke); }
+[data-theme="day"] .wb-tray {
+  border-radius: 4px; background: var(--color-whiteboard-frame);
+  -webkit-backdrop-filter: none; backdrop-filter: none; border: none; box-shadow: none;
+}
+[data-theme="day"] .wb-pen { color: var(--color-smoke); }
+[data-theme="day"] .wb-pen i {
+  width: 34px; height: 9px; margin-left: 7px; border-radius: 2px 5px 5px 2px;
+  background: var(--color-paper); border: none;
+}
+[data-theme="day"] .wb-pen i::after {
+  inset: auto; left: -7px; top: 1px; width: 9px; height: 7px; border-radius: 50% 1px 1px 50%;
+  background: var(--ink); opacity: .28;
+}
+[data-theme="day"] .wb-pen[data-lit="1"] { color: var(--color-off-black); }
+[data-theme="day"] .wb-pen[data-lit="1"] i,
+[data-theme="day"] .wb-pen[data-ink="gray"][data-lit="1"] i {
+  background: var(--color-paper); border: none; box-shadow: none; animation: none;
+}
+[data-theme="day"] .wb-pen[data-lit="1"] i::after,
+[data-theme="day"] .wb-pen[data-ink="gray"][data-lit="1"] i::after {
+  opacity: 1; animation: pen-light 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-theme="day"] .ag-ground { animation: none; }
+  [data-theme="day"] .wf-day-line path { animation: none; stroke-dashoffset: 0; }
+  [data-theme="day"] .wb-pen[data-lit="1"] i::after,
+  [data-theme="day"] .wb-pen[data-ink="gray"][data-lit="1"] i::after {
+    animation: none; box-shadow: 0 0 6px 2px var(--ink);
+  }
+}

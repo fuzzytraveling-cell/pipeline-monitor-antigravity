@@ -6,6 +6,7 @@
      舊的服務(合併之後、還沒重啟)不認得 data-en,直接送這個檔——舊的服務只會中文,所以這裡寫的是中文。 -->
 <title data-en="Pipeline Monitor · Antigravity">產線監視器 · Antigravity</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script>(function(){try{var m=localStorage.getItem('pm-theme-mode');if(m!=='day'&&m!=='night'&&m!=='auto')m='auto';var r=localStorage.getItem('pm-theme-resolved');var t=m==='auto'?((r==='day'||r==='night')?r:(window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches?'day':'night')):m;document.documentElement.dataset.themeMode=m;document.documentElement.dataset.theme=t;}catch(e){}})();</script>
 <link rel="stylesheet" href="/ui.css">
 </head>
 <body>
@@ -17,6 +18,11 @@
   <!-- ⚠️ AC-1:這一列必須永遠在畫面上,而且秒數自己會跳。
        終端機天生誠實(你剛打完指令);網頁不會,除非它一直自己承認。 -->
   <span id="freshness" data-state="unknown" data-en="Connecting…">正在連線…</span>
+  <div id="theme-switch" class="theme-seg" role="group">
+    <button type="button" class="theme-opt" data-theme-opt="day" aria-pressed="false" data-en="Day">白天工班</button>
+    <button type="button" class="theme-opt" data-theme-opt="night" aria-pressed="false" data-en="Night">夜間工班</button>
+    <button type="button" class="theme-opt" data-theme-opt="auto" aria-pressed="false" data-en="Auto">自動切換</button>
+  </div>
   <!-- 中英切換的按鈕:寫成要切過去的那一種,看不懂現在這一種的人也找得到。按了之後怎樣(連不上、服務還在跑舊的程式…)寫在旁邊那一格 -->
   <button id="lang-switch" class="mini-btn" data-lang-switch data-en="中文">English</button>
   <span id="lang-note" class="lang-note"></span>

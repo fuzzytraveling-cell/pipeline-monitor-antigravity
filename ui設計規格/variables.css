@@ -183,3 +183,38 @@
   /* 字：一般的句子用系統的無襯線字（中文是蘋方）；指令、檔名、數字照舊等寬 */
   --font-body: -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
 }
+
+/* ── 白天工地風（原版 526e0e4，規格：工地工班風畫面、dashboard-theme-toggle；由 <html data-theme="day"> 啟用）── */
+:root[data-theme="day"] {
+  --color-text-primary: var(--color-off-black);
+  --color-text-secondary: var(--color-graphite);
+  --color-text-muted: var(--color-smoke);
+
+  --color-note-sky: #e5eefb;
+  --color-note-sky-deep: #c4d6f5;
+  --color-note-lilac: #eee9fb;
+  --color-note-lilac-deep: #d3c8f3;
+  --color-note-butter: #fbf3d6;
+  --color-note-butter-deep: #f1dea0;
+  --color-note-peach: #fde9e1;
+  --color-note-peach-deep: #f7cbb9;
+  --color-lilac-ink: #6c5bc0;
+  --color-paper: #fffdfa;
+  --color-grid: rgba(43, 89, 209, 0.07);
+  --color-tape: rgba(236, 218, 152, 0.78);
+  --shadow-note: 0 1px 1px rgba(36, 36, 36, 0.05), 0 10px 18px -12px rgba(36, 36, 36, 0.28);
+
+  --color-agent-a: #4c7fc9;
+  --color-agent-b: #444651;
+  --color-agent-c: #99c9b3;
+  --color-agent-d: #dc7367;
+  --color-agent-e: #d58739;
+  --color-agent-f: #ddb729;
+
+  --color-whiteboard: #fcfdfd;
+  --color-whiteboard-frame: #d5d9dd;
+  --color-marker-red: #dc4a3d;
+  --color-marker-blue: #2b59d1;
+  --color-marker-gray: #9b9896;
+  --color-marker-yellow: var(--color-agent-f);
+}

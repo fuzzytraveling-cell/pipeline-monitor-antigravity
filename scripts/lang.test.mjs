@@ -251,7 +251,11 @@ section('伺服器:首頁照語言送(第一眼就是對的語言);按鈕跟其�
   eq('換了之後共用的那份作廢了:下一次就是英文(不用等它過期)', s2.lang, 'en');
   const enPage = (await send('GET', '/')).body;
   check('首頁:<html lang="en" data-lang="en">', enPage.includes('<html lang="en" data-lang="en">'), enPage.slice(0, 200));
-  check('首頁:標題、載入中、正在連線換成英文（含 Antigravity 識別）', enPage.includes('<title data-en="Pipeline Monitor · Antigravity">Pipeline Monitor · Antigravity</title>') && enPage.includes('<span class="brand-badge">Antigravity</span>') && enPage.includes('>Loading…</p>') && enPage.includes('>Connecting…</span>'), enPage);
+  check('首頁:標題、載入中、正在連線、風格切換按鈕換成英文（含 Antigravity 識別）',
+    enPage.includes('<title data-en="Pipeline Monitor · Antigravity">Pipeline Monitor · Antigravity</title>')
+    && enPage.includes('<span class="brand-badge">Antigravity</span>')
+    && enPage.includes('>Loading…</p>') && enPage.includes('>Connecting…</span>')
+    && enPage.includes('>Day</button>') && enPage.includes('>Night</button>') && enPage.includes('>Auto</button>'), enPage);
   check('首頁:按鈕寫「中文」', />中文<\/button>/.test(enPage), enPage);
   noZh('首頁(拿掉標籤):除了按鈕那個「中文」,沒有中文', strip(enPage), ['中文']);
 
@@ -317,6 +321,7 @@ function uiOf(latest, { lang = 'zh', fetch = () => Promise.reject(new Error('測
   const sessionStorage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, String(v)), removeItem: (k) => store.delete(k) };
   const make = new Function('describeFreshness', 'STALE_AFTER_SECONDS', 'document', 'window', 'localStorage', 'sessionStorage', 'location', 'setTimeout', 'setInterval', 'fetch', 'performance', 'console', '__LATEST',
     `${body}\nlatest = __LATEST;\nreturn { workflow, roundWhere, sensorLine, faultBanner, oldServerBanner, langBanner, render, safeRender, switchLang, poll, ago, clock, OLD_LINE, ROLE,
+      applyTheme, cycleTheme, sunTimes, resolveTheme, themeTooltip,
       statRestore, statLadder, statChanges, statTier, projectList, overview, sessionList, projectPage, suggestionsBlock, optOutLine, sessionPage,
       setLatest: (x) => { latest = x; }, connected: () => connected, LANG };`);
   const api = make(describeFreshness, 60, document, { addEventListener: noop }, { getItem: () => null, setItem: noop }, sessionStorage, loc, noop, noop, fetch,
@@ -485,6 +490,37 @@ section('畫面:按鈕的提示寫成要切過去的那一種(跟按鈕上的字
   const en = uiOf({ generatedAt: NOW, projects: [] }, { lang: 'en' });
   eq('英文的畫面:提示寫中文(看不懂英文、想換回中文的人才看得懂)', en.els['lang-switch'].title, '切換成中文（快速鍵：L）');
   eq('……一樣有 aria-keyshortcuts', en.els['lang-switch'].attrs['aria-keyshortcuts'], 'L');
+}
+
+section('英文的風格切換提示（白天／夜間／自動日出日落／極晝極夜／查不到座標／無痕存不了）都沒有中文與全形空白', 'P2');
+{
+  const en = uiOf({ generatedAt: NOW, projects: [] }, { lang: 'en' });
+  const dayRes = { mode: 'day', theme: 'day', sun: null, source: 'manual' };
+  const nightRes = { mode: 'night', theme: 'night', sun: null, source: 'manual' };
+  const sunDay = { mode: 'auto', theme: 'day', sun: { kind: 'ok', tz: 'Asia/Taipei', sunrise: '06:16', sunset: '17:04' }, source: 'sun' };
+  const sunNight = { mode: 'auto', theme: 'night', sun: { kind: 'ok', tz: 'Asia/Taipei', sunrise: '06:16', sunset: '17:04' }, source: 'sun' };
+  const polarDay = { mode: 'auto', theme: 'day', sun: { kind: 'polar-day', tz: 'Arctic/Longyearbyen' }, source: 'sun' };
+  const polarNight = { mode: 'auto', theme: 'night', sun: { kind: 'polar-night', tz: 'Arctic/Longyearbyen' }, source: 'sun' };
+  const sysDark = { mode: 'auto', theme: 'night', sun: { kind: 'unknown', tz: 'Etc/Unknown' }, source: 'system-fallback' };
+  const sysLight = { mode: 'auto', theme: 'day', sun: { kind: 'unknown', tz: 'Etc/Unknown' }, source: 'system-fallback' };
+  const defNight = { mode: 'auto', theme: 'night', sun: { kind: 'unknown', tz: null }, source: 'default-fallback' };
+  const tips = [
+    en.themeTooltip('day', dayRes, false),
+    en.themeTooltip('night', nightRes, false),
+    en.themeTooltip('auto', sunDay, false),
+    en.themeTooltip('auto', sunNight, false),
+    en.themeTooltip('auto', polarDay, false),
+    en.themeTooltip('auto', polarNight, false),
+    en.themeTooltip('auto', sysDark, false),
+    en.themeTooltip('auto', sysLight, false),
+    en.themeTooltip('auto', defNight, false),
+    en.themeTooltip('day', dayRes, true),
+  ];
+  for (const [i, tip] of tips.entries()) {
+    noZh(`英文風格提示 #${i}`, tip);
+    check(`英文風格提示 #${i} 沒有全形空白與內部值`, !tip.includes('\u3000') && !/NaN|\bundefined\b|\bnull\b/.test(tip), tip);
+  }
+  eq('英文風格切換器 aria-label', en.els['theme-switch'].attrs['aria-label'], 'Switch dashboard theme');
 }
 
 section('畫面:一頁的語言只有一個來源——資料說是另一種就整頁重新載入;舊的服務沒給 lang ＝ 中文;同一種不載(AC-7)');

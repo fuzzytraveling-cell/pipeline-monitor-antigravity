@@ -107,6 +107,8 @@ npm start                      # 不裝服務的話：這個視窗開著它就�
 
 ⚠️ 服務跟 `npm start` 不能同時開（同一個埠 `4320`，可用 `AGY_PIPELINE_PORT` 覆寫）。背景服務標籤為 `com.pipeline-monitor-agy.dashboard`，輸出在 `~/Library/Logs/pipeline-monitor-agy/dashboard.log`。
 
+頂列提供「白天工班／夜間工班／自動切換」三段風格切換（預設依本機時區今日日出日落時間離線自動換班；在儀表板上按 `T` 可循環切換，只記在瀏覽器本地）。
+
 ⚠️ **只綁 127.0.0.1，而且刻意不提供對外的開關。** 同時阻擋非本機 Host、跨站寫入請求與 iframe 嵌入（LESSONS L28）。
 
 ⚠️ **畫面隨時會說出「這些資料是什麼時候的」，斷線時整頁會承認。**

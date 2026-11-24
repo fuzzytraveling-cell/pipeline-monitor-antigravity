@@ -31,6 +31,7 @@ const $fresh = document.getElementById('freshness');
 const $crumb = document.getElementById('crumb');
 const $langNote = document.getElementById('lang-note');
 const $langBtn = document.getElementById('lang-switch');
+const $themeSwitch = document.getElementById('theme-switch');
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -115,8 +116,194 @@ function agent(st, s, here) {
       <g class="ag-float"><g class="ag-body">${r?.shape ?? '<circle cx="32" cy="34" r="22"/>'}</g>${hat(r?.hat ?? [32, 14], !!r?.ai)}<g class="ag-face">${eyes(face, r?.eye ?? [32, 33])}</g>${extra}</g></svg></span>`;
 }
 
+/* ═══ 風格切換（白天工班／夜間工班／依日出日落自動切換，規格：dashboard-theme-toggle） ═══ */
+const THEME_MODES = ['day', 'night', 'auto'];
+const THEME_MODE_KEY = 'pm-theme-mode';
+const THEME_RES_KEY = 'pm-theme-resolved';
+// 離線時區代表座標（只用來算每日日出日落，零權限彈窗、完全離線；查不到就誠實降級不編時間）
+const TZ_COORDS = {
+  'Asia/Taipei': [25.03, 121.57], 'Asia/Tokyo': [35.68, 139.77], 'Asia/Seoul': [37.57, 126.98],
+  'Asia/Shanghai': [31.23, 121.47], 'Asia/Hong_Kong': [22.32, 114.17], 'Asia/Macau': [22.20, 113.54],
+  'Asia/Singapore': [1.35, 103.82], 'Asia/Kuala_Lumpur': [3.14, 101.69], 'Asia/Bangkok': [13.76, 100.50],
+  'Asia/Ho_Chi_Minh': [10.82, 106.63], 'Asia/Saigon': [10.82, 106.63], 'Asia/Jakarta': [-6.21, 106.85],
+  'Asia/Manila': [14.60, 120.98], 'Asia/Kolkata': [22.57, 88.36], 'Asia/Calcutta': [22.57, 88.36],
+  'Asia/Dubai': [25.20, 55.27], 'Asia/Riyadh': [24.71, 46.68], 'Asia/Jerusalem': [31.77, 35.21], 'Asia/Tehran': [35.69, 51.39],
+  'Australia/Sydney': [-33.87, 151.21], 'Australia/Melbourne': [-37.81, 144.96], 'Australia/Brisbane': [-27.47, 153.03],
+  'Australia/Perth': [-31.95, 115.86], 'Australia/Adelaide': [-34.93, 138.60], 'Pacific/Auckland': [-36.85, 174.76], 'Pacific/Honolulu': [21.31, -157.86],
+  'Europe/London': [51.51, -0.13], 'Europe/Dublin': [53.35, -6.26], 'Europe/Paris': [48.86, 2.35],
+  'Europe/Berlin': [52.52, 13.40], 'Europe/Zurich': [47.37, 8.54], 'Europe/Amsterdam': [52.37, 4.90],
+  'Europe/Brussels': [50.85, 4.35], 'Europe/Madrid': [40.42, -3.70], 'Europe/Rome': [41.90, 12.50],
+  'Europe/Vienna': [48.21, 16.37], 'Europe/Prague': [50.08, 14.44], 'Europe/Warsaw': [52.23, 21.01],
+  'Europe/Stockholm': [59.33, 18.07], 'Europe/Oslo': [59.91, 10.75], 'Europe/Copenhagen': [55.68, 12.57],
+  'Europe/Helsinki': [60.17, 24.94], 'Europe/Athens': [37.98, 23.73], 'Europe/Istanbul': [41.01, 28.98],
+  'Europe/Moscow': [55.76, 37.62], 'Atlantic/Reykjavik': [64.15, -21.94], 'Arctic/Longyearbyen': [78.22, 15.65],
+  'America/New_York': [40.71, -74.01], 'America/Chicago': [41.88, -87.63], 'America/Denver': [39.74, -104.99],
+  'America/Los_Angeles': [34.05, -118.24], 'America/Phoenix': [33.45, -112.07], 'America/Anchorage': [61.22, -149.90],
+  'America/Toronto': [43.65, -79.38], 'America/Vancouver': [49.28, -123.12], 'America/Mexico_City': [19.43, -99.13],
+  'America/Sao_Paulo': [-23.55, -46.63], 'America/Argentina/Buenos_Aires': [-34.60, -58.38],
+  'America/Santiago': [-33.45, -70.67], 'America/Bogota': [4.71, -74.07], 'America/Lima': [-12.05, -77.04],
+  'Africa/Cairo': [30.04, 31.24], 'Africa/Johannesburg': [-26.20, 28.05], 'Africa/Lagos': [6.52, 3.38],
+  'Africa/Nairobi': [-1.29, 36.82], 'Africa/Casablanca': [33.57, -7.59],
+};
+let themeMode = 'auto';
+let themeSaveFailed = false;
+let lastAutoMinute = null;
+
+function fmtClockMin(m) {
+  const n = ((Math.round(m) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(n / 60)).padStart(2, '0')}:${String(n % 60).padStart(2, '0')}`;
+}
+function sunTimes(opt = {}) {
+  const d = opt.date instanceof Date && Number.isFinite(opt.date.getTime()) ? opt.date : new Date();
+  const off = Number.isFinite(opt.offsetMin) ? opt.offsetMin : -d.getTimezoneOffset();
+  const local = new Date(d.getTime() + off * 60_000);
+  const nowMin = local.getUTCHours() * 60 + local.getUTCMinutes() + local.getUTCSeconds() / 60;
+  let tz = opt.tz;
+  if (tz === undefined) {
+    try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { tz = null; }
+  }
+  const coords = Array.isArray(opt.coords) && opt.coords.length === 2 && Number.isFinite(opt.coords[0]) && Number.isFinite(opt.coords[1])
+    ? opt.coords : (tz ? TZ_COORDS[tz] : null);
+  if (!coords) return { kind: 'unknown', tz: tz || null, nowMin };
+  const [lat, lon] = coords;
+  const y = local.getUTCFullYear();
+  const doy = Math.floor((Date.UTC(y, local.getUTCMonth(), local.getUTCDate()) - Date.UTC(y, 0, 1)) / 86_400_000) + 1;
+  const days = (y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0)) ? 366 : 365;
+  const rad = Math.PI / 180;
+  // NOAA 單次近似：以當地太陽正午估算太陽赤緯與均時差，再以 90.833° 天頂角推算日出與日落
+  const gamma = (2 * Math.PI / days) * (doy - 1 + (12 - lon / 15) / 24);
+  const eqtime = 229.18 * (0.000075 + 0.001868 * Math.cos(gamma) - 0.032077 * Math.sin(gamma)
+    - 0.014615 * Math.cos(2 * gamma) - 0.040849 * Math.sin(2 * gamma));
+  const decl = 0.006918 - 0.399912 * Math.cos(gamma) + 0.070257 * Math.sin(gamma)
+    - 0.006758 * Math.cos(2 * gamma) + 0.000907 * Math.sin(2 * gamma)
+    - 0.002697 * Math.cos(3 * gamma) + 0.00148 * Math.sin(3 * gamma);
+  const latRad = lat * rad;
+  const denom = Math.cos(latRad) * Math.cos(decl);
+  if (Math.abs(denom) < 1e-12) return { kind: lat * decl >= 0 ? 'polar-day' : 'polar-night', tz: tz || null, nowMin };
+  const cosH = (Math.cos(90.833 * rad) / denom) - Math.tan(latRad) * Math.tan(decl);
+  if (cosH > 1) return { kind: 'polar-night', tz: tz || null, nowMin };
+  if (cosH < -1) return { kind: 'polar-day', tz: tz || null, nowMin };
+  const ha = Math.acos(cosH) / rad;
+  const sunriseMin = ((Math.round(720 - 4 * (lon + ha) - eqtime + off) % 1440) + 1440) % 1440;
+  const sunsetMin = ((Math.round(720 - 4 * (lon - ha) - eqtime + off) % 1440) + 1440) % 1440;
+  return { kind: 'ok', tz: tz || null, nowMin, sunriseMin, sunsetMin, sunrise: fmtClockMin(sunriseMin), sunset: fmtClockMin(sunsetMin) };
+}
+function resolveTheme(mode, opt = {}) {
+  if (mode === 'day' || mode === 'night') return { mode, theme: mode, sun: null, source: 'manual' };
+  const sun = sunTimes(opt);
+  if (sun.kind === 'ok') {
+    const isDay = sun.sunriseMin <= sun.sunsetMin
+      ? (sun.nowMin >= sun.sunriseMin && sun.nowMin < sun.sunsetMin)
+      : (sun.nowMin >= sun.sunriseMin || sun.nowMin < sun.sunsetMin);
+    return { mode: 'auto', theme: isDay ? 'day' : 'night', sun, source: 'sun' };
+  }
+  if (sun.kind === 'polar-day') return { mode: 'auto', theme: 'day', sun, source: 'sun' };
+  if (sun.kind === 'polar-night') return { mode: 'auto', theme: 'night', sun, source: 'sun' };
+  let dark = typeof opt.prefersDark === 'boolean' ? opt.prefersDark : null;
+  if (dark === null) {
+    try {
+      const mql = window?.matchMedia?.('(prefers-color-scheme: dark)');
+      if (mql && mql.media !== 'not all' && typeof mql.matches === 'boolean') dark = mql.matches;
+    } catch { dark = null; }
+  }
+  if (dark !== null) return { mode: 'auto', theme: dark ? 'night' : 'day', sun, source: 'system-fallback' };
+  return { mode: 'auto', theme: 'night', sun, source: 'default-fallback' };
+}
+function themeTooltip(optMode, res, saveFailed) {
+  let base;
+  if (optMode === 'day') {
+    base = zhEn('固定使用白天工班（快速鍵：T）', 'Always use Day shift (shortcut: T)');
+  } else if (optMode === 'night') {
+    base = zhEn('固定使用夜間工班（快速鍵：T）', 'Always use Night shift (shortcut: T)');
+  } else if (res?.source === 'manual' && !res?.sun) {
+    base = zhEn('自動切換（依今日日出日落自動換班；快速鍵：T）', 'Auto switch (follows today\'s sunrise/sunset; shortcut: T)');
+  } else {
+    const tz = res.sun?.tz;
+    if (res.sun?.kind === 'ok') {
+      base = res.theme === 'day'
+        ? zhEn(`自動切換（${tz ? `${tz}：` : ''}今日日出 ${res.sun.sunrise}、日落 ${res.sun.sunset}，目前：白天工班；快速鍵：T）`,
+          `Auto switch (${tz ? `${tz}: ` : ''}today sunrise ${res.sun.sunrise}, sunset ${res.sun.sunset}, now: Day shift; shortcut: T)`)
+        : zhEn(`自動切換（${tz ? `${tz}：` : ''}今日日出 ${res.sun.sunrise}、日落 ${res.sun.sunset}，目前：夜間工班；快速鍵：T）`,
+          `Auto switch (${tz ? `${tz}: ` : ''}today sunrise ${res.sun.sunrise}, sunset ${res.sun.sunset}, now: Night shift; shortcut: T)`);
+    } else if (res.sun?.kind === 'polar-day') {
+      base = zhEn(`自動切換（${tz ? `${tz}：` : ''}今日極晝，目前：白天工班；快速鍵：T）`, `Auto switch (${tz ? `${tz}: ` : ''}polar day today, now: Day shift; shortcut: T)`);
+    } else if (res.sun?.kind === 'polar-night') {
+      base = zhEn(`自動切換（${tz ? `${tz}：` : ''}今日極夜，目前：夜間工班；快速鍵：T）`, `Auto switch (${tz ? `${tz}: ` : ''}polar night today, now: Night shift; shortcut: T)`);
+    } else if (res.source === 'system-fallback') {
+      base = res.theme === 'day'
+        ? zhEn('自動切換（查不到此時區的日出日落座標，目前改跟系統深淺色：白天工班；快速鍵：T）',
+          'Auto switch (couldn\'t look up sunrise/sunset coordinates for this timezone; following system appearance: Day shift; shortcut: T)')
+        : zhEn('自動切換（查不到此時區的日出日落座標，目前改跟系統深淺色：夜間工班；快速鍵：T）',
+          'Auto switch (couldn\'t look up sunrise/sunset coordinates for this timezone; following system appearance: Night shift; shortcut: T)');
+    } else {
+      base = zhEn('自動切換（查不到此時區的日出日落座標且問不到系統深淺色，暫用夜間工班；快速鍵：T）',
+        'Auto switch (couldn\'t look up sunrise/sunset coordinates or system appearance; using Night shift for now; shortcut: T)');
+    }
+  }
+  return saveFailed ? base + zhEn('；瀏覽器不讓存偏好，這次切換只留到關分頁前', '; browser blocked saving preference, so this choice lasts until you close the tab') : base;
+}
+function readStoredThemeMode() {
+  try {
+    const v = localStorage.getItem(THEME_MODE_KEY);
+    return THEME_MODES.includes(v) ? v : 'auto';
+  } catch { return 'auto'; }
+}
+function currentTheme() {
+  return document.documentElement?.dataset?.theme === 'day' ? 'day' : 'night';
+}
+function applyTheme(mode, { persist = true, ...opt } = {}) {
+  const nextMode = THEME_MODES.includes(mode) ? mode : 'auto';
+  const prevTheme = currentTheme();
+  const res = resolveTheme(nextMode, opt);
+  themeMode = nextMode;
+  if (nextMode === 'auto') {
+    const d = opt.date instanceof Date && Number.isFinite(opt.date.getTime()) ? opt.date : new Date();
+    lastAutoMinute = Math.floor(d.getTime() / 60_000);
+  }
+  const ds = document.documentElement?.dataset;
+  if (ds) { ds.themeMode = nextMode; ds.theme = res.theme; }
+  if (persist) {
+    try {
+      localStorage.setItem(THEME_MODE_KEY, nextMode);
+      localStorage.setItem(THEME_RES_KEY, res.theme);
+      themeSaveFailed = false;
+    } catch { themeSaveFailed = true; }
+  } else if (res.theme !== prevTheme) {
+    try { localStorage.setItem(THEME_RES_KEY, res.theme); } catch { /* 存不了就只留這一次 */ }
+  }
+  if ($themeSwitch) {
+    $themeSwitch.setAttribute?.('aria-label', zhEn('切換儀表板風格', 'Switch dashboard theme'));
+    const autoRes = nextMode === 'auto' ? res : resolveTheme('auto', opt);
+    for (const btn of $themeSwitch.querySelectorAll?.('[data-theme-opt]') ?? []) {
+      const m = btn.dataset?.themeOpt;
+      btn.setAttribute?.('aria-pressed', m === nextMode ? 'true' : 'false');
+      btn.setAttribute?.('aria-keyshortcuts', 'T');
+      btn.title = themeTooltip(m, m === 'auto' ? autoRes : res, themeSaveFailed);
+    }
+  }
+  // 風格改變時不重整頁面、也不在分級表單打字時洗掉輸入，僅在案件頁重畫看板下緣文案
+  if (res.theme !== prevTheme && latest && !document.activeElement?.closest?.('[data-tier-form]') && route().view === 'project') {
+    lastHtml = null; safeRender();
+  }
+  return res;
+}
+function cycleTheme() {
+  const i = THEME_MODES.indexOf(themeMode);
+  return applyTheme(THEME_MODES[(i + 1) % THEME_MODES.length]);
+}
+function maybeRefreshAutoTheme(now = new Date()) {
+  if (themeMode !== 'auto') return;
+  const min = Math.floor(now.getTime() / 60_000);
+  if (min === lastAutoMinute) return;
+  applyTheme('auto', { persist: false, date: now });
+}
+function initTheme() {
+  return applyTheme(readStoredThemeMode(), { persist: false });
+}
+
 /* ═══ 新鮮度(AC-1／AC-2) ═══ */
 function paintFreshness() {
+  maybeRefreshAutoTheme();
   const f = describeFreshness({ generatedAt: latest?.generatedAt ?? NaN, now: Date.now(), connected, lang: LANG });
   $fresh.textContent = f.label;
   $fresh.dataset.state = f.state;
@@ -358,11 +545,21 @@ function whiteboard(p) {
   const used = new Set(sec.rows.flatMap((r) => [inkOf(r), ...r.items.map((i) => INK[i.kind]), r.clear ? INK.clear : null]));
   if (pushKind) used.add(INK[pushKind]);
   if (sec.note) used.add(INK.unknown);
-  const pens = [['red', zhEn('紅燈＝等你決定', 'Red light = your call')], ['blue', zhEn('藍燈＝還差什麼', 'Blue light = what\'s still to do')],
-    ['gray', zhEn('灰（不亮燈）＝看不到', 'Gray (unlit) = can\'t see')], ['yellow', zhEn('黃燈＝只差按結案', 'Yellow light = only closing left')]];
-  const tray = pens.map(([ink, label]) => `<span class="wb-pen" data-ink="${ink}" data-lit="${used.has(ink) ? 1 : 0}" title="${esc(ink === 'gray'
-    ? (used.has(ink) ? zhEn('看板上有「看不到」項目（灰招牌不亮燈）', 'There is a "can\'t see" item on the board (gray stays unlit)') : zhEn('看板上沒有這一項', 'This state isn\'t on the board'))
-    : (used.has(ink) ? zhEn('招牌燈亮著：看板上有這一色', 'Sign light on: this color is on the board') : zhEn('招牌燈未亮：看板上沒有這一色', 'Sign light off: this color isn\'t on the board')))}"><i></i>${esc(label)}</span>`).join('');
+  const isDay = currentTheme() === 'day';
+  const pens = isDay
+    ? [['red', zhEn('紅筆＝等你決定', 'Red = your call')], ['blue', zhEn('藍筆＝還差什麼', 'Blue = what\'s still to do')],
+       ['gray', zhEn('灰筆＝看不到', 'Gray = can\'t see')], ['yellow', zhEn('黃筆＝只差按結案', 'Yellow = only closing left')]]
+    : [['red', zhEn('紅燈＝等你決定', 'Red light = your call')], ['blue', zhEn('藍燈＝還差什麼', 'Blue light = what\'s still to do')],
+       ['gray', zhEn('灰（不亮燈）＝看不到', 'Gray (unlit) = can\'t see')], ['yellow', zhEn('黃燈＝只差按結案', 'Yellow light = only closing left')]];
+  const tray = pens.map(([ink, label]) => {
+    const lit = used.has(ink);
+    const tip = isDay
+      ? (lit ? zhEn('筆頭亮著：白板上有這一色', 'Lit: this color is on the board') : zhEn('筆頭沒亮：白板上沒有這一色', 'Off: this color isn\'t on the board'))
+      : ink === 'gray'
+        ? (lit ? zhEn('看板上有「看不到」項目（灰招牌不亮燈）', 'There is a "can\'t see" item on the board (gray stays unlit)') : zhEn('看板上沒有這一項', 'This state isn\'t on the board'))
+        : (lit ? zhEn('招牌燈亮著：看板上有這一色', 'Sign light on: this color is on the board') : zhEn('招牌燈未亮：看板上沒有這一色', 'Sign light off: this color isn\'t on the board'));
+    return `<span class="wb-pen" data-ink="${ink}" data-lit="${lit ? 1 : 0}" title="${esc(tip)}"><i></i>${esc(label)}</span>`;
+  }).join('');
   return `<div class="block">
     <div class="wb">
       <div class="wb-head">
@@ -755,9 +952,9 @@ function workflow(c) {
       </div>`;
   }).join('');
 
-  // ⚠️ 一條貫穿 A→E 的高亮度流動彩虹霓虹燈管,絕對定位在整個左欄上——不是每一格各畫一段。
-  // 分段畫的話,卡片高度不同就會在接縫處斷開;流動效果用 CSS 雙週期漸層往下滑動並與 --t 同步。
-  return `<div class="wf"><div class="wf-line" aria-hidden="true"></div>${rows}${c.director ? directorRow(c) : ''}</div>`;
+  // ⚠️ 一條貫穿 A→E 的軌跡,絕對定位在整個左欄上——夜間顯示高亮度彩虹霓虹燈管,白天顯示原本手繪灰線 SVG。
+  // 分段畫的話,卡片高度不同就會在接縫處斷開;流動效果與 --t 同步。
+  return `<div class="wf"><div class="wf-line" aria-hidden="true"><svg class="wf-day-line" preserveAspectRatio="none" viewBox="0 0 10 1000"><path d="M5 6 C2.6 130, 7.8 250, 4.6 372 C1.8 480, 8 600, 5.2 720 C3 820, 7.4 900, 5 994"/></svg></div>${rows}${c.director ? directorRow(c) : ''}</div>`;
 }
 
 /** F 工地主任要的那一份:這個對話在總表裡的收尾狀況(lib/todo.mjs 的 desk)、它提的建議卡。舊的服務沒有 todo → 那一列講服務是舊的 */
@@ -1207,6 +1404,8 @@ window.addEventListener('resize', () => {
 async function refresh() { lastHtml = null; await poll(); }
 
 document.addEventListener('click', async (e) => {
+  const th = e.target.closest?.('[data-theme-opt]');
+  if (th) { applyTheme(th.dataset.themeOpt); return; }
   // 中英切換(AC-1、AC-7):等伺服器回「現在是另一種」才整頁換——按了不等於換了(R2)。換不成就在按鈕旁講換不成,這一頁照舊
   const ls = e.target.closest('[data-lang-switch]');
   if (ls) { await switchLang(ls); return; }
@@ -1322,14 +1521,20 @@ async function switchLang(btn) {
  *   一直按著不放(換完重新載入的新頁面照樣收到同一顆鍵,不擋就會中英來回換,AC-4)。
  * 認打出來的字 l／L;打出來的不是英文字母(注音之類的輸入法、非英文的鍵盤排列)才改認實體的 L 鍵——Dvorak 在那個位置打出來的是 n,不算。
  */
-function isLangKey(e) {
+function isShortcutKey(e, ch, code) {
   if (e.repeat || e.isComposing || e.keyCode === 229) return false;
   if (e.metaKey || e.ctrlKey || e.altKey) return false;
   if (e.target?.isContentEditable || e.target?.closest?.('input, textarea, select, [data-tier-form]')) return false;
-  if (e.key === 'l' || e.key === 'L') return true;
-  return e.code === 'KeyL' && !/^[a-z]$/i.test(e.key ?? '');
+  if (e.key === ch || e.key === ch.toUpperCase()) return true;
+  return e.code === code && !/^[a-z]$/i.test(e.key ?? '');
 }
+const isLangKey = (e) => isShortcutKey(e, 'l', 'KeyL');
+const isThemeKey = (e) => isShortcutKey(e, 't', 'KeyT');
 document.addEventListener('keydown', (e) => {
+  if (isThemeKey(e)) {
+    if ($themeSwitch || document.documentElement?.dataset) { e.preventDefault(); cycleTheme(); }
+    return;
+  }
   // 上一次還在等伺服器(按鈕變灰)、或已經換成了正在重新載入:跟滑鼠點一樣不再送——一下按鍵只換一次(AC-4)
   if (!$langBtn || $langBtn.disabled || !isLangKey(e)) return;
   e.preventDefault();
@@ -1355,6 +1560,17 @@ function safeRender() {
   }
 }
 window.addEventListener('hashchange', safeRender);
+window?.addEventListener?.('storage', (e) => {
+  if (e.key === THEME_MODE_KEY || e.key === THEME_RES_KEY) applyTheme(readStoredThemeMode(), { persist: false });
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && themeMode === 'auto') applyTheme('auto', { persist: false });
+});
+try {
+  const mql = window?.matchMedia?.('(prefers-color-scheme: dark)');
+  mql?.addEventListener?.('change', () => { if (themeMode === 'auto') applyTheme('auto', { persist: false }); });
+} catch { /* 不支援就算了 */ }
+initTheme();
 
 pollLoop();
 setInterval(paintFreshness, 1000);
