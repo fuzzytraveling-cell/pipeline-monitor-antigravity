@@ -26,15 +26,17 @@
 import { readFileSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
-import { gitContext, withClock } from './lib/git.mjs';
+import { gitContext, withClock, withGitMemo, dirtyPaths, ago, real } from './lib/git.mjs';
 import { RETAIN_DAYS } from './lib/events.mjs';
 import { loadEvents } from './lib/transcript.mjs';
 import { faultsNow } from './lib/faults.mjs';
+import { projectConflictsFor, normalizeEventsCwd } from './lib/collect.mjs';
+import { changeScope } from './lib/scope.mjs';
 import { installService, uninstallService, describeService, openDashboard } from './lib/service.mjs';
 import { installPlugin, uninstallPlugin } from './lib/mount.mjs';
 import { moveState } from './lib/paths.mjs';
-import { LOG_DIR, gatherChange, stageFacts, sessionFromEnv } from './lib/cliFacts.mjs';
-import { renderSensor, render } from './lib/cliView.mjs';
+import { HERE, LOG_DIR, gatherChange, stageFacts, sessionFromEnv } from './lib/cliFacts.mjs';
+import { renderSensor, render, renderConflicts } from './lib/cliView.mjs';
 import { renderStages } from './lib/cliStages.mjs';
 import { renderTier, doTierInit, doTierOff, doTierReview, doTierChecked, doTierLater, doTierSet, doTierRetract } from './lib/cliTier.mjs';
 import { doCheckpoint } from './lib/cliStamp.mjs';
@@ -106,9 +108,26 @@ async function main(L = { lang: 'zh', state: 'ok' }) {
   // 搬家還沒搬完也算在這裡,跟故障同一個位置講(規格:紀錄搬到固定的家 AC-5)
   const faults = faultsNow(LOG_DIR, { retainDays: RETAIN_DAYS, move: moveState() });
   if (!ctx.hasCommits && at('--checkpoint') === -1) {
-    renderSensor(ctx, ev, faults);
-    console.log(zhEn('這個專案還沒有任何 commit,所以還沒有版本可以回去。', 'This project has no commits yet, so there\'s no version to go back to.'));
-    return 0;
+    return withGitMemo(() => {
+      renderSensor(ctx, ev, faults);
+      console.log(zhEn('這個專案還沒有任何 commit,所以還沒有版本可以回去。', 'This project has no commits yet, so there\'s no version to go back to.'));
+      const dirtySet = dirtyPaths(ctx.root);
+      const conflicts = projectConflictsFor({
+        monitorDir: HERE,
+        ctx,
+        ev,
+        current: {
+          hasCommits: false,
+          health: null,
+          base: { kind: 'head', why: 'no-commits' },
+          scope: changeScope({ kind: 'head', why: 'no-commits' }, ago),
+          dirty: dirtySet === null ? null : dirtySet.size,
+          dirtyFiles: dirtySet === null ? null : [...dirtySet].sort(),
+        },
+      });
+      renderConflicts(conflicts);
+      return 0;
+    });
   }
 
   if (at('--clear') !== -1) return doClear(ctx, after('--clear'));
@@ -129,20 +148,36 @@ async function main(L = { lang: 'zh', state: 'ok' }) {
   if (at('--checkpoint') !== -1) return doCheckpoint(ctx, ev);
 
   // 事實各算一次,三段畫面共用。「這次改動」從五關那一輪的起點算,所以跟五關一起算完才放回 info
-  const info = gatherChange(ctx, ev);
-  const facts = stageFacts(ctx, ev, info);
-  info.h = facts.health; info.base = facts.base;
-  if (at('--tier-retract') !== -1) return doTierRetract(ctx, ev, info, facts);
-  if (at('--tier') !== -1) {
-    const [id, ...why] = after('--tier');
-    return doTierSet(ctx, ev, info, facts, id, why.join(' '));
-  }
+  return withGitMemo(() => {
+    const normEv = { ...ev, events: normalizeEventsCwd(ev.events, ctx.root, real(ctx.root)) };
+    const info = gatherChange(ctx, normEv);
+    const facts = stageFacts(ctx, normEv, info);
+    info.h = facts.health; info.base = facts.base;
+    if (at('--tier-retract') !== -1) return doTierRetract(ctx, normEv, info, facts);
+    if (at('--tier') !== -1) {
+      const [id, ...why] = after('--tier');
+      return doTierSet(ctx, normEv, info, facts, id, why.join(' '));
+    }
 
-  info.faults = faults;
-  render(ctx, ev, info);
-  renderStages(ctx, ev, facts, info);
-  renderTier(ctx, ev, info, facts);
-  return 0;
+    info.faults = faults;
+    info.conflicts = projectConflictsFor({
+      monitorDir: HERE,
+      ctx,
+      ev: normEv,
+      current: {
+        health: info.h,
+        base: info.base,
+        scope: changeScope(info.base, ago),
+        dirty: info.dirty,
+        dirtyFiles: info.dirtyFiles,
+        takeover: info.tenure?.takeover ?? null,
+      },
+    });
+    render(ctx, normEv, info);
+    renderStages(ctx, normEv, facts, info);
+    renderTier(ctx, normEv, info, facts);
+    return 0;
+  });
 }
 
 // ⚠️ 不要寫成 `import.meta.url === \`file://${process.argv[1]}\``——

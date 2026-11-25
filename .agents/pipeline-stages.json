@@ -33,13 +33,12 @@
       "lib/checkpoint.mjs"
     ],
     "checked": {
-      "at": "2026-11-23T06:16:37.012Z",
-      "said": "都照建議（新增 escalate.sh、escalate.mjs 進程式區與危險清單）",
+      "at": "2026-11-24T09:26:38.323Z",
+      "said": "不加入危險清單（清單維持現狀 12 條，標記為已判斷過）",
       "by": "ai",
-      "commit": "d0949926ed84d98a331c2ca7ff6030a31be0abdf",
+      "commit": "da96ca77b6a868edb7333b4d8b8bf9b499189772",
       "files": [
-        "escalate.mjs",
-        "escalate.sh"
+        "lib/conflicts.mjs"
       ]
     }
   }

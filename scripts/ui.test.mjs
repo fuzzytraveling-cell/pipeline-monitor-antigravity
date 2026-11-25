@@ -594,7 +594,7 @@ section('還原點那一行照實講:有沒 commit 的才說會丟掉幾個、�
   const bannerOf = (latest) => (banner ? new Function('latest', `const zhEn = (zh) => zh; const many = (n, one, more = one + 's') => n + ' ' + (n === 1 ? one : more);\n${banner}; return oldServerBanner();`)(latest) : '');
   check('從 ui/app.js 拿得出 oldServerBanner', !!banner);
   check('上一版的服務(有 sharedLines、沒有 stampHelp)→ 最上面講服務還在跑舊的程式', /--serve-restart/.test(bannerOf({ projects: [], sharedLines: {} })));
-  check('這一版的服務 → 不講', bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true, precheckSupport: true, escalateSupport: true }) === '');
+  check('這一版的服務 → 不講', bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true, precheckSupport: true, escalateSupport: true, conflictSupport: true }) === '');
 }
 
 section('舊的服務認得出來:「還差什麼」那一版以前的服務(有 stampHelp、沒有 todo)要重啟那一句講不出來 → 每一頁最上面講服務還在跑舊的程式(規格:還差什麼總表 AC-7,魔鬼教官第二輪)', 'P2');
@@ -610,7 +610,9 @@ section('舊的服務認得出來:「還差什麼」那一版以前的服務(有
     /--serve-restart/.test(bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true })));
   check('必抓:有 precheckSupport 但沒有 escalateSupport（v0.3 舊服務）→ 每一頁最上面講服務還在跑舊的程式',
     /--serve-restart/.test(bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true, precheckSupport: true })));
-  check('必放:有 todo、guardSupport、precheckSupport 且 escalateSupport → 不講', bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true, precheckSupport: true, escalateSupport: true }) === '');
+  check('必抓:有 escalateSupport 但沒有 conflictSupport（v0.8 舊服務）→ 每一頁最上面講服務還在跑舊的程式',
+    /--serve-restart/.test(bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true, precheckSupport: true, escalateSupport: true })));
+  check('必放:有 todo、guardSupport、precheckSupport、escalateSupport 且 conflictSupport → 不講', bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true, precheckSupport: true, escalateSupport: true, conflictSupport: true }) === '');
 }
 
 section('感測器列（sensorLine）：有 q.guard 與 q.escalate 時一併畫出小標籤', 'P2');

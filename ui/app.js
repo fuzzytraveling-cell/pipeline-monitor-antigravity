@@ -390,7 +390,7 @@ const mark = (text, part, tag = 'b') => { const t = esc(text), m = esc(part ?? '
  *  todo 是「還差什麼」那一版才有的(規格:還差什麼總表 AC-7):要重啟那一句是服務自己講的,舊的服務講不出來——
  *  不算進來的話,併進去、還沒重啟的那段時間,只有點進案件頁的白板才看得到要重啟,首頁一句都不講(魔鬼教官第二輪,R1) */
 function oldServerBanner() {
-  return latest && (!('sharedLines' in latest) || !('stampHelp' in latest) || !('todo' in latest) || !('guardSupport' in latest) || !('precheckSupport' in latest) || !('escalateSupport' in latest))
+  return latest && (!('sharedLines' in latest) || !('stampHelp' in latest) || !('todo' in latest) || !('guardSupport' in latest) || !('precheckSupport' in latest) || !('escalateSupport' in latest) || !('conflictSupport' in latest))
     ? zhEn('<p class="fault" data-tone="amber">🟡 儀表板的服務還在跑舊的程式，有幾句畫不出來——跑 <code>agy-pipeline --serve-restart</code></p>',
       '<p class="fault" data-tone="amber">🟡 The dashboard service is still running the old program, so a few lines can\'t be drawn: run <code>agy-pipeline --serve-restart</code></p>') : '';
 }
@@ -497,8 +497,8 @@ function inkOf(r) {
  * 工地主任的表情(AC-11):只看那幾件的種類,照五個工班的表情借——有事等你決定是擔心的圓眼、還差是看著那一串、看不到是問號眼(FACE 沒有這一種)、
  * 沒有還差的事是睜著眼、全都結案了是休息。不笑:笑眼只給「你說處理完了」,總表沒有人驗過(P10)
  */
-function bossMood(rows) {
-  const k = new Set(rows.flatMap((r) => (r?.items ?? []).map((i) => i.kind)));
+function bossMood(rows, extra = []) {
+  const k = new Set([...rows.flatMap((r) => (r?.items ?? []).map((i) => i.kind)), ...(extra ?? []).map((i) => i?.kind).filter(Boolean)]);
   if (k.has('ask')) return 'stale';
   if (k.has('todo')) return 'ran';
   if (k.has('unknown')) return 'unknown';
@@ -542,9 +542,11 @@ function whiteboard(p) {
   // 白板畫不出來(上面那兩種)就走不到這裡:不畫四支都不亮的筆槽——那看起來就是「都沒事」(老毛病 P5)。
   // 最上面那一行(感測器掛壞了、退出記錄)講的是新的對話記不到:算看不到、畫灰點、灰筆亮。
   // 以前沒算:字說紀錄可能不全,灰筆卻說白板上沒有看不到的(魔鬼教官第 3 輪,P10 那一種)
+  const conflicts = sec.conflicts ?? [];
   const used = new Set(sec.rows.flatMap((r) => [inkOf(r), ...r.items.map((i) => INK[i.kind]), r.clear ? INK.clear : null]));
   if (pushKind) used.add(INK[pushKind]);
   if (sec.note) used.add(INK.unknown);
+  for (const c of conflicts) used.add(INK[c.kind] ?? INK.unknown);
   const isDay = currentTheme() === 'day';
   const pens = isDay
     ? [['red', zhEn('紅筆＝等你決定', 'Red = your call')], ['blue', zhEn('藍筆＝還差什麼', 'Blue = what\'s still to do')],
@@ -564,10 +566,11 @@ function whiteboard(p) {
     <div class="wb">
       <div class="wb-head">
         <div><h2 class="section serif">${esc(t.head)}</h2><p class="section-note">${esc(t.note)}</p></div>
-        <span class="wb-boss">${agent({ id: 'director' }, bossMood(sec.rows), false)}<span class="wb-boss-name">${zhEn('工地主任', 'Site director')}</span></span>
+        <span class="wb-boss">${agent({ id: 'director' }, bossMood(sec.rows, conflicts), false)}<span class="wb-boss-name">${zhEn('工地主任', 'Site director')}</span></span>
       </div>
       ${sec.note ? `<p class="wb-line" data-k="unknown">${esc(sec.note)}</p>` : ''}
       ${sec.push ? `<p class="wb-line" data-k="${pushKind}">${esc(sec.push)}</p>` : ''}
+      ${conflicts.map((c) => `<p class="wb-line" data-k="${esc(INK[c.kind] ? c.kind : 'unknown')}">${esc(c.text)}</p>`).join('')}
       ${sec.rows.length ? `<ul class="wb-tasks">${sec.rows.map(task).join('')}</ul>` : ''}
       ${sec.quiet ? `<p class="wb-line">${esc(sec.quiet)}</p>` : ''}
       <div class="wb-tray">${tray}</div>
@@ -1300,11 +1303,13 @@ function sessionPage(name, sid) {
   const cut = called.indexOf(dash);
   const calledHtml = cut > 0 ? `<b>${esc(called.slice(0, cut))}</b><span class="tail">${esc(called.slice(cut + dash.length))}</span>` : esc(called);
 
+  const conflictHtml = (s.conflicts?.items ?? []).map((it) => `<p class="fault" data-tone="${it.kind === 'ask' ? 'red' : 'amber'}">${esc(it.text)}</p>`).join('');
+
   return `
     <div class="block">
       <h2 class="section serif">${title}</h2>
       <p class="section-note"><span class="mono">${esc(c.branch ?? zhEn('沒有分支', 'no branch'))}</span> · ${meta}${closed}</p>
-      ${notes}${warn}
+      ${notes}${warn}${conflictHtml}
       <div class="stats">${statRestore(c)}${statLadder(c)}${statChanges(c)}${statTier({ ...c, tier: s.tier ?? c.tier }, p)}</div>
     </div>
     <div class="block">
