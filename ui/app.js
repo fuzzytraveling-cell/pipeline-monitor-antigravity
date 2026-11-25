@@ -390,7 +390,7 @@ const mark = (text, part, tag = 'b') => { const t = esc(text), m = esc(part ?? '
  *  todo 是「還差什麼」那一版才有的(規格:還差什麼總表 AC-7):要重啟那一句是服務自己講的,舊的服務講不出來——
  *  不算進來的話,併進去、還沒重啟的那段時間,只有點進案件頁的白板才看得到要重啟,首頁一句都不講(魔鬼教官第二輪,R1) */
 function oldServerBanner() {
-  return latest && (!('sharedLines' in latest) || !('stampHelp' in latest) || !('todo' in latest) || !('guardSupport' in latest) || !('precheckSupport' in latest) || !('escalateSupport' in latest) || !('conflictSupport' in latest))
+  return latest && (!('sharedLines' in latest) || !('stampHelp' in latest) || !('todo' in latest) || !('guardSupport' in latest) || !('precheckSupport' in latest) || !('escalateSupport' in latest) || !('conflictSupport' in latest) || !('brief' in latest))
     ? zhEn('<p class="fault" data-tone="amber">🟡 儀表板的服務還在跑舊的程式，有幾句畫不出來——跑 <code>agy-pipeline --serve-restart</code></p>',
       '<p class="fault" data-tone="amber">🟡 The dashboard service is still running the old program, so a few lines can\'t be drawn: run <code>agy-pipeline --serve-restart</code></p>') : '';
 }
@@ -578,7 +578,73 @@ function whiteboard(p) {
   </div>`;
 }
 
-/* ═══ 第一層:案件列表 ═══ */
+/* ═══ 第一層:工地晨報（方案 A）與案件列表 ═══ */
+/**
+ * 首頁案件列表上方的「工地晨報」卡（規格:dashboard-brief-card）。
+ * 句子全由伺服器照 lib/brief.mjs 算好，與終端機 --brief 同一來源（P2）；
+ * 已畫在頁頂橫條的項目（onTopBanner）不在網頁卡重複列出，copyText 仍保留完整純文字。
+ */
+function briefCard() {
+  if (!latest) return '';
+  if (!('brief' in latest) || !latest.brief) {
+    return zhEn('<div class="block"><p class="fault" data-tone="amber">🟡 儀表板的服務還在跑舊的程式，工地晨報畫不出來——跑 <code>agy-pipeline --serve-restart</code></p></div>',
+      '<div class="block"><p class="fault" data-tone="amber">🟡 The dashboard service is still running the old program, so the site brief can\'t be drawn: run <code>agy-pipeline --serve-restart</code></p></div>');
+  }
+  const b = latest.brief;
+  const webGroups = (b.groups ?? []).map((g) => ({ ...g, items: (g.items ?? []).filter((it) => !it.onTopBanner) })).filter((g) => g.items.length > 0);
+  const hasWorkOrAlert = webGroups.some((g) => g.id !== 'cards');
+  const topOnly = !b.clear && !hasWorkOrAlert;
+  const foldKey = 'home|brief';
+  const open = foldOpen(foldKey, hasWorkOrAlert);
+
+  const cardsGroup = webGroups.find((g) => g.id === 'cards') ?? null;
+  const cardCount = cardsGroup ? cardsGroup.items.filter((it) => !it.summary).length : 0;
+  const cardBadge = cardCount
+    ? `<span class="brief-badge" data-k="cards">${zhEn(`可開工建議卡 ${cardCount} 張`, `Ready to start: ${cardCount}`)}</span>`
+    : '';
+  const workBadges = webGroups.filter((g) => g.id !== 'cards')
+    .map((g) => `<span class="brief-badge" data-k="${esc(g.kind ?? 'unknown')}">${zhEn(`${esc(g.title)} ${g.items.length}`, `${esc(g.title)}: ${g.items.length}`)}</span>`)
+    .join('');
+  const summaryBadges = hasWorkOrAlert ? `${workBadges}${cardBadge}`
+    : topOnly ? `<span class="brief-badge" data-k="unknown">${zhEn('見上方全機提醒', 'See top alerts')}</span>${cardBadge}`
+    : `<span class="brief-badge brief-badge-quiet">${zhEn(`已檢查 ${b.projectCount ?? 0} 個專案 · 未列待辦`, `Checked ${many(b.projectCount ?? 0, 'project')} · none listed`)}</span>${cardBadge}`;
+
+  const linkOf = (it) => {
+    if (!it?.project || it.summary) return null;
+    const base = `#/p/${encodeURIComponent(it.project)}`;
+    return it.sessionId ? `${base}/s/${encodeURIComponent(it.sessionId)}` : base;
+  };
+  const renderItem = (it) => {
+    const href = linkOf(it);
+    const cls = it.summary ? ' class="brief-sum"' : '';
+    return `<li${cls}>${href ? `<a class="brief-link" href="${href}">${esc(it.text)}</a>` : esc(it.text)}</li>`;
+  };
+  const groupsHtml = webGroups.map((g) => `<div class="brief-group" data-g="${esc(g.id)}" data-k="${esc(g.kind ?? 'unknown')}">
+      <div class="brief-gtitle">${esc(g.title)}</div>
+      <ul class="brief-list">${g.items.map(renderItem).join('')}</ul>
+    </div>`).join('');
+
+  const copyText = b.copyText ?? (b.lines ?? []).join('\n');
+  const clearHtml = b.clear && b.clearLine ? `<p class="brief-clear">${esc(b.clearLine)}</p>` : '';
+  const topOnlyHtml = topOnly && b.topOnlyLine ? `<p class="brief-clear">${esc(b.topOnlyLine)}</p>` : '';
+  const goneHtml = !b.clear && b.goneNote ? `<p class="brief-note">${esc(b.goneNote)}</p>` : '';
+
+  return `<div class="block">
+    <section class="brief-card" aria-label="${esc(b.title ?? zhEn('工地晨報', 'Site brief'))}">
+      <div class="brief-head">
+        <div>
+          <h2 class="section serif">${esc(b.title ?? zhEn('工地晨報（所有專案）', 'Site brief (all projects)'))}</h2>
+        </div>
+        <button type="button" class="copy brief-copy" data-copy="${esc(copyText)}">${zhEn('複製純文字晨報', 'Copy plain-text brief')}</button>
+      </div>
+      <details class="brief-details" data-fold="${foldKey}"${open ? ' open' : ''}>
+        <summary class="brief-summary"><span class="brief-badges">${summaryBadges}</span></summary>
+        <div class="brief-body">${clearHtml}${topOnlyHtml}${groupsHtml}${goneHtml}</div>
+      </details>
+    </section>
+  </div>`;
+}
+
 function projectList() {
   if (!latest?.projects?.length) {
     // 舊的紀錄還沒搬過來(上面那一條會講):這時候說「還沒有任何案件」就是把「沒讀到」講成「沒有」(R1;規格:紀錄搬到固定的家 AC-5)
@@ -1349,7 +1415,7 @@ function render() {
   const cases = zhEn('案件', 'Projects');
   if (r.view === 'projects') {
     $crumb.innerHTML = `<span>${cases}</span>`;
-    paint(faultBanner() + langBanner() + oldServerBanner() + restartBanner() + projectList());
+    paint(faultBanner() + langBanner() + oldServerBanner() + restartBanner() + briefCard() + projectList());
   } else if (r.view === 'project') {
     // 路由用的是檔名(safeName 過的);麵包屑給人看,要用真的資料夾名
     const p = latest?.projects?.find((x) => x.name === r.project);

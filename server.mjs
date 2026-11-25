@@ -21,6 +21,7 @@ import { optIn, optOut } from './lib/mount.mjs';
 import { dataDir, makeDataDir } from './lib/paths.mjs';
 import { readLang, writeLang, withLang, zhEn, LANGS, langBrokenLine, langUnreadableLine } from './lib/lang.mjs';
 import { todoBoard, programChanges, restartLine } from './lib/todo.mjs';
+import { briefReport } from './lib/brief.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const HOST = '127.0.0.1';          // ⚠️ 不要參數化。見上面。
@@ -146,8 +147,9 @@ export function createApp({ monitorDir = HERE, statusShareMs = STATUS_SHARE_MS, 
         // todo:首頁最上面那一張總表(規格:還差什麼總表)。只從這一次算好的資料組,不另問 git;要不要重啟是服務自己講的
         const all = collectAll({ monitorDir });
         const langNote = L.state === 'broken' ? langBrokenLine() : L.state === 'unreadable' ? langUnreadableLine() : null;
-        body = JSON.stringify({ ...all, todo: todoBoard(all, { restart: restartLine(serveState()) }),
-                                appVersion: appVersion(), lang: L.lang, langNote });
+        const todo = todoBoard(all, { restart: restartLine(serveState()) });
+        const brief = briefReport(all, todo, { langState: L.state });
+        body = JSON.stringify({ ...all, todo, brief, appVersion: appVersion(), lang: L.lang, langNote });
       } catch (e) {
         // ⚠️ 一個專案讀不到,不該害整頁掛掉。照實回報,讓畫面說「讀不到」。
         return json(500, { error: String(e?.message ?? e), generatedAt: Date.now() });   // 讀不到的不共用:下一次重算

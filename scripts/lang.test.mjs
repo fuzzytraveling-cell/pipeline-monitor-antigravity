@@ -27,6 +27,8 @@ import { stageLine, specNotes, clProg, clDoneNote, checklistWhy, checklistHead, 
 import { rerunLine, tookLine, noRecordLine, stagesBrokenLine, unknownPromptLine, noWords, loadStages } from '../lib/rounds.mjs';
 import { eLines, eWhere, summaryLine, walkItems, walkSummary, parseWalk } from '../lib/verify.mjs';
 import { faultBanner, faultNotes, sensorParts, sensorOffLine, gateLine, guardLine, escalateLine, moveLine, noneHereLine, optedOutLine, unreadableLine } from '../lib/faults.mjs';
+import { todoBoard } from '../lib/todo.mjs';
+import { briefReport } from '../lib/brief.mjs';
 import { createApp } from '../server.mjs';
 import { decide } from '../gate.mjs';
 import { safeName } from '../lib/events.mjs';
@@ -322,7 +324,7 @@ function uiOf(latest, { lang = 'zh', fetch = () => Promise.reject(new Error('測
   const make = new Function('describeFreshness', 'STALE_AFTER_SECONDS', 'document', 'window', 'localStorage', 'sessionStorage', 'location', 'setTimeout', 'setInterval', 'fetch', 'performance', 'console', '__LATEST',
     `${body}\nlatest = __LATEST;\nreturn { workflow, roundWhere, sensorLine, faultBanner, oldServerBanner, langBanner, render, safeRender, switchLang, poll, ago, clock, OLD_LINE, ROLE,
       applyTheme, cycleTheme, sunTimes, resolveTheme, themeTooltip,
-      statRestore, statLadder, statChanges, statTier, projectList, overview, sessionList, projectPage, suggestionsBlock, optOutLine, sessionPage,
+      statRestore, statLadder, statChanges, statTier, briefCard, projectList, overview, sessionList, projectPage, suggestionsBlock, optOutLine, sessionPage,
       setLatest: (x) => { latest = x; }, connected: () => connected, LANG };`);
   const api = make(describeFreshness, 60, document, { addEventListener: noop }, { getItem: () => null, setItem: noop }, sessionStorage, loc, noop, noop, fetch,
     { now: () => 0 }, { ...console, error: noop }, latest);   // 壞掉的那一頁會往主控台印錯誤:這裡不看那一行
@@ -933,7 +935,10 @@ function enWorld() {
     const empty = { name: 'quiet-app', displayName: 'quiet-app', mainRoot: '/work/quiet-app', optedOut: { at: t(9000) }, optedOutLine: optedOutLine({ at: t(9000), days: 90 }),
       cards: [], sessions: [], suggestions: [], emptyLine: noRecordLine({ here: 'the bar at the very top', optedOut: true }), noRecords: true };
     const oldOne = { name: 'old-app', displayName: 'old-app', mainRoot: '/work/old-app', optedOut: { at: null }, cards: [], sessions: [], suggestions: [] };
-    return { generatedAt: NOW, retainDays: 90, lang: 'en', langNote: null, projects: [project, empty, oldOne], faults: { banner: [], blind: false },
+    const baseAll = { projects: [project, empty, oldOne], faults: { banner: [], blind: false, unreadableLine: null } };
+    const todo = todoBoard(baseAll, { ago });
+    const brief = briefReport(baseAll, todo, { ago });
+    return { generatedAt: NOW, retainDays: 90, lang: 'en', langNote: null, ...baseAll, todo, brief,
       sharedLines: { calledNotPassed: calledIsNotPassed() }, stampHelp: { commit: 'commit: …', stamp: 'stamp (agy-pipeline --checkpoint): …', order: 'Always commit before stamping' } };
   }));
 }
@@ -950,6 +955,15 @@ section('英文那一頁(真的跑 ui/app.js):案件列表、專案頁、對話�
     const attrs = [...ui.els.app.innerHTML.matchAll(/(?:title|placeholder)="([^"]*)"/g)].map((m) => m[1]).join(' | ');
     noZh(`英文:${h}(滑鼠移上去看得到的字、輸入框的提示)`, attrs);
   }
+  // 英文工地晨報卡(clear:false 與 clear:true + goneHidden):零中文與全形空白,且清零不含禁語(dashboard-brief-card AC-3/AC-4,P2)
+  const enClear = en(() => {
+    const cleanAll = { projects: [{ name: 'p', displayName: 'p', cards: [], sessions: [{ id: 'g1', closedAt: T(-60), card: { gone: true } }], suggestions: [] }], faults: { banner: [], unreadableLine: null } };
+    const td = todoBoard(cleanAll, { ago: () => '1 minute ago' });
+    return briefReport(cleanAll, td, { ago: () => '1 minute ago' });
+  });
+  const enClearHtml = uiOf({ generatedAt: NOW, projects: [], brief: enClear, lang: 'en' }, { lang: 'en' }).briefCard();
+  noZh('英文晨報卡(clear + goneHidden):沒有中文', strip(enClearHtml));
+  check('英文晨報卡(clear + goneHidden):沒有全形空白與禁語', !enClearHtml.includes('\u3000') && !/\bpassed\b|\ball clear\b|\bverified\b|\bsafe\b|✓|✅/i.test(strip(enClearHtml)), strip(enClearHtml));
   // 舊的服務(沒給新欄位)那幾種:講服務還在跑舊的程式,英文
   const olds = uiOf({ generatedAt: NOW, projects: [{ name: 'p', mainRoot: '/p', optedOut: { at: T(-60) }, cards: [], sessions: [], suggestions: [] }], lang: 'en' }, { lang: 'en' });
   olds.loc.hash = '#/p/p';

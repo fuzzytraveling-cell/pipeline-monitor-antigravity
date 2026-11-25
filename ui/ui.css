@@ -96,6 +96,52 @@ h2.section { font-size: var(--text-subheading); letter-spacing: var(--tracking-s
   background: color-mix(in srgb, var(--color-neon-amber) 11%, var(--color-night-surface));
 }
 
+/* ───────── 第一層:工地晨報卡（方案 A，規格：dashboard-brief-card）＋ 案件列表 ───────── */
+.brief-card {
+  border: 1px solid var(--color-whiteboard-frame); border-radius: 10px;
+  padding: var(--spacing-16) var(--spacing-24);
+  background:
+    linear-gradient(var(--color-grid) 1px, transparent 1px) 0 0 / 28px 28px,
+    linear-gradient(90deg, var(--color-grid) 1px, transparent 1px) 0 0 / 28px 28px,
+    color-mix(in srgb, var(--color-whiteboard) 86%, transparent);
+  box-shadow: var(--shadow-note);
+}
+.brief-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.brief-head .section { margin: 0; }
+.brief-copy { margin-top: 0; }
+.brief-details > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px; }
+.brief-details > summary::before { content: '▸'; color: var(--color-text-secondary); flex: none; }
+.brief-details[open] > summary::before { content: '▾'; }
+.brief-badges { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.brief-badge {
+  --ink: var(--color-marker-gray);
+  font-size: var(--text-caption); padding: 2px 10px; border-radius: var(--radius-full);
+  border: 1px solid color-mix(in srgb, var(--ink) 55%, var(--color-night-border));
+  background: color-mix(in srgb, var(--ink) 12%, var(--color-night-surface));
+  color: var(--color-text-primary);
+}
+.brief-badge[data-k="ask"] { --ink: var(--color-marker-red); }
+.brief-badge[data-k="todo"] { --ink: var(--color-marker-blue); }
+.brief-badge[data-k="unknown"] { --ink: var(--color-marker-gray); }
+.brief-badge[data-k="cards"] { --ink: var(--color-marker-yellow); }
+.brief-badge-quiet { --ink: var(--color-night-border-strong); color: var(--color-text-secondary); }
+.brief-body { margin-top: 12px; display: grid; gap: 12px; }
+.brief-group {
+  --ink: var(--color-marker-gray);
+  border-left: 3px solid var(--ink); padding: 4px 0 4px 12px;
+}
+.brief-group[data-k="ask"] { --ink: var(--color-marker-red); }
+.brief-group[data-k="todo"] { --ink: var(--color-marker-blue); }
+.brief-group[data-k="unknown"] { --ink: var(--color-marker-gray); }
+.brief-group[data-k="cards"] { --ink: var(--color-marker-yellow); }
+.brief-gtitle { font-size: var(--text-caption); font-weight: var(--font-weight-medium); color: var(--color-text-secondary); margin-bottom: 4px; }
+.brief-list { margin: 0; padding-left: 1.15em; display: grid; gap: 4px; font-size: var(--text-caption); color: var(--color-text-primary); }
+.brief-list li.brief-sum { list-style: none; margin-left: -1.15em; color: var(--color-text-muted); }
+.brief-link { color: var(--color-text-primary); }
+.brief-link:hover { color: var(--color-neon-cyan); }
+.brief-clear, .brief-note { margin: 0; font-size: var(--text-caption); color: var(--color-text-secondary); }
+.brief-note { color: var(--color-text-muted); }
+
 /* ───────── 第一層:案件列表 ───────── */
 /* 案件卡也是貼在夜間施工看板上的工作卡(night-shift-ui-theme AC-1、AC-2):施工藍圖方格、頂端反光貼條 */
 .projects { display: grid; gap: var(--spacing-24) var(--spacing-16); grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); padding-top: 12px; }
@@ -1247,7 +1293,22 @@ a.ext { color: var(--color-neon-cyan); }
 [data-theme="day"] .acl-box > summary:hover { color: var(--color-off-black); }
 [data-theme="day"] .rnote { color: var(--color-smoke); }
 
-/* 還差什麼白板：鋁框、手畫橢圓馬克筆圈與下緣筆槽 */
+/* 還差什麼白板與首頁晨報卡：鋁框、手畫橢圓馬克筆圈與下緣筆槽 */
+[data-theme="day"] .brief-card {
+  background: var(--color-whiteboard); border: 2px solid var(--color-whiteboard-frame); box-shadow: var(--shadow-note);
+}
+[data-theme="day"] .brief-badge {
+  background: var(--color-parchment); border-color: var(--ink); color: var(--color-off-black);
+}
+[data-theme="day"] .brief-badge-quiet { border-color: var(--color-ash); color: var(--color-graphite); }
+[data-theme="day"] .brief-gtitle,
+[data-theme="day"] .brief-clear { color: var(--color-graphite); }
+[data-theme="day"] .brief-list,
+[data-theme="day"] .brief-link { color: var(--color-off-black); }
+[data-theme="day"] .brief-link:hover { color: var(--color-lake-blue); }
+[data-theme="day"] .brief-list li.brief-sum,
+[data-theme="day"] .brief-note { color: var(--color-smoke); }
+
 [data-theme="day"] .wb {
   background: var(--color-whiteboard); -webkit-backdrop-filter: none; backdrop-filter: none;
   border: 6px solid var(--color-whiteboard-frame); box-shadow: var(--shadow-note);

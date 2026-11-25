@@ -5,9 +5,9 @@
  * 拼錯參數靜默放行（P4）、偷跑重複 git、測試偷用本機環境（P8）、英文殘留中文或講禁語（P10）。
  */
 import { section, check, eq, summary, makeRepo } from './_harness.mjs';
-import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, appendFileSync, copyFileSync, rmSync } from 'node:fs';
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, appendFileSync, rmSync } from 'node:fs';
 import { execFile } from 'node:child_process';
-import { createServer } from 'node:http';
+import { createServer, request as httpRequest } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,8 +15,9 @@ import process from 'node:process';
 import { briefReport, parseBriefArgs, BRIEF_CARD_CAP } from '../lib/brief.mjs';
 import { todoBoard, serveDownLine, serveSlowLine, serveOldLine } from '../lib/todo.mjs';
 import { doBrief } from '../lib/cliTodo.mjs';
-import { collectAll } from '../lib/collect.mjs';
 import { withLang } from '../lib/lang.mjs';
+import { describeFreshness } from '../lib/freshness.mjs';
+import { createApp } from '../server.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const AGO = () => '3 分鐘前';
@@ -349,6 +350,133 @@ section('AC-3:中英雙語與三條紅線禁語（P10）——英文全段零中
     !/\bpassed\b|\ball clear\b|\bverified\b|\bsafe\b|✓|✅/i.test(enAll.t2), enAll.t2);
   check('英文 serveSlowLine 指向 --brief', enAll.t1.includes('agy-pipeline --brief'), enAll.t1);
   check('英文清零含 goneHidden 附註', enAll.t2.includes('folders are gone can\'t be seen'), enAll.t2);
+}
+
+/* ════════════ 儀表板首頁工地晨報卡（方案 A，規格：dashboard-brief-card） ════════════ */
+
+function uiOf(latest, { lang = 'zh', hash = '', fold = new Map() } = {}) {
+  const src = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8');
+  const body = src.replace(/^import .*$/m, '').replace(/^pollLoop\(\);$/m, '').replace(/^setInterval\(paintFreshness, 1000\);$/m, '');
+  const noop = () => {};
+  const els = {};
+  const el = (id) => (els[id] ??= { dataset: {}, classList: { toggle: noop }, innerHTML: '', textContent: '', style: { setProperty: noop }, querySelectorAll: () => [],
+    setAttribute: noop });
+  const document = { getElementById: el, addEventListener: noop, body: el('body'), activeElement: null, documentElement: { dataset: { lang, theme: 'night' } } };
+  const loc = { hash, reloads: 0, reload() { this.reloads++; } };
+  const ls = {
+    getItem: (k) => (k === 'pm-fold' ? JSON.stringify(Object.fromEntries(fold)) : null),
+    setItem: (k, v) => { if (k === 'pm-fold') { const o = JSON.parse(v); fold.clear(); for (const [x, y] of Object.entries(o)) fold.set(x, y); } },
+  };
+  const ss = { getItem: () => null, setItem: noop, removeItem: noop };
+  const make = new Function('describeFreshness', 'STALE_AFTER_SECONDS', 'document', 'window', 'localStorage', 'sessionStorage', 'location', 'setTimeout', 'setInterval', 'fetch', 'performance', 'console', '__LATEST',
+    `${body}\nlatest = __LATEST;\nreturn { briefCard, projectList, render, oldServerBanner };`);
+  const api = make(describeFreshness, 60, document, { addEventListener: noop }, ls, ss, loc, noop, noop,
+    () => Promise.reject(new Error('測試不連網路')), { now: () => 0 }, { ...console, error: noop }, latest);
+  return { ...api, els, loc, fold };
+}
+
+const escH = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+section('首頁晨報卡（AC-1～AC-4）:伺服器同步帶出 brief、與終端機同一份來源（P2）、頁頂項省略與 topOnly／建議卡不互斥（P5）', 'P2');
+{
+  const pSrc = proj([
+    sess({ id: 's-ask', title: '有待拍板 <script>"x"</script>', stages: stagesOf({ D: { state: 'stale', rerun: { state: 'ask', line: '要不要再跑由你決定' } } }), tier: tierOk([D_OK]) }),
+    sess({ id: 's-gone', title: '舊對話', closedAt: '2026-11-01T04:00:00Z', cwd: '/w/g', card: card({ path: '/w/g', gone: true }) }),
+  ], {
+    name: 'proj a',
+    displayName: 'Proj A',
+    cards: [
+      card({ path: '/w/main', ladder: ladder({ push: ['pending', 'main 有 2 個新存檔可以 push'] }), stagesNote: '⚠️ stages 讀不懂' }),
+    ],
+    suggestions: [
+      { id: 'sg1', title: '跨專案建議', ts: '2026-11-01T03:00:00Z', openIn: { project: 'proj-b', name: 'Proj B' }, cut: [] },
+    ],
+  });
+  const all = makeAll([pSrc], {
+    banner: [{ tone: 'red', text: '🔴 全機感測器壞了' }],
+    unreadableLine: '另有 1 筆看不懂的故障記號',
+  });
+  const br = runBrief(all, { restart: '⚠️ 儀表板要重啟', langState: 'broken' });
+
+  eq('copyText 與 lines.join("\\n") 完全一致', br.copyText, br.lines.join('\n'));
+  check('結構化 groups 帶出正確 project／sessionId／onTopBanner／summary',
+    br.groups.find((g) => g.id === 'system')?.items.some((i) => i.onTopBanner && i.text.includes('全機感測器壞了'))
+    && br.groups.find((g) => g.id === 'system')?.items.some((i) => !i.onTopBanner && i.text.includes('看不懂的故障記號'))
+    && br.groups.find((g) => g.id === 'ask')?.items.some((i) => i.project === 'proj a' && i.sessionId === 's-ask')
+    && br.groups.find((g) => g.id === 'cards')?.items.some((i) => i.project === 'proj a' && !i.summary)
+    && br.groups.find((g) => g.id === 'cards')?.items.some((i) => i.summary && !i.project));
+
+  // 真實執行 ui/app.js：首頁看得到晨報卡在案件列表前；專案頁／對話頁不畫
+  const homeUi = uiOf({ generatedAt: Date.now(), projects: [{ name: 'proj a', displayName: 'Proj A', cards: [], sessions: [], suggestions: [] }], brief: br }, { hash: '#/' });
+  homeUi.render();
+  const homeHtml = homeUi.els.app.innerHTML;
+  check('首頁把晨報卡畫在案件列表上面', homeHtml.indexOf('class="brief-card"') !== -1 && homeHtml.indexOf('class="brief-card"') < homeHtml.indexOf('class="projects"'));
+  check('複製鈕帶的是完整 copyText（含頁頂全機項）', homeHtml.includes(`data-copy="${escH(br.copyText)}"`));
+  check('必抓:頁頂已畫的橫條（感測器壞了、語言設定、重啟）不在網頁晨報卡裡重複列出',
+    !homeHtml.slice(homeHtml.indexOf('<div class="brief-body">')).includes('全機感測器壞了')
+    && !homeHtml.slice(homeHtml.indexOf('<div class="brief-body">')).includes('語言設定讀不懂')
+    && !homeHtml.slice(homeHtml.indexOf('<div class="brief-body">')).includes('儀表板要重啟'));
+  check('頁頂沒畫的 unreadableLine 與 stagesNote 照樣保留在網頁晨報卡',
+    homeHtml.includes('另有 1 筆看不懂的故障記號') && homeHtml.includes('stages 讀不懂'));
+  check('對話條目連到 #/p/<proj>/s/<sid>、建議卡連回來源專案 #/p/<proj>、特殊字元安全跳脫',
+    homeHtml.includes('href="#/p/proj%20a/s/s-ask"')
+    && homeHtml.includes('href="#/p/proj%20a"')
+    && !homeHtml.includes('<script>"x"</script>')
+    && homeHtml.includes('&lt;script&gt;&quot;x&quot;&lt;/script&gt;'));
+  check('建議卡尾行不掛連結', !/<li class="brief-sum"><a/.test(homeHtml));
+  check('!clear 且有 goneHidden 時，卡片底部照印 goneNote', homeHtml.includes(escH(br.goneNote)));
+  check('有非建議卡待留意項時，預設展開（open）', /<details class="brief-details" data-fold="home\|brief" open>/.test(homeHtml));
+
+  // 使用者手動收起後存在 localStorage，重畫不跳回展開
+  const foldUi = uiOf({ generatedAt: Date.now(), projects: [], brief: br }, { fold: new Map([['home|brief', false]]) });
+  check('手動收起記在 localStorage 後，重畫照舊收起', !/<details class="brief-details" data-fold="home\|brief" open>/.test(foldUi.briefCard()));
+
+  // 專案頁與對話頁不畫晨報卡
+  homeUi.loc.hash = '#/p/proj%20a';
+  homeUi.render();
+  check('專案頁不重複畫晨報卡', !homeUi.els.app.innerHTML.includes('class="brief-card"'));
+
+  // 僅有頁頂提醒（topOnly）時：印出 topOnlyLine、不畫空框、預設收起
+  const topOnlyBr = runBrief(makeAll([proj([sess({ id: 'c1', closedAt: '2026-11-01T04:00:00Z' })])], {
+    banner: [{ tone: 'amber', text: '🟡 僅頁頂橫條' }],
+  }));
+  const topOnlyHtml = uiOf({ generatedAt: Date.now(), projects: [], brief: topOnlyBr }).briefCard();
+  check('僅剩頁頂橫條時：印出 topOnlyLine、預設收起、不畫空框',
+    topOnlyHtml.includes(escH(topOnlyBr.topOnlyLine)) && !/<details class="brief-details"[^>]* open>/.test(topOnlyHtml), topOnlyHtml);
+
+  // clear === true 但有建議卡（預審 #1）：同時印 clearLine 與建議卡、預設收起、無綠燈與禁語
+  const clearWithCardBr = runBrief(makeAll([proj([sess({ id: 'c1', closedAt: '2026-11-01T04:00:00Z' })], {
+    suggestions: [{ id: 'sg2', title: '待開工卡', ts: '2026-11-01T03:00:00Z', cut: [] }],
+  })]));
+  const clearCardHtml = uiOf({ generatedAt: Date.now(), projects: [], brief: clearWithCardBr }).briefCard();
+  check('clear === true 且有建議卡時：同時印出 clearLine 與建議卡（不互斥）',
+    clearCardHtml.includes(escH(clearWithCardBr.clearLine)) && clearCardHtml.includes('待開工卡') && !/<details class="brief-details"[^>]* open>/.test(clearCardHtml), clearCardHtml);
+  check('清零狀態無綠燈與禁語（green/mint/agent-c/passed/all clear/safe/✓/✅）',
+    !/green|mint|agent-c|passed|all clear|safe|✓|✅/i.test(clearCardHtml));
+
+  // !latest / 舊服務無 brief / brief: null（預審 #3）
+  eq('latest 為 null 時 briefCard 回空字串不爆錯', uiOf(null).briefCard(), '');
+  const noBriefHtml = uiOf({ generatedAt: Date.now(), projects: [] }).briefCard();
+  const nullBriefHtml = uiOf({ generatedAt: Date.now(), projects: [], brief: null }).briefCard();
+  check('舊服務缺 brief 或 brief 為 null 時明講服務還在跑舊的程式',
+    /--serve-restart/.test(noBriefHtml) && /--serve-restart/.test(nullBriefHtml), noBriefHtml + nullBriefHtml);
+
+  // 真實 createApp() /api/status 回傳 brief
+  const monitorDir = mkdtempSync(join(tmpdir(), 'pm-brief-srv-'));
+  mkdirSync(join(monitorDir, 'logs'));
+  const srv = createApp({ monitorDir, statusShareMs: 0 });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const srvPort = srv.address().port;
+  const statusJson = await new Promise((resolve, reject) => {
+    const rq = httpRequest({ host: '127.0.0.1', port: srvPort, method: 'GET', path: '/api/status', headers: { host: `127.0.0.1:${srvPort}` } }, (res) => {
+      let b = ''; res.on('data', (c) => { b += c; }); res.on('end', () => resolve(JSON.parse(b)));
+    });
+    rq.on('error', reject); rq.end();
+  });
+  check('/api/status 帶有結構完整的 brief 欄位',
+    !!statusJson.brief && typeof statusJson.brief.copyText === 'string' && Array.isArray(statusJson.brief.groups), JSON.stringify(statusJson.brief));
+  await new Promise((r) => srv.close(r));
+  rmSync(monitorDir, { recursive: true, force: true });
 }
 
 process.exit(summary());
