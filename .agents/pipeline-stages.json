@@ -33,12 +33,12 @@
       "lib/checkpoint.mjs"
     ],
     "checked": {
-      "at": "2026-11-24T09:26:38.323Z",
-      "said": "不加入危險清單（清單維持現狀 12 條，標記為已判斷過）",
+      "at": "2026-11-25T07:10:00.453Z",
+      "said": "不加入危險清單（維持 12 條），直接進結案升版 v0.10.0 併回 main",
       "by": "ai",
-      "commit": "da96ca77b6a868edb7333b4d8b8bf9b499189772",
+      "commit": "7b7be1c23eb07aa129b0f585ea3c6fe39119ea0c",
       "files": [
-        "lib/conflicts.mjs"
+        "lib/brief.mjs"
       ]
     }
   }

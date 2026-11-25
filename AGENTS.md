@@ -106,6 +106,7 @@
 | 案件頁的「還差什麼」白板、F 工地主任、`--todo`；主任（建議下一步、開卡、收尾） | [還差什麼總表](docs/升級摘要/還差什麼總表.md)；主任技能（第二段）：[主任技能](docs/升級摘要/主任技能.md)；主任動手收尾（第三段）：[主任動手收尾](docs/升級摘要/主任動手收尾.md)；F 那一格改條列、寫規格時不亮燈、工班戴工地帽：[主任條列與工地帽](docs/升級摘要/主任條列與工地帽.md) |
 | Antigravity 專用版（方案 B）移植與地基 | v0.1 地基（感測器、收工門禁、看板、rules、6 支 skill）：[antigravity-v01-foundation](docs/升級摘要/antigravity-v01-foundation.md) |
 | 多 worktree 並發改動衝突偵測 | [worktree-conflict-detection](docs/升級摘要/worktree-conflict-detection.md) |
+| 定時工地巡檢晨報（`--brief`／`--quiet-if-clear`） | [brief-patrol-command](docs/升級摘要/brief-patrol-command.md) |
 
 每一列只寫「什麼情況、讀哪一份」。結案日期、實況還沒看過、還待你決定的事，寫在那份規格自己的施作紀錄裡——
 寫在這裡就是第二個真相來源，而且這一頁每個對話都會整份讀一次。新的規格放進最貼近的那一列；找不到才開新的一列。

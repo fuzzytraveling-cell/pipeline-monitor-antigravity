@@ -31,6 +31,7 @@ agy-pipeline --decide D skip "你的原話"   # 你說這一輪不用再跑 D：
 agy-pipeline --round E    # E 驗收這一輪照哪份規格、要驗哪幾條、第幾趟、專案怎麼跑起來（AI 跑 verify 的第一步）
 agy-pipeline --report E ok|found "…"   # AI 記下走一遍的結論：第一行摘要，之後一行一條（AC-1 看到了：「原文」／沒看到／驗不了）
 agy-pipeline --todo       # 還差什麼：所有專案的對話各還差什麼（在 Antigravity 終端機裡跑時，那個對話那一行標「← 這個對話」）
+agy-pipeline --brief      # 定時工地巡檢晨報：只列故障、防丟／衝突、待拍板、問不到與建議卡（加 --quiet-if-clear 只有確實沒事且無問不到才安靜）
 agy-pipeline --cards      # 這個專案的每一張新對話建議卡：還沒開始、已開始、你說不做了（主任開卡之前查有沒有了）
 agy-pipeline --suggest "標題"  # 放一張「建議另開對話」的卡片到儀表板（內容從 stdin 讀）
 agy-pipeline --wrap merge|push|restart|stamp "你的原話"   # 主任收尾：你回答之後一步一次（併進 main 只快轉、推完當場問 GitHub、改過才重啟、D 沒了結不蓋章），每一步講成了沒
