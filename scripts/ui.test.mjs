@@ -368,7 +368,7 @@ function loadPollLoop() {
  */
 function loadSuggestionsBlock(latest) {
   const src = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8');
-  const m = src.match(/^function suggestionsBlock\(p\) \{\n[\s\S]*?\n\}\n/m);
+  const m = src.match(/^function suggestionsBlock\([^)]*\) \{\n[\s\S]*?\n\}\n/m);
   // 「這張卡收起來了沒」跟 F 工地主任共用一個 cardFolded(規格:還差什麼總表 AC-12),一起拿出來
   const cf = src.match(/^function cardFolded\(s\) \{\n[\s\S]*?\n\}\n/m);
   if (!m || !cf) return null;
@@ -594,7 +594,7 @@ section('還原點那一行照實講:有沒 commit 的才說會丟掉幾個、�
   const bannerOf = (latest) => (banner ? new Function('latest', `const zhEn = (zh) => zh; const many = (n, one, more = one + 's') => n + ' ' + (n === 1 ? one : more);\n${banner}; return oldServerBanner();`)(latest) : '');
   check('從 ui/app.js 拿得出 oldServerBanner', !!banner);
   check('上一版的服務(有 sharedLines、沒有 stampHelp)→ 最上面講服務還在跑舊的程式', /--serve-restart/.test(bannerOf({ projects: [], sharedLines: {} })));
-  check('這一版的服務 → 不講', bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true, precheckSupport: true, escalateSupport: true, conflictSupport: true, brief: { clear: true, groups: [] }, contextScaleSupport: true, taskBoardSupport: true }) === '');
+  check('這一版的服務 → 不講', bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true, precheckSupport: true, escalateSupport: true, conflictSupport: true, brief: { clear: true, groups: [] }, contextScaleSupport: true, taskBoardSupport: true, taskEntryMergeSupport: true }) === '');
 }
 
 section('舊的服務認得出來:「還差什麼」那一版以前的服務(有 stampHelp、沒有 todo)要重啟那一句講不出來 → 每一頁最上面講服務還在跑舊的程式(規格:還差什麼總表 AC-7,魔鬼教官第二輪)', 'P2');
@@ -618,38 +618,123 @@ section('舊的服務認得出來:「還差什麼」那一版以前的服務(有
     /--serve-restart/.test(bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true, precheckSupport: true, escalateSupport: true, conflictSupport: true, brief: { clear: true, groups: [] } })));
   check('必抓:有 contextScaleSupport 但沒有 taskBoardSupport（v0.14 舊服務）→ 每一頁最上面講服務還在跑舊的程式',
     /--serve-restart/.test(bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true, precheckSupport: true, escalateSupport: true, conflictSupport: true, brief: { clear: true, groups: [] }, contextScaleSupport: true })));
-  check('必放:有 todo、guardSupport、precheckSupport、escalateSupport、conflictSupport、brief、contextScaleSupport 且 taskBoardSupport → 不講', bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true, precheckSupport: true, escalateSupport: true, conflictSupport: true, brief: { clear: true, groups: [] }, contextScaleSupport: true, taskBoardSupport: true }) === '');
+  check('必抓:有 taskBoardSupport 但沒有 taskEntryMergeSupport（v0.15 舊服務）→ 每一頁最上面講服務還在跑舊的程式',
+    /--serve-restart/.test(bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true, precheckSupport: true, escalateSupport: true, conflictSupport: true, brief: { clear: true, groups: [] }, contextScaleSupport: true, taskBoardSupport: true })));
+  check('必放:有全部旗標含 taskEntryMergeSupport → 不講', bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true, precheckSupport: true, escalateSupport: true, conflictSupport: true, brief: { clear: true, groups: [] }, contextScaleSupport: true, taskBoardSupport: true, taskEntryMergeSupport: true }) === '');
 }
 
-section('案件頁「誠實任務板」（taskBoardBlock）：舊服務降級提示、零百分比與無綠燈背書', 'P10');
+section('案件頁「誠實任務板」（taskBoardBlock）與三態任務入口整併（AC-1/AC-2）：舊服務降級、empty 不早退吞卡、無 % 與無綠燈背書', 'P10');
 {
   const src = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8');
   const code = src.match(/^function taskBoardBlock\(p\) \{\n[\s\S]*?\n\}\n/m)?.[0] ?? null;
+  const sgCode = src.match(/^function suggestionsBlock\([^)]*\) \{\n[\s\S]*?\n\}\n/m)?.[0] ?? null;
+  const cfCode = src.match(/^function cardFolded\(s\) \{\n[\s\S]*?\n\}\n/m)?.[0] ?? null;
+  const semCode = src.match(/^function serverEntryMode\(p\) \{\n[\s\S]*?\n\}\n/m)?.[0] ?? null;
+  const ppCode = src.match(/^function projectPage\(name\) \{\n[\s\S]*?\n\}\n/m)?.[0] ?? null;
   const oldLine = src.match(/^const OLD_LINE = .*;$/m)?.[0] ?? '';
-  check('從 ui/app.js 拿得出 taskBoardBlock', !!code);
-  const draw = (latest, p) => (code ? new Function('latest', 'p', 'esc', 'foldOpen',
-    `const zhEn = (zh) => zh; const many = (n, one, more = one + 's') => n + ' ' + (n === 1 ? one : more);\n${oldLine}\n${code}; return taskBoardBlock(p);`)(
-    latest, p, (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])), (_k, d) => d,
-  ) : '');
-  const oldHtml = draw({ projects: [] }, { name: 'p' });
+  check('從 ui/app.js 拿得出 taskBoardBlock／suggestionsBlock／projectPage', Boolean(code && sgCode && cfCode && semCode && ppCode));
+  const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const ago = (iso) => (iso ? '3 分鐘前' : '');
+  const stub = () => '';
+  const drawWith = (latest, p, fold = (_k, d) => d) => (code && sgCode && cfCode ? new Function('latest', 'p', 'esc', 'ago', 'foldOpen', 'overview', 'optOutLine', 'whiteboard', 'sessionList',
+    `const zhEn = (zh) => zh; const many = (n, one, more = one + 's') => n + ' ' + (n === 1 ? one : more);\n${oldLine}\n${cfCode}\n${sgCode}\n${code}\n${semCode}\n${ppCode}\nreturn { tb: taskBoardBlock(p), page: projectPage(p.name) };`)(
+    latest, p, esc, ago, fold, stub, stub, stub, stub,
+  ) : { tb: '', page: '' });
+  const oldHtml = drawWith({ projects: [] }, { name: 'p' }).tb;
   check('舊服務缺 taskBoardSupport → 任務板區塊顯示 OLD_LINE', oldHtml.includes('誠實任務板') && oldHtml.includes('服務還在跑舊的程式'), oldHtml);
-  const tbHtml = draw({ projects: [], taskBoardSupport: true }, {
+
+  // v0.15.0 舊服務：有 taskBoardSupport 但缺 taskEntryMergeSupport → 區塊也報 OLD_LINE 且 projectPage 不收折建議卡（預審 #6）
+  const v15Project = {
     name: 'p',
-    taskBoard: {
-      state: 'ok', total: 2, ignoredManualFields: true,
-      counts: { blocked: 0, ready: 1, 'spec-waiting': 0, 'in-progress': 0, 'wrap-up': 0, archived: 1, unknown: 0 },
-      columns: {
-        blocked: [],
-        ready: [{ id: 'T2', title: '可開工項', epic: 'E1', spec: 's2', column: 'ready', reason: '無前置', warnings: [], canCopy: true, copyPrompt: 'run T2', copyLabel: '複製開工交辦' }],
-        'spec-waiting': [], 'in-progress': [], 'wrap-up': [],
-        archived: [{ id: 'T1', title: '已歸檔項', spec: 's1', column: 'archived', reason: '已歸檔', warnings: [], canCopy: false }],
-        unknown: [],
-      },
+    suggestions: [sgCard({ id: 'open-v15', title: '舊服務不能被收起來的卡' })],
+    taskBoard: { state: 'ok', total: 0, counts: {}, columns: { blocked: [], ready: [], 'spec-waiting': [], 'in-progress': [], 'wrap-up': [], archived: [], unknown: [] } },
+  };
+  const v15Res = drawWith({ projects: [v15Project], taskBoardSupport: true }, v15Project);
+  check('v0.15.0 舊服務缺 taskEntryMergeSupport → taskBoardBlock 顯示 OLD_LINE 且不自行反推模式',
+    v15Res.tb.includes('服務還在跑舊的程式') && v15Res.page.includes('建議新增的對話') && v15Res.page.includes('舊服務不能被收起來的卡'), v15Res.tb);
+
+  // task-board 模式下 0 未開始、0 歷史卡：預設收折單行折疊列、不畫獨立「建議新增的對話」區塊
+  const okTb = (o = {}) => ({
+    state: 'ok', entryMode: 'task-board', total: 2, ignoredManualFields: true,
+    counts: { blocked: 0, ready: 1, 'spec-waiting': 0, 'in-progress': 0, 'wrap-up': 0, archived: 1, unknown: 0 },
+    columns: {
+      blocked: [],
+      ready: [{ id: 'T2', title: '可開工項', epic: 'E1', spec: 's2', column: 'ready', reason: '無前置', warnings: [], canCopy: true, copyPrompt: 'run T2', copyLabel: '複製開工交辦' }],
+      'spec-waiting': [], 'in-progress': [], 'wrap-up': [],
+      archived: [{ id: 'T1', title: '已歸檔項', spec: 's1', column: 'archived', reason: '已歸檔', warnings: [], canCopy: false }],
+      unknown: [],
     },
+    ...o,
   });
+  const pClean = { name: 'p', suggestions: [], incomingSuggestions: [], taskBoard: okTb() };
+  const tbRes = drawWith({ projects: [pClean], retainDays: 90, taskBoardSupport: true, taskEntryMergeSupport: true }, pClean);
   check('任務板畫出 6 欄數量、忽略手寫狀態註記、無 % 百分比、無綠燈或 ✅',
-    tbHtml.includes('共 2 項') && tbHtml.includes('data-copy="run T2"') && tbHtml.includes('已忽略任務清單內的手寫狀態')
-    && !tbHtml.includes('%') && !/[✅✓]/.test(tbHtml), tbHtml);
+    tbRes.tb.includes('共 2 項') && tbRes.tb.includes('data-copy="run T2"') && tbRes.tb.includes('已忽略任務清單內的手寫狀態')
+    && !tbRes.tb.includes('%') && !/[✅✓]/.test(tbRes.tb), tbRes.tb);
+  check('有任務板且 0 未開始、0 歷史卡 → 單一主力區塊、保留「紀錄裡 0 張」預設收折列、不畫獨立建議新增的對話',
+    tbRes.page.includes('data-fold="sg-hist|p"') && !tbRes.page.includes('data-fold="sg-hist|p" open')
+    && tbRes.page.includes('歷史建議卡（--suggest）：紀錄裡 0 張') && !tbRes.page.includes('建議新增的對話'), tbRes.page);
+
+  // 有歷史建議卡、0 未開始：摘要精確計算並保留完整舊卡，支援 localStorage 展開記憶
+  const pHist = {
+    name: 'p',
+    suggestions: [sgCard({ id: 'h1', title: '曾開過的卡', startedBy: 's9', startedTitle: '已開對話' }), sgCard({ id: 'h2', title: '說不做的卡', dismissedAt: TS })],
+    incomingSuggestions: [],
+    taskBoard: okTb(),
+  };
+  const histClosed = drawWith({ projects: [pHist], retainDays: 90, taskBoardSupport: true, taskEntryMergeSupport: true }, pHist);
+  const histOpened = drawWith({ projects: [pHist], retainDays: 90, taskBoardSupport: true, taskEntryMergeSupport: true }, pHist, (k, d) => (k === 'sg-hist|p' ? true : d));
+  check('0 未開始但有 2 張歷史卡 → 預設收折列顯示真實分類張數且展開保留全部舊卡',
+    histClosed.page.includes('歷史建議卡（--suggest）：目前 0 張未開始 · 已收起 2 張（已開始 1、你說不做了 1）')
+    && !histClosed.page.includes('data-fold="sg-hist|p" open')
+    && histOpened.page.includes('data-fold="sg-hist|p" open')
+    && histOpened.page.includes('曾開過的卡') && histOpened.page.includes('說不做的卡'), histClosed.page);
+
+  // 仍有未開始卡或 incomingSuggestions（且已收起為 0）：不可收進預設折疊列，且必帶保留期誠實說明（預審 #7）
+  const pOpen = {
+    name: 'p',
+    suggestions: [sgCard({ id: 'o1', title: '待清理卡' })],
+    incomingSuggestions: [{ project: 'q', name: 'Q', count: 1 }],
+    taskBoard: okTb(),
+  };
+  const openRes = drawWith({ projects: [pOpen], retainDays: 90, taskBoardSupport: true, taskEntryMergeSupport: true }, pOpen);
+  check('仍有未開始卡或他專案待開卡 → 直接展開待清理子區、含 data-dismiss 與保留期誠實說明',
+    openRes.page.includes('待清理建議卡（--suggest）') && openRes.page.includes('待清理卡')
+    && openRes.page.includes('data-dismiss="o1"') && openRes.page.includes('保留期限（90 天）')
+    && openRes.page.includes('#/p/q') && !openRes.page.includes('data-fold="sg-hist|p"'), openRes.page);
+
+  // empty 任務板（tasks: []）不早退吞卡（預審 #4）
+  const pEmpty = {
+    name: 'p',
+    suggestions: [sgCard({ id: 'oe', title: '空任務板也要看得到的舊卡' })],
+    incomingSuggestions: [],
+    taskBoard: { state: 'empty', entryMode: 'task-board', note: '任務清單裡目前沒有任何任務（tasks 為空）。', total: 0, counts: {}, columns: {}, errors: [] },
+  };
+  const emptyRes = drawWith({ projects: [pEmpty], retainDays: 90, taskBoardSupport: true, taskEntryMergeSupport: true }, pEmpty);
+  check('empty 任務板不早退吞掉底部待清理建議卡（預審 #4）',
+    emptyRes.page.includes('任務清單裡目前沒有任何任務') && emptyRes.page.includes('待清理建議卡（--suggest）') && emptyRes.page.includes('空任務板也要看得到的舊卡'), emptyRes.page);
+
+  // fallback（unset）：維持輕量建議卡單區塊＋輕量說明，不畫任務板區塊
+  const pFallback = {
+    name: 'p',
+    suggestions: [sgCard({ id: 'of', title: '無任務板兜底卡' })],
+    incomingSuggestions: [],
+    taskBoard: { state: 'unset', entryMode: 'fallback', note: '這個專案還沒建立 .agents/pipeline-tasks.json 任務清單。', total: 0, counts: {}, columns: {}, errors: [] },
+  };
+  const fbRes = drawWith({ projects: [pFallback], retainDays: 90, taskBoardSupport: true, taskEntryMergeSupport: true }, pFallback);
+  check('unset (fallback) → 維持「建議新增的對話」＋輕量說明，不另畫誠實任務板區塊',
+    fbRes.page.includes('建議新增的對話') && fbRes.page.includes('目前使用輕量建議卡模式') && fbRes.page.includes('無任務板兜底卡') && !fbRes.page.includes('<h2 class="section serif">誠實任務板</h2>'), fbRes.page);
+
+  // unknown（broken / unreadable / no-main）：雙區塊共存且絕不收折建議卡
+  const pUnknown = {
+    name: 'p',
+    suggestions: [sgCard({ id: 'ou', title: '壞任務檔不能收折的卡' })],
+    incomingSuggestions: [],
+    taskBoard: { state: 'broken', entryMode: 'unknown', note: '任務清單讀不懂。', errors: ['JSON 格式錯誤'], total: 0, counts: {}, columns: {} },
+  };
+  const unkRes = drawWith({ projects: [pUnknown], retainDays: 90, taskBoardSupport: true, taskEntryMergeSupport: true }, pUnknown);
+  check('broken (unknown) → 同時顯示任務板錯誤與完整「建議新增的對話」不收折',
+    unkRes.page.includes('誠實任務板') && unkRes.page.includes('JSON 格式錯誤') && unkRes.page.includes('建議新增的對話') && unkRes.page.includes('壞任務檔不能收折的卡'), unkRes.page);
 }
 
 section('感測器列（sensorLine）：有 q.guard 與 q.escalate 時一併畫出小標籤', 'P2');

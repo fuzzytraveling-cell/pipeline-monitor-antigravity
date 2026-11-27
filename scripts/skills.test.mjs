@@ -252,6 +252,25 @@ section('工地復盤官技能契約與常駐規則同步（retrospect-skill AC-
   const pDesc = PLUGIN_JSON.description;
   check('plugin.json 說明同步為 8 支技能並含 retrospect',
     pDesc.includes('8 支技能') && pDesc.includes('Includes 8 skills') && pDesc.includes('retrospect'), pDesc);
+
+  // 軟整併 AC-3：retrospect 同步採任務板單軌三路分流，rules/AGENTS.md 同步載明
+  for (const token of [
+    'agy-pipeline --tasks',
+    '1 task total:',
+    'tasks total:',
+    'The task list is currently empty',
+    '還沒建立 .agents/pipeline-tasks.json',
+    'hasn\'t set up .agents/pipeline-tasks.json yet',
+    '沒有權限存取',
+    'No permission to access',
+    'No permission to read task list',
+    'Can\'t find the main folder',
+    'doesn\'t look like a git project',
+    '不跑 `agy-pipeline --suggest`',
+  ]) {
+    check(`skills/retrospect/SKILL.md 含任務板單軌字樣「${token}」`, retro.includes(token), token);
+  }
+  check('rules/AGENTS.md 載明任務板單軌運作', rules.includes('任務板單軌'));
 }
 
 section('結案升版改動危險版本檔與 D 順序提醒（中英一致，chaos-check 與 director 兩處同步且無英文禁語）', 'P2');

@@ -390,7 +390,7 @@ const mark = (text, part, tag = 'b') => { const t = esc(text), m = esc(part ?? '
  *  todo 是「還差什麼」那一版才有的(規格:還差什麼總表 AC-7):要重啟那一句是服務自己講的,舊的服務講不出來——
  *  不算進來的話,併進去、還沒重啟的那段時間,只有點進案件頁的白板才看得到要重啟,首頁一句都不講(魔鬼教官第二輪,R1) */
 function oldServerBanner() {
-  return latest && (!('sharedLines' in latest) || !('stampHelp' in latest) || !('todo' in latest) || !('guardSupport' in latest) || !('precheckSupport' in latest) || !('escalateSupport' in latest) || !('conflictSupport' in latest) || !('brief' in latest) || !('contextScaleSupport' in latest) || !('taskBoardSupport' in latest))
+  return latest && (!('sharedLines' in latest) || !('stampHelp' in latest) || !('todo' in latest) || !('guardSupport' in latest) || !('precheckSupport' in latest) || !('escalateSupport' in latest) || !('conflictSupport' in latest) || !('brief' in latest) || !('contextScaleSupport' in latest) || !('taskBoardSupport' in latest) || !('taskEntryMergeSupport' in latest))
     ? zhEn('<p class="fault" data-tone="amber">🟡 儀表板的服務還在跑舊的程式，有幾句畫不出來——跑 <code>agy-pipeline --serve-restart</code></p>',
       '<p class="fault" data-tone="amber">🟡 The dashboard service is still running the old program, so a few lines can\'t be drawn: run <code>agy-pipeline --serve-restart</code></p>') : '';
 }
@@ -598,9 +598,9 @@ function briefCard() {
   const open = foldOpen(foldKey, hasWorkOrAlert);
 
   const cardsGroup = webGroups.find((g) => g.id === 'cards') ?? null;
-  const cardCount = cardsGroup ? cardsGroup.items.filter((it) => !it.summary).length : 0;
-  const cardBadge = cardCount
-    ? `<span class="brief-badge" data-k="cards">${zhEn(`可開工建議卡 ${cardCount} 張`, `Ready to start: ${cardCount}`)}</span>`
+  const cardCount = cardsGroup ? (Number.isFinite(cardsGroup.total) ? cardsGroup.total : cardsGroup.items.filter((it) => !it.summary).length) : 0;
+  const cardBadge = cardsGroup
+    ? `<span class="brief-badge" data-k="cards">${esc(cardsGroup.badge ?? zhEn(`可開工建議卡 ${cardCount} 張`, `Ready to start: ${cardCount}`))}</span>`
     : '';
   const workBadges = webGroups.filter((g) => g.id !== 'cards')
     .map((g) => `<span class="brief-badge" data-k="${esc(g.kind ?? 'unknown')}">${zhEn(`${esc(g.title)} ${g.items.length}`, `${esc(g.title)}: ${g.items.length}`)}</span>`)
@@ -1026,11 +1026,13 @@ function workflow(c) {
   return `<div class="wf"><div class="wf-line" aria-hidden="true"><svg class="wf-day-line" preserveAspectRatio="none" viewBox="0 0 10 1000"><path d="M5 6 C2.6 130, 7.8 250, 4.6 372 C1.8 480, 8 600, 5.2 720 C3 820, 7.4 900, 5 994"/></svg></div>${rows}${c.director ? directorRow(c) : ''}</div>`;
 }
 
-/** F 工地主任要的那一份:這個對話在總表裡的收尾狀況(lib/todo.mjs 的 desk)、它提的建議卡。舊的服務沒有 todo → 那一列講服務是舊的 */
+/** F 工地主任要的那一份:這個對話在總表裡的收尾狀況(lib/todo.mjs 的 desk)、它提的建議卡、與任務入口模式。舊的服務沒有 todo → 那一列講服務是舊的 */
 function directorOf(p, s) {
   // loose:記不到是哪個對話放的卡(終端機 --suggest 放的沒有對話代號)——算不到這個對話頭上,也不准因此講成沒有(R1、P7)
   const all = p?.suggestions ?? [];
+  const mergeReady = !!latest && 'taskEntryMergeSupport' in latest && typeof p?.taskBoard?.entryMode === 'string';
   return { id: s.id, hasTodo: !!latest && 'todo' in latest, desk: latest?.todo?.desk?.[s.id] ?? null,
+           entryMode: mergeReady ? p.taskBoard.entryMode : null,
            cards: all.filter((x) => x.session === s.id), loose: all.filter((x) => !x.session && !cardFolded(x)).length };
 }
 /**
@@ -1054,9 +1056,12 @@ function directorRow(c) {
     : !e ? zhEn('總表裡還找不到這個對話——等下一次更新', 'This conversation isn\'t in the summary yet: wait for the next update')
     : e.clear ?? [e.closed ? e.closedNote : null, countsOf(e)].filter(Boolean).join(' · ');
   const n = d.cards.length, open = d.cards.filter((x) => !cardFolded(x)).length;
+  const isTaskBoard = d.entryMode === 'task-board';
   const cards = open ? zhEn(`建議卡：還沒開始 ${open} 張（在案件頁）`, `Suggestion cards: ${open} not started yet (on the project page)`)
     : n ? zhEn(`建議卡：提過 ${n} 張，都開始了、不做了或被取代了`, `Suggestion cards: ${n === 1 ? '1 raised; it was' : `${n} raised; all were`} started, set aside, or replaced`)
-    : zhEn('建議卡：紀錄裡沒有（只看得到用 --suggest 放的）', 'Suggestion cards: none in the records (only ones placed with --suggest can be seen)');
+    : isTaskBoard
+      ? zhEn('任務入口：已改用誠實任務板；本對話無 --suggest 建議卡（只看得到用 --suggest 放的）', 'Task entry: using the Honest task board; no --suggest cards from this conversation (only ones placed with --suggest can be seen)')
+      : zhEn('建議卡：紀錄裡沒有（只看得到用 --suggest 放的）', 'Suggestion cards: none in the records (only ones placed with --suggest can be seen)');
   const loose = d.loose ? zhEn(`另有 ${d.loose} 張建議卡分不出是哪個對話放的（在案件頁）`, `${d.loose === 1 ? '1 more suggestion card' : `${d.loose} more suggestion cards`}: which conversation placed ${d.loose === 1 ? 'it' : 'them'} can't be told (on the project page)`) : '';
   const call = !e || e.closed ? '' : e.call ?? zhEn('叫主任：在對話裡說「主任」', 'To call the site director: say "site director" in the conversation');
   // 每一件照伺服器那一句(跟白板、終端機 --todo 同一句,AC-3);後面那幾條不是還差的事,記號用說明的那一種(AC-4,data-k="note")
@@ -1068,7 +1073,9 @@ function directorRow(c) {
     e && !e.closed ? zhEn('叫了之後：它給一個下一步，把這個對話能一起做的收尾合成一個問題；你回一句，它才照順序做（併進 main、推上 GitHub、要的話重啟、最後蓋章），每一步講成了沒。按結案留給你。也可以用 director 技能叫它。',
       'After you call it: it gives one next step and puts this conversation\'s wrap-up that can go together into one question; only after your one reply does it do them in order (merge into main, push to GitHub, restart if needed, stamp last), saying for each step whether it went through. Close is left to you. You can also invoke the director skill.') : '',
     e?.call ? zhEn('那一行亮黃燈只表示現在可以叫主任，不是做完了：白板看不到 AI 這一回合做完了沒。', 'The yellow line only means you can call the site director now, not that the work is done: the board can\'t see whether the AI has finished this turn.') : '',
-    zhEn('建議卡在案件頁「建議新增的對話」那一區；這裡只看得到 AI 用 --suggest 放的卡。', 'Suggestion cards are in "Suggested new conversations" on the project page; only cards placed by the AI with --suggest can be seen here.'),
+    isTaskBoard
+      ? zhEn('這個專案已改用誠實任務板為主力；尚存或歷史建議卡都在案件頁誠實任務板底部的「待清理建議卡（--suggest）」或歷史折疊列，這裡只看得到 AI 用 --suggest 放的卡。', 'This project uses the Honest task board as its primary entry; remaining or historical suggestion cards are under "Pending suggestion cards (--suggest)" or the history fold at the bottom of the Honest task board on the project page, and only cards placed by the AI with --suggest can be seen here.')
+      : zhEn('建議卡在案件頁「建議新增的對話」那一區；這裡只看得到 AI 用 --suggest 放的卡。', 'Suggestion cards are in "Suggested new conversations" on the project page; only cards placed by the AI with --suggest can be seen here.'),
     d.loose ? zhEn('分不出是哪個對話放的那幾張，紀錄裡沒記是誰放的（例如在終端機用 --suggest 放的）：算不到這個對話頭上，也不能當成沒有。', 'For the cards whose conversation can\'t be told, the records don\'t say who placed them (for example, ones placed with --suggest in the terminal): they can\'t be counted for this conversation, and can\'t be taken as none either.') : '',
   ].filter(Boolean).map((t) => `<div class="said">${esc(t)}</div>`).join('');
   return `<div class="railcell" data-state="director" data-lit="${e?.call ? 1 : 0}">
@@ -1187,30 +1194,44 @@ function sessionList(p) {
     </div>`;
 }
 
+/** 僅信任伺服器算好的三態 entryMode；舊服務（缺 taskEntryMergeSupport 或 entryMode）一律回 null，不在前端反推（P2）。 */
+function serverEntryMode(p) {
+  if (!latest || !('taskEntryMergeSupport' in latest)) return null;
+  const m = p?.taskBoard?.entryMode;
+  return m === 'task-board' || m === 'fallback' || m === 'unknown' ? m : null;
+}
+
 function projectPage(name) {
   const p = latest?.projects?.find((x) => x.name === name);
   if (!p) return zhEn(`<p class="muted">找不到「${esc(name)}」。<a href="#/">回列表</a></p>`, `<p class="muted">Can't find "${esc(name)}". <a href="#/">Back to the list</a></p>`);
+  const mode = serverEntryMode(p);
+  const entryHtml = mode === 'task-board'
+    ? taskBoardBlock(p)
+    : mode === 'fallback'
+      ? suggestionsBlock(p, { fallbackNote: p.taskBoard?.note })
+      : taskBoardBlock(p) + suggestionsBlock(p);
   return `<div class="block">
       <h2 class="section serif">Overview</h2>
       ${overview(p)}
       ${optOutLine(p)}
-    </div>` + whiteboard(p) + taskBoardBlock(p) + suggestionsBlock(p) + sessionList(p);
+    </div>` + whiteboard(p) + entryHtml + sessionList(p);
 }
 
 /**
- * 案件頁「誠實任務板」（規格：honest-task-board-director-dispatch AC-2）：
+ * 案件頁「誠實任務板」（規格：honest-task-board-director-dispatch AC-2、merge-suggestions-into-task-board AC-2）：
  * 欄位 100% 由伺服器照 lib/tasks.mjs 推導，只印整數筆數、不畫百分比或綠燈背書；
  * 網頁不放直開對話／刪 worktree／歸檔按鈕，僅提供複製開工交辦。
  */
 function taskBoardBlock(p) {
   const title = zhEn('誠實任務板', 'Honest task board');
-  if (!latest || !('taskBoardSupport' in latest) || !p?.taskBoard) {
+  if (!latest || !('taskBoardSupport' in latest) || !('taskEntryMergeSupport' in latest) || !p?.taskBoard || !p.taskBoard.entryMode) {
     return `<div class="block"><h2 class="section serif">${title}</h2><p class="section-note">${esc(OLD_LINE)}</p></div>`;
   }
   const tb = p.taskBoard;
   const ignoredNote = tb.ignoredManualFields
     ? `<p class="section-note">${zhEn('ℹ️ 已忽略任務清單內的手寫狀態欄位——各欄完全由真實檔案與紀錄推導。', 'ℹ️ Manual status or completion fields in the task config were ignored: columns are derived solely from real files and records.')}</p>`
     : '';
+  const embeddedSuggestions = tb.entryMode === 'task-board' ? suggestionsBlock(p, { embedded: true }) : '';
   if (tb.state !== 'ok') {
     const errs = (tb.errors ?? []).length
       ? `<ul class="tboard-errs">${tb.errors.map((e) => `<li>${esc(e)}</li>`).join('')}</ul>`
@@ -1220,6 +1241,7 @@ function taskBoardBlock(p) {
       ${ignoredNote}
       <p class="section-note">${esc(tb.note ?? '')}</p>
       ${errs}
+      ${embeddedSuggestions}
     </div>`;
   }
   const colNames = {
@@ -1277,15 +1299,16 @@ function taskBoardBlock(p) {
     <div class="tboard-summary"><span class="tboard-total">${zhEn(`共 ${tb.total ?? 0} 項`, `${many(tb.total ?? 0, 'task')} total`)}</span>${pills}</div>
     <div class="tboard-grid">${grid}</div>
     ${archBox}
+    ${embeddedSuggestions}
   </div>`;
 }
 
 /**
  * 建議另開的對話：由 AI 用 `agy-pipeline --suggest` 寫入。
  * ⚠️ 儀表板開不了對話——只能讓你複製說明、貼進新對話的第一句。
- * ⚠️ 一張卡都沒有也要畫這一區，並誠實說明這裡只看得到用 `--suggest` 放的卡、以及超過保留期限的紀錄會清掉（R1、老毛病 P5）。
+ * ⚠️ 一張卡都沒有也要畫這一區（embedded 模式下也保留歷史折疊列），並誠實說明只看得到用 `--suggest` 放的卡、以及超過保留期限的紀錄會清掉（R1、老毛病 P5）。
  */
-function suggestionsBlock(p) {
+function suggestionsBlock(p, opt = {}) {
   const all = p.suggestions ?? [];
   const isFolded = cardFolded;   // 跟 F 工地主任「還沒開始幾張」同一個判斷(老毛病 P2)
   const open = all.filter((s) => !isFolded(s));
@@ -1337,32 +1360,78 @@ function suggestionsBlock(p) {
     </div>`;
   };
   const days = Number.isFinite(latest?.retainDays) ? zhEn(`（${latest.retainDays} 天）`, ` (${latest.retainDays} days)`) : '';
-  const incoming = (p.incomingSuggestions ?? []).map((x) => {
+  const incomingList = p.incomingSuggestions ?? [];
+  const incomingCount = incomingList.reduce((n, x) => n + Number(x.count ?? 0), 0);
+  const incoming = incomingList.map((x) => {
     const a = `<a href="#/p/${encodeURIComponent(x.project)}">${esc(x.name ?? x.project)}</a>`;
     return zhEn(`別的專案的對話提了 ${x.count} 張要開在這裡的建議卡,掛在 ${a} 那一頁。`,
       `Conversations in another project raised ${many(x.count, 'suggestion card')} to be opened here; ${x.count === 1 ? 'it is' : 'they are'} on the ${a} page.`);
   }).join('');
   const incomingNote = incoming ? `<p class="section-note">${incoming}</p>` : '';
+  const started = folded.filter((s) => s.startedBy).length;
+  const later = folded.filter((s) => !s.startedBy && s.supersededAt).length;
+  const dismissedCount = folded.length - started - later;
+  const foldedBreakdown = zhEn(
+    `已開始 ${started}${later ? `、後來又提了同名的卡 ${later}` : ''}、你說不做了 ${dismissedCount}`,
+    `started: ${started}${later ? `; a card with the same name raised later: ${later}` : ''}; you said not doing it: ${dismissedCount}`,
+  );
+  const foldKey = `sg-fold|${p.name}`;
+  const foldedBox = folded.length
+    ? `<details class="acl-box sg-fold" data-fold="${esc(foldKey)}"${foldOpen(foldKey, false) ? ' open' : ''}>
+        <summary>${zhEn(`收起來的 ${folded.length} 張（${foldedBreakdown}）`, `${many(folded.length, 'folded card')} (${foldedBreakdown})`)}</summary>
+        <div class="slist">${folded.map(row).join('')}</div>
+      </details>` : '';
+
+  if (opt?.embedded) {
+    const scopeNote = zhEn(
+      `這裡只看得到用 <code>agy-pipeline --suggest</code> 放進來的紀錄，且超過保留期限${days}的不會留著。`,
+      `Only records added with <code>agy-pipeline --suggest</code> can be seen here, and ones older than the retention period${days} are cleared.`,
+    );
+    if (!open.length && !incomingCount) {
+      const histKey = `sg-hist|${p.name}`;
+      const summary = folded.length
+        ? zhEn(
+          `歷史建議卡（--suggest）：目前 0 張未開始 · 已收起 ${folded.length} 張（${foldedBreakdown}）`,
+          `Historical suggestion cards (--suggest): 0 not started yet · ${many(folded.length, 'folded card')} (${foldedBreakdown})`,
+        )
+        : zhEn(
+          `歷史建議卡（--suggest）：紀錄裡 0 張（僅列 --suggest 與保留期${days}內紀錄）`,
+          `Historical suggestion cards (--suggest): 0 in records (only --suggest within retention${days})`,
+        );
+      return `<details class="acl-box sg-hist" data-fold="${esc(histKey)}"${foldOpen(histKey, false) ? ' open' : ''}>
+        <summary>${summary}</summary>
+        <p class="section-note">${scopeNote}</p>
+        ${folded.length ? `<div class="slist">${folded.map(row).join('')}</div>` : ''}
+      </details>`;
+    }
+    const subParts = [];
+    if (open.length) subParts.push(zhEn(`未開始 ${open.length} 張`, `${open.length} not started`));
+    if (incomingCount) subParts.push(zhEn(`他專案待開 ${incomingCount} 張`, `${incomingCount} from other projects`));
+    return `<div class="tboard-legacy">
+      <h3 class="tboard-subhead">${zhEn('待清理建議卡（--suggest）', 'Pending suggestion cards (--suggest)')}${subParts.length ? ` · ${subParts.join(zhEn('、', ', '))}` : ''}</h3>
+      <p class="section-note">${scopeNote}${zhEn('清零後會自動縮成單行歷史折疊列。', ' Folds into a single history row once cleared.')}</p>
+      ${incomingNote}
+      ${open.length ? `<div class="slist">${open.map(row).join('')}</div>` : ''}
+      ${foldedBox}
+    </div>`;
+  }
+
+  const fallbackNote = opt?.fallbackNote
+    ? `<p class="section-note tb-fallback-note">${esc(opt.fallbackNote)} ${zhEn('目前使用輕量建議卡模式。', 'Using lightweight suggestion-card mode for now.')}</p>`
+    : '';
   if (!all.length) {
     return `<div class="block">
       <h2 class="section serif">${zhEn('建議新增的對話', 'Suggested new conversations')}</h2>
+      ${fallbackNote}
       <p class="section-note">${zhEn(`AI 覺得該另開一個對話做的事（用 <code>agy-pipeline --suggest</code> 放進來的）會顯示在這裡。紀錄裡現在一張都沒有——只看得到用 --suggest 放的，且超過保留期限${days}的不會留著。`,
         `Things the AI thinks should get their own conversation (placed with <code>agy-pipeline --suggest</code>) show up here. There are none in the records right now: only cards placed with --suggest can be seen, and ones older than the retention period${days} are cleared.`)}</p>
       ${incomingNote}
     </div>`;
   }
-  const started = folded.filter((s) => s.startedBy).length;
-  const later = folded.filter((s) => !s.startedBy && s.supersededAt).length;
-  const foldKey = `sg-fold|${p.name}`;
-  const foldedBox = folded.length
-    ? `<details class="acl-box sg-fold" data-fold="${esc(foldKey)}"${foldOpen(foldKey, false) ? ' open' : ''}>
-        <summary>${zhEn(`收起來的 ${folded.length} 張（已開始 ${started}${later ? `、後來又提了同名的卡 ${later}` : ''}、你說不做了 ${folded.length - started - later}）`,
-          `${many(folded.length, 'folded card')} (started: ${started}${later ? `; a card with the same name raised later: ${later}` : ''}; you said not doing it: ${folded.length - started - later})`)}</summary>
-        <div class="slist">${folded.map(row).join('')}</div>
-      </details>` : '';
   const whyKey = `why|sg|${p.name}`;
   return `<div class="block">
       <h2 class="section serif">${zhEn('建議新增的對話', 'Suggested new conversations')}</h2>
+      ${fallbackNote}
       <p class="section-note">${zhEn('AI 覺得該另開一個對話做的事。這裡開不了對話：<b>複製說明</b>，在 Antigravity 開新對話貼進第一句。',
         'Things the AI thinks should get their own conversation. You can\'t start a conversation from here: <b>copy the description</b> and paste it as the first message of a new conversation in Antigravity.')}</p>
       <details class="why" data-fold="${esc(whyKey)}"${foldOpen(whyKey, false) ? ' open' : ''}><summary>${zhEn('這一區看不到的', 'What this section can\'t see')}</summary>

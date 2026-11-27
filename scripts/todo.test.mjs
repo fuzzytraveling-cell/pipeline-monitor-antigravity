@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
-import { todoBoard, boardText, programChanges, restartLine, serveDownLine, serveSlowLine, serveOldLine } from '../lib/todo.mjs';
+import { todoBoard, boardText, cardsText, programChanges, restartLine, serveDownLine, serveSlowLine, serveOldLine } from '../lib/todo.mjs';
 import { askServe } from '../lib/cliTodo.mjs';
 import { sessionsOf } from '../lib/rounds.mjs';
 import { collectAll } from '../lib/collect.mjs';
@@ -531,6 +531,98 @@ section('AC-9:切成英文——總表的每一句都是英文,「沒有還差�
   check('英文白天工班:看板下緣四支筆文案為 Red / Blue / Gray / Yellow 且沒有中文',
     ['Red = your call', 'Blue = what\'s still to do', 'Gray = can\'t see', 'Yellow = only closing left'].every((t) => wbEnDay.includes(t))
     && !/[一-鿿]/.test(wbEnDay), wbEnDay.slice(-600));
+}
+
+section('軟整併 AC-4/AC-2：--todo 任務板摘要與異常不入 quiet、--cards 尾行提示、task-board 下 directorRow 誠實對齊', 'P5');
+{
+  const pReady = proj([], {
+    name: 'tb-ready',
+    displayName: 'TB Ready',
+    taskBoard: { state: 'ok', entryMode: 'task-board', relPath: '.agents/pipeline-tasks.json', total: 3, counts: { ready: 2, unknown: 0 } },
+    suggestions: [{ id: 's-open', title: '舊卡', ts: '2026-11-01T00:00:00Z', prompt: 'x' }],
+  });
+  const pBroken = proj([], {
+    name: 'tb-broken',
+    displayName: 'TB Broken',
+    taskBoard: { state: 'broken', entryMode: 'unknown', note: '任務清單設定有誤' },
+  });
+  const pNoMain = proj([], {
+    name: 'tb-nomain',
+    displayName: 'TB NoMain',
+    taskBoard: { state: 'no-main', entryMode: 'unknown', note: '找不到主資料夾，問不到任務清單。' },
+  });
+  const pUnkTask = proj([], {
+    name: 'tb-unk',
+    displayName: 'TB Unknown',
+    taskBoard: { state: 'ok', entryMode: 'task-board', total: 1, counts: { ready: 0, unknown: 1 } },
+  });
+  const pIdle = proj([], {
+    name: 'tb-idle',
+    displayName: 'TB Idle',
+    taskBoard: { state: 'ok', entryMode: 'task-board', total: 1, counts: { ready: 0, unknown: 0 } },
+  });
+
+  const b = board([pReady, pBroken, pNoMain, pUnkTask, pIdle]);
+  const lines = boardText(b);
+  const joined = lines.join('\n');
+  check('有可開工任務的專案出現在 --todo 專案段且不進 quiet',
+    joined.includes('誠實任務板：可開工 2 項（共 3 項；跑 agy-pipeline --tasks 查看）') && !(b.quiet ?? '').includes('TB Ready'), joined);
+  check('task-board 下有未開始建議卡時，cardsLine 指向誠實任務板底部「待清理建議卡（--suggest）」',
+    joined.includes('案件頁誠實任務板底部的「待清理建議卡（--suggest）」'), joined);
+  check('broken / no-main / counts.unknown > 0 皆在 --todo 列出且不進 quiet（預審 #3）',
+    joined.includes('TB Broken') && joined.includes('TB NoMain') && joined.includes('TB Unknown')
+    && !(b.quiet ?? '').includes('TB Broken') && !(b.quiet ?? '').includes('TB NoMain') && !(b.quiet ?? '').includes('TB Unknown'), joined);
+  check('無可開工、無 unknown 且無未開始卡的任務板專案正常收進 quiet', (b.quiet ?? '').includes('TB Idle'), b.quiet);
+
+  // --cards 在 task-board 模式保留完整歷史並加註 --tasks 提示
+  const cardsOut = cardsText({ projects: [pReady] }, 'tb-ready', { ago: AGO }).join('\n');
+  check('--cards 保留舊建議卡並附已建立誠實任務板尾行提醒',
+    cardsOut.includes('舊卡') && cardsOut.includes('這個專案已建立誠實任務板（.agents/pipeline-tasks.json）'), cardsOut);
+
+  // directorRow 在 task-board 模式下同步改用任務板文案與新位置引導
+  const wfStages = ['A', 'B', 'C', 'D', 'E'].map((id) => ({ id, name: id, line: '這一輪還沒跑', state: 'none', ...(id === 'B' ? { type: 'main-conversation', state: 'main' } : id === 'E' ? { type: 'browser' } : { skill: id.toLowerCase() }) }));
+  const s1 = sess({ id: 'l' });
+  const tbProject = { name: 'p', suggestions: [], taskBoard: { state: 'ok', entryMode: 'task-board', total: 1, counts: { ready: 1, unknown: 0 } } };
+  const latestMerge = { projects: [tbProject], taskEntryMergeSupport: true, todo: board([proj([s1])]) };
+  const dirHtml = uiOf(latestMerge).workflow({ path: '/w/a', sensor: { state: 'ok' }, stages: wfStages, director: uiOf(latestMerge).directorOf(tbProject, { id: 'l' }) });
+  check('directorRow 在 task-board 模式且無本對話建議卡時改用任務板文案並保留只看得到 --suggest 但書',
+    dirHtml.includes('任務入口：已改用誠實任務板；本對話無 --suggest 建議卡（只看得到用 --suggest 放的）')
+    && dirHtml.includes('誠實任務板底部的「待清理建議卡（--suggest）」或歷史折疊列'), dirHtml);
+}
+
+section('D1 回歸（P8）：真實 collectAll() 下 --todo 對已結案刪檔與 90 天清空空檔不誤報為任務板異常', 'P8');
+{
+  const monDir = mkdtempSync(join(tmpdir(), 'pm-todo-nomain-'));
+  try {
+    mkdirSync(join(monDir, 'logs'), { recursive: true });
+    mkdirSync(join(monDir, 'checkpoints'), { recursive: true });
+    const t = new Date(Date.now() - 60_000).toISOString();
+
+    const goneClosedDir = join(monDir, 'gone-closed-repo');
+    writeFileSync(join(monDir, 'logs', 'old-closed.jsonl'), [
+      JSON.stringify({ ts: t, hook: 'UserPromptSubmit', session: 's-gc', cwd: goneClosedDir, prompt: '舊專案工作' }),
+      JSON.stringify({ ts: t, event: 'session_closed', session: 's-gc', cwd: goneClosedDir, source: 'human' }),
+    ].join('\n') + '\n');
+    writeFileSync(join(monDir, 'logs', 'expired-empty.jsonl'), '');
+    const activeGoneDir = join(monDir, 'active-gone-repo');
+    writeFileSync(join(monDir, 'logs', 'active-gone.jsonl'),
+      JSON.stringify({ ts: t, hook: 'UserPromptSubmit', session: 's-ag', cwd: activeGoneDir, prompt: '進行中工作' }) + '\n');
+
+    const all = collectAll({ monitorDir: monDir, home: monDir, skillHome: monDir });
+    const b = todoBoard(all, { ago: AGO });
+    const gcProj = b.projects.find((x) => x.name === 'old-closed');
+    const expProj = b.projects.find((x) => x.name === 'expired-empty');
+    const agProj = b.projects.find((x) => x.name === 'active-gone');
+    check('old-closed（已結案且資料夾已刪）→ tasks === null 且進入 quiet 含「資料夾已經不在的看不到」',
+      gcProj?.tasks === null && Boolean(gcProj?.quiet) && (b.quiet ?? '').includes('old-closed') && (b.quiet ?? '').includes('資料夾已經不在的看不到'),
+      JSON.stringify({ gcProj, quiet: b.quiet }));
+    check('expired-empty（90 天清空空檔）→ tasks === null（不誤報成誠實任務板問不到或設定有誤）',
+      expProj?.tasks === null, JSON.stringify(expProj));
+    check('active-gone（有未結案對話且資料夾已刪）→ 照樣在 tasks 提醒誠實任務板問不到',
+      Boolean(agProj?.tasks && agProj.tasks.includes('誠實任務板問不到或設定有誤')), JSON.stringify(agProj));
+  } finally {
+    rmSync(monDir, { recursive: true, force: true });
+  }
 }
 
 process.exit(summary());

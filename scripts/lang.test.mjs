@@ -958,7 +958,7 @@ function enWorld() {
       ],
       suggestions: cards,
       taskBoard: {
-        state: 'ok', total: 2, ignoredManualFields: true,
+        state: 'ok', entryMode: 'task-board', total: 2, ignoredManualFields: true,
         counts: { blocked: 1, ready: 1, 'spec-waiting': 0, 'in-progress': 0, 'wrap-up': 0, archived: 0, unknown: 0 },
         columns: {
           blocked: [{ id: 'T2', title: 'Locked item', epic: 'E1', spec: 's2', column: 'blocked', reason: 'Waiting for T1', warnings: [], canCopy: true, copyPrompt: 'start T2', copyLabel: 'Copy prompt (deps locked)' }],
@@ -969,15 +969,15 @@ function enWorld() {
     };
     const empty = { name: 'quiet-app', displayName: 'quiet-app', mainRoot: '/work/quiet-app', optedOut: { at: t(9000) }, optedOutLine: optedOutLine({ at: t(9000), days: 90 }),
       cards: [], sessions: [], suggestions: [], emptyLine: noRecordLine({ here: 'the bar at the very top', optedOut: true }), noRecords: true,
-      taskBoard: { state: 'unset', note: 'This project hasn\'t set up .agents/pipeline-tasks.json yet.', total: 0, counts: {}, columns: {}, tasks: [] } };
+      taskBoard: { state: 'unset', entryMode: 'fallback', note: 'This project hasn\'t set up .agents/pipeline-tasks.json yet.', total: 0, counts: {}, columns: {}, tasks: [] } };
     const oldOne = { name: 'old-app', displayName: 'old-app', mainRoot: '/work/old-app', optedOut: { at: null }, cards: [], sessions: [], suggestions: [],
-      taskBoard: { state: 'empty', note: 'The task list is currently empty.', total: 0, counts: {}, columns: {}, tasks: [] } };
+      taskBoard: { state: 'empty', entryMode: 'task-board', note: 'The task list is currently empty.', total: 0, counts: {}, columns: {}, tasks: [] } };
     const baseAll = { projects: [project, empty, oldOne], faults: { banner: [], blind: false, unreadableLine: null } };
     const todo = todoBoard(baseAll, { ago });
     const brief = briefReport(baseAll, todo, { ago });
     return { generatedAt: NOW, retainDays: 90, lang: 'en', langNote: null, ...baseAll, todo, brief,
       sharedLines: { calledNotPassed: calledIsNotPassed() }, stampHelp: { commit: 'commit: …', stamp: 'stamp (agy-pipeline --checkpoint): …', order: 'Always commit before stamping' },
-      contextScaleSupport: true, taskBoardSupport: true };
+      contextScaleSupport: true, taskBoardSupport: true, taskEntryMergeSupport: true };
   }));
 }
 
@@ -1137,6 +1137,25 @@ section('建議卡那一區（英文）：AI 用 --suggest 放的卡、看不到
   const none = strip(ui.suggestionsBlock({ ...p, suggestions: [] }));
   noZh('英文:一張建議卡都沒有', none);
   check('一張都沒有：誠實講只看得到用 --suggest 放的', /only cards placed with --suggest can be seen/.test(none), none);
+
+  // 軟整併英文畫面檢查：歷史折疊列、0 張折疊列、待清理子區、fallback、unknown、briefCard 任務板徽章均無中文與禁語
+  const histEmbedded = strip(ui.taskBoardBlock({ ...p, suggestions: p.suggestions.filter((x) => x.startedBy || x.dismissedAt) }));
+  const zeroHistEmbedded = strip(ui.taskBoardBlock({ ...p, suggestions: [] }));
+  const emptyTbEmbedded = strip(ui.taskBoardBlock(world.projects[2]));
+  const fallbackBlock = strip(ui.suggestionsBlock(world.projects[1], { fallbackNote: world.projects[1].taskBoard.note }));
+  const brokenTb = strip(ui.taskBoardBlock({ ...p, taskBoard: { state: 'broken', entryMode: 'unknown', note: 'Task list has errors.', errors: ['Invalid JSON'], total: 0, counts: {}, columns: {} } }));
+  const briefEnHtml = strip(ui.briefCard());
+  for (const [label, txt] of [
+    ['英文:任務板歷史折疊列', histEmbedded],
+    ['英文:任務板 0 張歷史折疊列', zeroHistEmbedded],
+    ['英文:空任務板內嵌建議卡', emptyTbEmbedded],
+    ['英文:fallback 輕量模式', fallbackBlock],
+    ['英文:任務板異常 unknown', brokenTb],
+    ['英文:首頁晨報卡任務板徽章', briefEnHtml],
+  ]) {
+    noZh(label, txt);
+    check(`${label}:無全形空白與禁語`, !txt.includes('\u3000') && !/\bpassed\b|\ball clear\b|\bverified\b|\bsafe\b/i.test(txt), txt.slice(0, 200));
+  }
 }
 
 /* ════════════ 第三段:終端機(你自己會打的每個指令,英文) ════════════ */
@@ -1315,6 +1334,8 @@ section('Claude 替你跑的指令跟著語言換:設成英文,--round、--decid
   outs['--suggest(沒給標題)'] = s.run(['--suggest']);
   outs['--suggest(說明是空的)'] = s.run(['--suggest', 'Split the exporter']);
   outs['--suggest(放上去)'] = s.run(['--suggest', 'Split the exporter'], { stdin: 'Move the CSV part into its own file.' });
+  s.touch('.agents/pipeline-tasks.json', JSON.stringify({ tasks: [{ id: 'T1', title: 'Existing task' }] }));
+  outs['--suggest(有任務板時放上去)'] = s.run(['--suggest', 'Temp note'], { stdin: 'A temporary note.' });
   outs['--report X(認不出關卡)'] = s.run(['--report', 'X', 'ok']);
   outs['--report B(不是指令關)'] = s.run(['--report', 'B', 'ok']);
   outs['--report D maybe(結論只有兩種)'] = s.run(['--report', 'D', 'maybe']);

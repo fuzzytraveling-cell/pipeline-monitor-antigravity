@@ -54,7 +54,7 @@
 
 ---
 
-## Antigravity 專用版已上線里程碑（`v0.1.0` – `v0.15.0`）
+## Antigravity 專用版已上線里程碑（`v0.1.0` – `v0.16.0`）
 
 | 版本 | 里程碑 | 規格摘要 |
 |---|---|---|
@@ -71,6 +71,7 @@
 | **v0.13.0** | **舊規格與已知死法即時反查**：`--context` 與 `--round precheck`/`--round D` 零快取字面反查過往刻意決定 | [legacy-spec-lookup](升級摘要/legacy-spec-lookup.md) |
 | **v0.14.0 – v0.14.1** | **工地復盤官技能（`retrospect`）與結案升版順序提醒**：唯讀盤點近 90 天卡關紀錄提煉防線提案；對齊升版與最後一輪 D 順序 | [retrospect-skill](升級摘要/retrospect-skill.md) |
 | **v0.15.0** | **誠實任務板＋F 主任調度整合＋新版 Antigravity ROADMAP**：專案輕量 `.agents/pipeline-tasks.json` 推導 6 欄狀態（`--tasks`＋案件頁看板與一鍵複製交辦）、F 主任對話內經確認後執行 `--wrap dispatch`/`clean-worktree`/`archive`，並翻新 Antigravity 專用總路線圖 | [honest-task-board-director-dispatch](升級摘要/honest-task-board-director-dispatch.md) |
+| **v0.16.0** | **建議卡與誠實任務板軟整併**：有任務板專案 0 未開始卡時自動將舊 `--suggest` 建議卡收折為歷史折疊列（零丟失）、無任務板小專案維持輕量兜底、`director`／`retrospect` 於有任務板改採任務板單軌草稿，並對齊 `--todo`/`--cards`/`--suggest`/`--brief`/首頁晨報卡 | [merge-suggestions-into-task-board](升級摘要/merge-suggestions-into-task-board.md) |
 
 （更早期的分叉前設計規格保留於 `docs/升級摘要/` 作為架構脈絡參考，例如 [五關自動結案](升級摘要/五關自動結案.md)、[還差什麼總表](升級摘要/還差什麼總表.md)、[主任技能](升級摘要/主任技能.md)、[主任動手收尾](升級摘要/主任動手收尾.md)、[儀表板與終端機中英切換](升級摘要/儀表板與終端機中英切換.md)。）
 

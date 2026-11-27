@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { briefReport, parseBriefArgs, BRIEF_CARD_CAP } from '../lib/brief.mjs';
 import { todoBoard, serveDownLine, serveSlowLine, serveOldLine } from '../lib/todo.mjs';
+import { collectAll } from '../lib/collect.mjs';
 import { doBrief } from '../lib/cliTodo.mjs';
 import { withLang } from '../lib/lang.mjs';
 import { describeFreshness } from '../lib/freshness.mjs';
@@ -477,6 +478,123 @@ section('首頁晨報卡（AC-1～AC-4）:伺服器同步帶出 brief、與終�
     !!statusJson.brief && typeof statusJson.brief.copyText === 'string' && Array.isArray(statusJson.brief.groups), JSON.stringify(statusJson.brief));
   await new Promise((r) => srv.close(r));
   rmSync(monitorDir, { recursive: true, force: true });
+}
+
+section('軟整併 AC-4/AC-2：晨報第 6 區收錄任務板 ready、真實總數徽章、與任務板異常/unknown 打破安靜（預審 #2/#3）', 'P2');
+{
+  const cleanClosed = sess({ id: 'c1', closedAt: '2026-11-01T04:00:00Z' });
+  // 僅任務板 ready 任務：第 6 區標題／尾行／徽章皆指誠實任務板，clear 仍為 true
+  const taskOnlyAll = makeAll([proj([cleanClosed], {
+    name: 'tb-only',
+    displayName: 'TB Only',
+    taskBoard: {
+      state: 'ok',
+      entryMode: 'task-board',
+      total: 1,
+      counts: { ready: 1, unknown: 0 },
+      columns: { ready: [{ id: 'T-10', epic: 'UI', title: '升級任務板', spec: 'up' }] },
+    },
+  })]);
+  const rTaskOnly = runBrief(taskOnlyAll);
+  eq('僅有任務板可開工任務 → clear 仍為 true（不單獨打破靜音）', rTaskOnly.clear, true);
+  check('僅任務板可開工 → 標題、尾行指路 --tasks 且列出任務',
+    rTaskOnly.lines.join('\n').includes('【可開工的待辦項目（誠實任務板）】')
+    && rTaskOnly.lines.join('\n').includes('T-10 [UI] 「升級任務板」（任務板可開工）')
+    && rTaskOnly.lines.join('\n').includes('agy-pipeline --tasks 查看詳情'), rTaskOnly.lines.join('\n'));
+  const taskBadgeHtml = uiOf({ generatedAt: Date.now(), projects: [], brief: rTaskOnly }).briefCard();
+  check('首頁 briefCard 徽章顯示「可開工任務 1 項」', taskBadgeHtml.includes('可開工任務 1 項'), taskBadgeHtml);
+
+  // 任務板 ready + 建議卡並存超過 BRIEF_CARD_CAP（5）：總數為 7（任務 4、建議卡 3），briefCard 徽章不得被截短成 5
+  const mixedTasks = Array.from({ length: 4 }, (_, i) => ({ id: `T-${i + 1}`, title: `任務 ${i + 1}` }));
+  const mixedCards = Array.from({ length: 3 }, (_, i) => ({ id: `sg-${i + 1}`, title: `建議卡 ${i + 1}`, ts: '2026-11-01T03:00:00Z', cut: [] }));
+  const mixedAll = makeAll([proj([cleanClosed], {
+    name: 'tb-mix',
+    displayName: 'TB Mix',
+    taskBoard: {
+      state: 'ok',
+      entryMode: 'task-board',
+      total: 4,
+      counts: { ready: 4, unknown: 0 },
+      columns: { ready: mixedTasks },
+    },
+    suggestions: mixedCards,
+  })]);
+  const rMixed = runBrief(mixedAll);
+  check('並存超過上限時只列前 5 筆並印總數 7 項（任務 4 項、建議卡 3 張）',
+    rMixed.sections.cards.length === BRIEF_CARD_CAP + 1
+    && rMixed.sections.cards[BRIEF_CARD_CAP].includes('共 7 項（任務 4 項、建議卡 3 張'), JSON.stringify(rMixed.sections.cards));
+  const mixedHtml = uiOf({ generatedAt: Date.now(), projects: [], brief: rMixed }).briefCard();
+  check('首頁 briefCard 徽章顯示真實總數 7（不被截短為 5）',
+    mixedHtml.includes('可開工 7 項（任務 4、建議卡 3）'), mixedHtml);
+
+  // 任務板 broken / unreadable / no-main / counts.unknown > 0 → 進問不到區且打破靜音（clear === false）
+  for (const [label, tb] of [
+    ['broken', { state: 'broken', entryMode: 'unknown', note: 'JSON 壞掉' }],
+    ['unreadable', { state: 'unreadable', entryMode: 'unknown', note: '無權限讀' }],
+    ['no-main', { state: 'no-main', entryMode: 'unknown', note: '找不到主資料夾' }],
+    ['counts.unknown > 0', { state: 'ok', entryMode: 'task-board', total: 1, counts: { ready: 0, unknown: 1 }, columns: { ready: [] } }],
+  ]) {
+    const r = runBrief(makeAll([proj([cleanClosed], { taskBoard: tb })]));
+    check(`任務板 ${label} → 進 unknown 區且禁止靜音（clear === false）`,
+      r.clear === false && r.sections.unknown.some((t) => t.includes('誠實任務板')), JSON.stringify(r));
+  }
+}
+
+section('D1 回歸（P8）：真實 collectAll() 下已結案刪檔專案與 90 天清空空檔不誤報為 no-main 任務板異常', 'P8');
+{
+  const monDir = mkdtempSync(join(tmpdir(), 'pm-brief-nomain-'));
+  try {
+    mkdirSync(join(monDir, 'logs'), { recursive: true });
+    mkdirSync(join(monDir, 'checkpoints'), { recursive: true });
+    const t = new Date(Date.now() - 60_000).toISOString();
+
+    // 1. 已結案且資料夾已刪（goneHidden）→ mainRoot === null, taskBoard.state === 'no-main'，但不得打破靜音或誤報任務板異常
+    const goneClosedDir = join(monDir, 'gone-closed-repo');
+    writeFileSync(join(monDir, 'logs', 'old-closed.jsonl'), [
+      JSON.stringify({ ts: t, hook: 'UserPromptSubmit', session: 's-gc', cwd: goneClosedDir, prompt: '舊專案收尾' }),
+      JSON.stringify({ ts: t, event: 'session_closed', session: 's-gc', cwd: goneClosedDir, source: 'human' }),
+    ].join('\n') + '\n');
+    const allGc = collectAll({ monitorDir: monDir, home: monDir, skillHome: monDir });
+    eq('old-closed 在真實 collectAll() 下確實推導為 no-main', allGc.projects[0]?.taskBoard?.state, 'no-main');
+    const brGc = briefReport(allGc, todoBoard(allGc, { ago: AGO }), { ago: AGO });
+    check('已結案且資料夾已刪（old-closed）→ 不打破靜音（clear === true）、不誤報任務板異常、保留 goneHidden 說明',
+      brGc.clear === true && brGc.goneHidden === true && brGc.sections.unknown.length === 0
+      && brGc.lines.join('\n').includes('已結案且資料夾已經不在的看不到'), JSON.stringify(brGc));
+
+    // 2. 90 天清空空檔（emptyLine）→ clear === false 只印 90 天說明，不重複印誠實任務板異常
+    rmSync(join(monDir, 'logs', 'old-closed.jsonl'), { force: true });
+    writeFileSync(join(monDir, 'logs', 'expired-empty.jsonl'), '');
+    const allExp = collectAll({ monitorDir: monDir, home: monDir, skillHome: monDir });
+    const brExp = briefReport(allExp, todoBoard(allExp, { ago: AGO }), { ago: AGO });
+    check('90 天清空空檔（expired-empty）→ 保留 90 天說明且不重複印誠實任務板異常',
+      brExp.clear === false
+      && brExp.sections.unknown.some((u) => u.includes('90 天內沒有任何對話紀錄'))
+      && !brExp.sections.unknown.some((u) => u.includes('誠實任務板')), JSON.stringify(brExp));
+
+    // 3. 仍有未結案進行中對話但資料夾已刪（active-gone）→ 照樣進 unknown 並保持 clear === false
+    rmSync(join(monDir, 'logs', 'expired-empty.jsonl'), { force: true });
+    const activeGoneDir = join(monDir, 'active-gone-repo');
+    writeFileSync(join(monDir, 'logs', 'active-gone.jsonl'),
+      JSON.stringify({ ts: t, hook: 'UserPromptSubmit', session: 's-ag', cwd: activeGoneDir, prompt: '進行中但資料夾不見' }) + '\n');
+    const allAg = collectAll({ monitorDir: monDir, home: monDir, skillHome: monDir });
+    const brAg = briefReport(allAg, todoBoard(allAg, { ago: AGO }), { ago: AGO });
+    check('有未結案對話且資料夾已刪（active-gone）→ 仍告警且 clear === false',
+      brAg.clear === false && brAg.sections.unknown.some((u) => u.includes('誠實任務板')), JSON.stringify(brAg));
+
+    // 4. 孤兒已刪資料夾（只有 checkpoint、無紀錄檔無對話）→ 保留「找不到還在的資料夾」，不重複列誠實任務板異常
+    rmSync(join(monDir, 'logs', 'active-gone.jsonl'), { force: true });
+    const orphanDir = join(monDir, 'orphan-gone-repo');
+    writeFileSync(join(monDir, 'checkpoints', 'orphan-gone__main.json'),
+      JSON.stringify({ worktree: orphanDir, commit: 'abc1234', branch: 'main' }));
+    const allOrp = collectAll({ monitorDir: monDir, home: monDir, skillHome: monDir });
+    const brOrp = briefReport(allOrp, todoBoard(allOrp, { ago: AGO }), { ago: AGO });
+    check('孤兒已刪資料夾（無活卡無對話）→ 只報找不到還在的資料夾，不重複列誠實任務板異常',
+      brOrp.clear === false
+      && brOrp.sections.unknown.some((u) => u.includes('找不到還在的資料夾'))
+      && !brOrp.sections.unknown.some((u) => u.includes('誠實任務板')), JSON.stringify(brOrp));
+  } finally {
+    rmSync(monDir, { recursive: true, force: true });
+  }
 }
 
 process.exit(summary());

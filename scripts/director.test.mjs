@@ -4,13 +4,15 @@
  * 這裡釘的是會讓它安靜講錯的地方:分不出哪一行是「這個對話」就照標題猜(R1)、看不到建議卡就重開一張(P5)、
  * 「還沒開始」的判斷三份各說各話(P2)、技能照著分路的字跟指令印的字對不上(P2)、叫主任挪動了這一輪(P2)。長相不釘。
  */
-import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, appendFileSync, copyFileSync, rmSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, appendFileSync, copyFileSync, chmodSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { todoBoard, boardText, hereLine, cardsText } from '../lib/todo.mjs';
 import { doTodo, doCards } from '../lib/cliTodo.mjs';
+import { deriveTaskBoard, formatTasksLines } from '../lib/tasks.mjs';
 import { cardState } from '../lib/rounds.mjs';
 import { collectAll } from '../lib/collect.mjs';
 import { withLang } from '../lib/lang.mjs';
@@ -412,6 +414,78 @@ section('主任條列與工地帽 AC-5:寫規格這一關還沒走完、這一�
   const offFresh = offOf({ files: 0, list: [] });
   check('必抓:設定成不分級的專案,新開的對話只剩還沒蓋過章 → 不亮', offFresh.call === null && offFresh.items.some((i) => i.text === '還沒蓋過章'), JSON.stringify(offFresh));
   check('必放過:設定成不分級、這一輪改過檔、只剩還沒蓋過章 → 照樣亮', /^現在可以叫主任：只剩收尾，能一起做的 1 件/.test(offOf({ files: 1, list: ['a.js'] }).call ?? ''));
+}
+
+section('軟整併 AC-3/AC-4：director 三路分路字樣與 --tasks 實印（含英文單數 1 task total: 與完整異常）一致，且有任務板時 --suggest 保留寫入並溫和提醒', 'P2');
+{
+  const skill = readFileSync(join(ROOT, 'skills', 'director', 'SKILL.md'), 'utf8');
+  const statusSrc = readFileSync(join(ROOT, 'status.mjs'), 'utf8').replace(/\\'/g, '\'');
+  const tasksRepo = makeRepo({ files: { '.agents/pipeline-tasks.json': JSON.stringify({ tasks: [{ id: 'T1', title: 'One' }] }) } });
+  const twoRepo = makeRepo({ files: { '.agents/pipeline-tasks.json': JSON.stringify({ tasks: [{ id: 'T1', title: 'One' }, { id: 'T2', title: 'Two' }] }) } });
+  const emptyRepo = makeRepo({ files: { '.agents/pipeline-tasks.json': JSON.stringify({ tasks: [] }) } });
+  const unsetRepo = makeRepo({ files: { 'a.txt': '1\n' } });
+  const brokenRepo = makeRepo({ files: { '.agents/pipeline-tasks.json': '{bad' } });
+  const errRepo = makeRepo({ files: { '.agents/pipeline-tasks.json': JSON.stringify({ tasks: [{ id: 'T1' }] }) } });
+
+  const printOut = (dir, lang) => withLang(lang, () => formatTasksLines(deriveTaskBoard({ project: { name: 'p', mainRoot: dir, cards: [], sessions: [] }, desk: {}, events: [] })).join('\n'));
+  const zhOutputs = [printOut(tasksRepo.dir, 'zh'), printOut(emptyRepo.dir, 'zh'), printOut(unsetRepo.dir, 'zh'), printOut(brokenRepo.dir, 'zh'), printOut(errRepo.dir, 'zh'), printOut(null, 'zh')].join('\n');
+  const enOutputs = [printOut(tasksRepo.dir, 'en'), printOut(twoRepo.dir, 'en'), printOut(emptyRepo.dir, 'en'), printOut(unsetRepo.dir, 'en'), printOut(brokenRepo.dir, 'en'), printOut(errRepo.dir, 'en'), printOut(null, 'en')].join('\n');
+
+  for (const token of [
+    '任務清單裡目前沒有任何任務',
+    '還沒建立 .agents/pipeline-tasks.json',
+    '設定有誤',
+    '讀不懂',
+    '找不到主資料夾',
+  ]) {
+    check(`director 技能含中文分路字樣「${token}」且與 --tasks 輸出吻合`, skill.includes(token) && zhOutputs.includes(token), token);
+  }
+  for (const token of [
+    '1 task total:',
+    'tasks total:',
+    'The task list is currently empty',
+    'hasn\'t set up .agents/pipeline-tasks.json yet',
+    'has errors',
+    'can\'t be parsed',
+    'Can\'t find the main folder',
+  ]) {
+    check(`director 技能含英文分路字樣「${token}」且與 --tasks 輸出吻合`, skill.includes(token) && enOutputs.includes(token), token);
+  }
+  // 驗證其餘結構／權限／沙盒／非 git 異常字樣在原始碼與技能中同步（含 status.mjs 的「沒有權限存取」）
+  const tasksSrc = readFileSync(join(ROOT, 'lib', 'tasks.mjs'), 'utf8').replace(/\\'/g, '\'');
+  const cliFactsSrc = readFileSync(join(ROOT, 'lib', 'cliFacts.mjs'), 'utf8').replace(/\\'/g, '\'');
+  const allSrc = `${tasksSrc}\n${statusSrc}\n${cliFactsSrc}`;
+  for (const token of [
+    '結構不符', 'has an invalid structure',
+    '讀取失敗', 'Couldn\'t read task list',
+    '沒有權限讀取', 'No permission to read task list',
+    '沒有權限存取', 'No permission to access',
+    'doesn\'t look like a git project',
+  ]) {
+    check(`director 技能含異常字樣「${token}」且實存於 CLI 輸出`, skill.includes(token) && allSrc.includes(token), token);
+  }
+
+  // 實測 --suggest 在有任務板（ok 與 empty）保留寫入＋溫和提醒，在無任務板維持原樣
+  const mon = mkdtempSync(join(tmpdir(), 'pm-suggest-merge-'));
+  mkdirSync(join(mon, 'logs'));
+  const runSuggest = (cwd) => spawnSync(process.execPath, [join(ROOT, 'status.mjs'), '--suggest', '臨時事項'], {
+    cwd,
+    input: '請協助處理這件事\n',
+    encoding: 'utf8',
+    env: { ...process.env, AGY_PIPELINE_HOME: mon, AGY_PIPELINE_LOG_DIR: join(mon, 'logs') },
+  });
+  const okOut = runSuggest(tasksRepo.dir);
+  const empOut = runSuggest(emptyRepo.dir);
+  const unsetOut = runSuggest(unsetRepo.dir);
+  check('有任務板 (ok) 執行 --suggest：保留寫入、指向待清理建議卡且附溫和提醒',
+    okOut.status === 0 && okOut.stdout.includes('放上儀表板了') && okOut.stdout.includes('待清理建議卡（--suggest）') && okOut.stdout.includes('誠實任務板為主力入口'), okOut.stdout + okOut.stderr);
+  check('空任務板 (empty) 執行 --suggest：同樣指向待清理建議卡且附溫和提醒',
+    empOut.status === 0 && empOut.stdout.includes('待清理建議卡（--suggest）') && empOut.stdout.includes('誠實任務板為主力入口'), empOut.stdout + empOut.stderr);
+  check('無任務板 (unset) 執行 --suggest：維持原本「建議新增的對話」輸出且不印任務板提醒',
+    unsetOut.status === 0 && unsetOut.stdout.includes('「建議新增的對話」那一區') && !unsetOut.stdout.includes('誠實任務板為主力入口'), unsetOut.stdout + unsetOut.stderr);
+
+  rmSync(mon, { recursive: true, force: true });
+  for (const r of [tasksRepo, twoRepo, emptyRepo, unsetRepo, brokenRepo, errRepo]) r.cleanup();
 }
 
 process.exit(summary());

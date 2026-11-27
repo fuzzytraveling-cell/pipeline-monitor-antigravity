@@ -19,7 +19,7 @@ import { CJK } from './_zhscan.mjs';
 import { collectAll } from '../lib/collect.mjs';
 import { safeName } from '../lib/events.mjs';
 import { withLang } from '../lib/lang.mjs';
-import { deriveTaskBoard, formatTasksLines, normSpecSlug, readTasksConfig } from '../lib/tasks.mjs';
+import { deriveTaskBoard, entryModeOf, formatTasksLines, isSuppressedNoMain, normSpecSlug, readTasksConfig } from '../lib/tasks.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const PLUGIN = JSON.parse(readFileSync(join(ROOT, 'plugin.json'), 'utf8')).name;
@@ -69,7 +69,22 @@ section('AC-1：五態任務設定檔、spec slug 正規化、循環相依與手
   writeFile(root, '.agents/pipeline-tasks.json', JSON.stringify({ status: 'done', tasks: [] }));
   const emptyTb = deriveTaskBoard({ project: { name: 'p', mainRoot: root, cards: [], sessions: [] }, desk: {}, events: [] });
   eq('tasks 空陣列 → empty', emptyTb.state, 'empty');
+  eq('empty 任務板 entryMode → task-board', emptyTb.entryMode, 'task-board');
   eq('手寫 status 標註忽略', emptyTb.ignoredManualFields, true);
+
+  // entryModeOf 六態對齊 R1（異常不折成 fallback）
+  eq('entryModeOf(ok) === task-board', entryModeOf('ok'), 'task-board');
+  eq('entryModeOf(empty) === task-board', entryModeOf('empty'), 'task-board');
+  eq('entryModeOf(unset) === fallback', entryModeOf('unset'), 'fallback');
+  eq('entryModeOf(broken) === unknown', entryModeOf('broken'), 'unknown');
+  eq('entryModeOf(unreadable) === unknown', entryModeOf('unreadable'), 'unknown');
+  eq('entryModeOf(no-main) === unknown', entryModeOf('no-main'), 'unknown');
+
+  // 單一任務時英文 --tasks 輸出單數 1 task total:（預審 #1）
+  writeFile(root, '.agents/pipeline-tasks.json', JSON.stringify({ tasks: [{ id: 'T1', title: 'Only one' }] }));
+  const oneTb = deriveTaskBoard({ project: { name: 'p', mainRoot: root, cards: [], sessions: [] }, desk: {}, events: [] });
+  const oneEn = withLang('en', () => formatTasksLines(oneTb, { displayName: 'demo' }).join('\n'));
+  check('英文單一任務印出 1 task total:（預審 #1）', oneEn.includes('1 task total:'), oneEn);
 
   // 相容 .claude/pipeline-tasks.json fallback
   rmSync(join(root, '.agents', 'pipeline-tasks.json'));
@@ -162,6 +177,7 @@ section('AC-1/AC-2：6 欄與 unknown 推導（主線 master、worktree 優先�
   const all = collectAll({ monitorDir });
   const p = all.projects[0];
   eq('collectAll 附帶 taskBoardSupport', all.taskBoardSupport, true);
+  eq('collectAll 附帶 taskEntryMergeSupport', all.taskEntryMergeSupport, true);
   const byId = Object.fromEntries(p.taskBoard.tasks.map((t) => [t.id, t]));
   eq('T-DONE 在 master 主線已歸檔 → archived', byId['T-DONE'].column, 'archived');
   eq('T-CLEANED 已結案且 worktree gone 不阻擋 → archived', byId['T-CLEANED'].column, 'archived');
@@ -238,6 +254,55 @@ section('R1/P5：零 commit 新專案主線不可知 → 依賴主線任務標 u
 
   rmSync(dir, { recursive: true, force: true });
   rmSync(monitorDir, { recursive: true, force: true });
+}
+
+section('D1 回歸（P2/P5/P8）：isSuppressedNoMain 僅抑制已結案刪檔與 90 天清空空檔之 no-main，不吞任何真異常或未結案對話', 'P5');
+{
+  const closed = [{ id: 's1', closedAt: '2026-11-01T00:00:00Z' }];
+  const active = [{ id: 's2', closedAt: null }];
+  eq('已結案且無活卡的 no-main 專案 → true', isSuppressedNoMain({
+    taskBoard: { state: 'no-main' },
+    cards: [{ path: '/w/gone', gone: true }],
+    sessions: closed,
+  }), true);
+  eq('90 天清空空檔（emptyLine 且未退出）之 no-main → true', isSuppressedNoMain({
+    taskBoard: { state: 'no-main' },
+    emptyLine: '90 天內沒有任何對話紀錄',
+    optedOut: null,
+    cards: [],
+    sessions: [],
+  }), true);
+  eq('已退出記錄即使帶 emptyLine 也不靠 emptyLine 抑制 → false', isSuppressedNoMain({
+    taskBoard: { state: 'no-main' },
+    emptyLine: 'x',
+    optedOut: { at: '2026-11-01T00:00:00Z' },
+    cards: [],
+    sessions: [],
+  }), false);
+  eq('no-main 但仍有活工作區卡 → false', isSuppressedNoMain({
+    taskBoard: { state: 'no-main' },
+    cards: [{ path: '/w/live', gone: false, notGit: false }],
+    sessions: closed,
+  }), false);
+  eq('no-main 且仍有未結案對話 → false', isSuppressedNoMain({
+    taskBoard: { state: 'no-main' },
+    cards: [{ path: '/w/gone', gone: true }],
+    sessions: active,
+  }), false);
+  eq('no-main 且 emptyLine 為空、無對話也無卡 → false', isSuppressedNoMain({
+    taskBoard: { state: 'no-main' },
+    emptyLine: null,
+    cards: [],
+    sessions: [],
+  }), false);
+  for (const st of ['broken', 'unreadable', 'ok', 'empty', 'unset']) {
+    eq(`非 no-main 狀態（${st}）一律不抑制 → false`, isSuppressedNoMain({
+      taskBoard: { state: st },
+      emptyLine: '90 天內沒有任何對話紀錄',
+      cards: [{ path: '/w/gone', gone: true }],
+      sessions: closed,
+    }), false);
+  }
 }
 
 process.exit(summary());

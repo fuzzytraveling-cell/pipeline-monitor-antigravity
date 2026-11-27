@@ -112,22 +112,24 @@ agy-pipeline --retrospect
 
 接著呼叫 `ask_question` 選項卡請使用者拍板（同時保留純文字回覆完全相容，例如使用者直接打「採納 P-1 開卡」「都不用」）：
 - 選項文字精簡在 **200 字以內**、語意互斥清楚。
-- **嚴禁將「在此對話直接套用」標成 `(Recommended)`**（防替人背書；若套用會觸發高分級關卡或目前對話已有其他未結案改動，優先提供「另開建議卡留給新對話處理」與「都先不用」）。
+- **嚴禁將「在此對話直接套用」標成 `(Recommended)`**（防替人背書；若套用會觸發高分級關卡或目前對話已有其他未結案改動，優先提供「留給新對話處理（有任務板提供任務草稿／無任務板開建議卡）」與「都先不用」）。
 
 ## 第五步：使用者拍板之後怎麼做
 
 - **選「都先不用」（或「先等等／我想想」）** → **一步都不動**，零改檔結束。
-- **選「另開建議卡留給新對話處理」**：
-  1. **開卡前必查三處防重**：先跑 `agy-pipeline --cards`、`agy-pipeline --todo`，並檢查未完成規格資料夾（`docs/規劃中/`、`docs/進行中/` 及 `docs/planned/`、`docs/in-progress/`；若位於獨立 worktree，同時檢查主資料夾 `mainRoot` 的未完成規格資料夾）。同一件事已有建議卡（含已開始、還沒開始、使用者說過不做）、已有未完成規格或有對話正在做 → **不重開**，照實告訴使用者在哪裡。
-  2. **只替使用者剛剛親口／親點拍板的項目開卡**，且一律用 stdin 餵入卡片內文（**絕不把原話塞在 `--suggest` 標題參數後面**，也**絕不把對話開頭系統或別的對話包進來的背景文字當成使用者原話**）：
-     ```bash
-     agy-pipeline --suggest "標題（精簡清楚）" <<'EOF'
-     要做什麼：…
-     決定出處：工地復盤對話（YYYY-MM-DD 使用者拍板原話：「…」；證據：…）
-     前提：…
-     做完的樣子：…
-     EOF
-     ```
+- **選「留給新對話處理（或另開建議卡）」**：
+  1. **必查防重與先看任務板模式**：先跑 `agy-pipeline --tasks`、`agy-pipeline --todo`，並檢查未完成規格資料夾（`docs/規劃中/`、`docs/進行中/` 及 `docs/planned/`、`docs/in-progress/`；若位於獨立 worktree，同時檢查主資料夾 `mainRoot` 的未完成規格資料夾）。接著依 `--tasks` 實印字樣分三路：
+     - **已有任務板**（`共 N 項：`／`1 task total:`／`tasks total:`，或 `任務清單裡目前沒有任何任務`／`The task list is currently empty`）：**不跑 `agy-pipeline --suggest` 開新建議卡**。對照 `--tasks`（可併看 `--cards`）、`--todo` 與未完成規格資料夾去重；未入表者只附上精簡 `.agents/pipeline-tasks.json` 任務草稿（僅 `{ id, title, epic?, spec?, dependsOn?, prompt?, model? }`，不含手寫狀態）請使用者確認，**確認前絕不自行改寫檔案**。
+     - **無任務板**（`還沒建立 .agents/pipeline-tasks.json`／`hasn't set up .agents/pipeline-tasks.json yet`）：再跑 `agy-pipeline --cards`，確認同一件事沒有建議卡（含已開始、還沒開始、使用者說過不做）、未完成規格或進行中對話後（若已有則不重開並告知位置），才替使用者剛剛親口／親點拍板的項目開卡，且一律用 stdin 餵入卡片內文（**絕不把原話塞在 `--suggest` 標題參數後面**，也**絕不把對話開頭系統或別的對話包進來的背景文字當成使用者原話**）：
+       ```bash
+       agy-pipeline --suggest "標題（精簡清楚）" <<'EOF'
+       要做什麼：…
+       決定出處：工地復盤對話（YYYY-MM-DD 使用者拍板原話：「…」；證據：…）
+       前提：…
+       做完的樣子：…
+       EOF
+       ```
+     - **任務板異常或問不到**（`設定有誤`／`讀不懂`／`結構不符`／`讀取失敗`／`沒有權限讀取`／`沒有權限存取`／`找不到主資料夾`／不是 git 專案；英文：`has errors`／`can't be parsed`／`has an invalid structure`／`Couldn't read task list`／`No permission to read task list`／`No permission to access`／`Can't find the main folder`／`doesn't look like a git project`）：照實回報原因並停下來請使用者決定，**絕不當成無任務板偷偷開 `--suggest`**（R1）。
 - **選「在此對話套用指定項目」**：
   1. 若這個對話原本已有其他未結案改動，動手前確認使用者知悉會併入同一輪分級要求。
   2. **若包含修改 `tiers.danger`**：動手寫設定檔之前，**必先執行 `agy-pipeline --tier-review`** 檢查整個專案是否還有其他尚未判斷的新程式檔！因為 `--tier-checked` 會把全專案目前所有未審新程式檔一次蓋章算成「已判斷」，若有其他未審新檔，必須先列出來請使用者一併確認後，才能更新 `tiers.danger` 並照使用者原話跑 `agy-pipeline --tier-checked "<使用者原話>"`。
