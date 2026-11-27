@@ -30,16 +30,17 @@
       "lib/transcript.mjs",
       "lib/paths.mjs",
       "lib/mount.mjs",
-      "lib/checkpoint.mjs"
+      "lib/checkpoint.mjs",
+      "lib/cliDispatch.mjs"
     ],
     "checked": {
-      "at": "2026-11-27T03:22:24.488Z",
-      "said": "兩支都不加入危險清單，維持在程式區（僅為唯讀盤點模組與 AI 指南）",
+      "at": "2026-11-27T06:08:41.358Z",
+      "said": "1.照建議",
       "by": "ai",
-      "commit": "eb86ae06f8728bbe4d730f7c8c932d768071375b",
+      "commit": "c3d556bd83d1961ff225d4263bfad568dc1f8996",
       "files": [
-        "lib/retrospect.mjs",
-        "skills/retrospect/SKILL.md"
+        "lib/cliDispatch.mjs",
+        "lib/tasks.mjs"
       ]
     }
   }

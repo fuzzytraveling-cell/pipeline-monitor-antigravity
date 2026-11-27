@@ -594,7 +594,7 @@ section('還原點那一行照實講:有沒 commit 的才說會丟掉幾個、�
   const bannerOf = (latest) => (banner ? new Function('latest', `const zhEn = (zh) => zh; const many = (n, one, more = one + 's') => n + ' ' + (n === 1 ? one : more);\n${banner}; return oldServerBanner();`)(latest) : '');
   check('從 ui/app.js 拿得出 oldServerBanner', !!banner);
   check('上一版的服務(有 sharedLines、沒有 stampHelp)→ 最上面講服務還在跑舊的程式', /--serve-restart/.test(bannerOf({ projects: [], sharedLines: {} })));
-  check('這一版的服務 → 不講', bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true, precheckSupport: true, escalateSupport: true, conflictSupport: true, brief: { clear: true, groups: [] }, contextScaleSupport: true }) === '');
+  check('這一版的服務 → 不講', bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true, precheckSupport: true, escalateSupport: true, conflictSupport: true, brief: { clear: true, groups: [] }, contextScaleSupport: true, taskBoardSupport: true }) === '');
 }
 
 section('舊的服務認得出來:「還差什麼」那一版以前的服務(有 stampHelp、沒有 todo)要重啟那一句講不出來 → 每一頁最上面講服務還在跑舊的程式(規格:還差什麼總表 AC-7,魔鬼教官第二輪)', 'P2');
@@ -616,7 +616,40 @@ section('舊的服務認得出來:「還差什麼」那一版以前的服務(有
     /--serve-restart/.test(bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true, precheckSupport: true, escalateSupport: true, conflictSupport: true })));
   check('必抓:有 brief 但沒有 contextScaleSupport（v0.11 舊服務）→ 每一頁最上面講服務還在跑舊的程式',
     /--serve-restart/.test(bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true, precheckSupport: true, escalateSupport: true, conflictSupport: true, brief: { clear: true, groups: [] } })));
-  check('必放:有 todo、guardSupport、precheckSupport、escalateSupport、conflictSupport、brief 且 contextScaleSupport → 不講', bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true, precheckSupport: true, escalateSupport: true, conflictSupport: true, brief: { clear: true, groups: [] }, contextScaleSupport: true }) === '');
+  check('必抓:有 contextScaleSupport 但沒有 taskBoardSupport（v0.14 舊服務）→ 每一頁最上面講服務還在跑舊的程式',
+    /--serve-restart/.test(bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true, precheckSupport: true, escalateSupport: true, conflictSupport: true, brief: { clear: true, groups: [] }, contextScaleSupport: true })));
+  check('必放:有 todo、guardSupport、precheckSupport、escalateSupport、conflictSupport、brief、contextScaleSupport 且 taskBoardSupport → 不講', bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true, precheckSupport: true, escalateSupport: true, conflictSupport: true, brief: { clear: true, groups: [] }, contextScaleSupport: true, taskBoardSupport: true }) === '');
+}
+
+section('案件頁「誠實任務板」（taskBoardBlock）：舊服務降級提示、零百分比與無綠燈背書', 'P10');
+{
+  const src = readFileSync(join(ROOT, 'ui', 'app.js'), 'utf8');
+  const code = src.match(/^function taskBoardBlock\(p\) \{\n[\s\S]*?\n\}\n/m)?.[0] ?? null;
+  const oldLine = src.match(/^const OLD_LINE = .*;$/m)?.[0] ?? '';
+  check('從 ui/app.js 拿得出 taskBoardBlock', !!code);
+  const draw = (latest, p) => (code ? new Function('latest', 'p', 'esc', 'foldOpen',
+    `const zhEn = (zh) => zh; const many = (n, one, more = one + 's') => n + ' ' + (n === 1 ? one : more);\n${oldLine}\n${code}; return taskBoardBlock(p);`)(
+    latest, p, (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])), (_k, d) => d,
+  ) : '');
+  const oldHtml = draw({ projects: [] }, { name: 'p' });
+  check('舊服務缺 taskBoardSupport → 任務板區塊顯示 OLD_LINE', oldHtml.includes('誠實任務板') && oldHtml.includes('服務還在跑舊的程式'), oldHtml);
+  const tbHtml = draw({ projects: [], taskBoardSupport: true }, {
+    name: 'p',
+    taskBoard: {
+      state: 'ok', total: 2, ignoredManualFields: true,
+      counts: { blocked: 0, ready: 1, 'spec-waiting': 0, 'in-progress': 0, 'wrap-up': 0, archived: 1, unknown: 0 },
+      columns: {
+        blocked: [],
+        ready: [{ id: 'T2', title: '可開工項', epic: 'E1', spec: 's2', column: 'ready', reason: '無前置', warnings: [], canCopy: true, copyPrompt: 'run T2', copyLabel: '複製開工交辦' }],
+        'spec-waiting': [], 'in-progress': [], 'wrap-up': [],
+        archived: [{ id: 'T1', title: '已歸檔項', spec: 's1', column: 'archived', reason: '已歸檔', warnings: [], canCopy: false }],
+        unknown: [],
+      },
+    },
+  });
+  check('任務板畫出 6 欄數量、忽略手寫狀態註記、無 % 百分比、無綠燈或 ✅',
+    tbHtml.includes('共 2 項') && tbHtml.includes('data-copy="run T2"') && tbHtml.includes('已忽略任務清單內的手寫狀態')
+    && !tbHtml.includes('%') && !/[✅✓]/.test(tbHtml), tbHtml);
 }
 
 section('感測器列（sensorLine）：有 q.guard 與 q.escalate 時一併畫出小標籤', 'P2');

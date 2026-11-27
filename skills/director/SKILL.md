@@ -1,6 +1,6 @@
 ---
 name: director
-description: F 工地主任（產線監視器 agy-pipeline 帶的通用版）：讀「還差什麼」總表（agy-pipeline --todo），給一個下一步的建議，不給選單；只替已經決定要做的事用 agy-pipeline --suggest 開新對話的建議卡；把這個對話能一起做的收尾合成一個問題，讓使用者一句「照建議收尾」帶走。使用者回答之前不動手；回答之後只做問題裡有的那幾步（併進 main、推上 GitHub、要的話重啟、最後蓋章，每一步用 agy-pipeline --wrap、講成了沒），按結案留給使用者。使用者說「主任」「工地主任」「下一步做什麼」「巡一圈」時用；使用者回「照建議收尾」是在回答它，不是叫它。 English — the Site director (the general version that comes with Pipeline Monitor for Antigravity) reads the "What's left" board (agy-pipeline --todo) and gives one suggestion for the next step, not a menu; it opens suggestion cards for new conversations via agy-pipeline --suggest only for things already decided; it combines this conversation's wrap-up into one question the user can answer with one sentence. It does nothing before the user answers; after the answer it does only the steps in the question (merge into main, push to GitHub, restart if needed, stamp last, each through agy-pipeline --wrap, saying whether it went through), and leaves Close to the user. Use it when the user says "site director", "what's next", "walk the site", "what should I do next"; when the user answers "wrap up as suggested", that's an answer to it, not a call for it.
+description: F 工地主任（產線監視器 agy-pipeline 帶的通用版）：讀「還差什麼」總表（agy-pipeline --todo）與誠實任務板（agy-pipeline --tasks），給一個下一步的建議，不給選單；只替已經決定要做的事用 agy-pipeline --suggest 開新對話的建議卡；把這個對話能一起做的收尾（含可選清理已合併 worktree 與歸檔已結案對話）或已解鎖任務派工合成一個問題，讓使用者確認後才動手。使用者回答之前不動手；回答之後只做問題裡有的那幾步（每一步用 agy-pipeline --wrap、講成了沒），按結案留給使用者。使用者說「主任」「工地主任」「下一步做什麼」「巡一圈」時用；使用者回「照建議收尾」是在回答它，不是叫它。 English — the Site director (the general version that comes with Pipeline Monitor for Antigravity) reads the "What's left" board (agy-pipeline --todo) and task board (agy-pipeline --tasks), giving one suggestion for the next step, not a menu; it raises suggestion cards via agy-pipeline --suggest only for decided work, and combines wrap-up (including optional merged worktree cleanup and closed conversation archiving) or unlocked task dispatch into one question. It does nothing before the user answers; after the answer it executes only confirmed steps via agy-pipeline --wrap and leaves Close to the user. Use it when the user says "site director", "what's next", "walk the site", "what should I do next"; when the user answers "wrap up as suggested", that's an answer to it, not a call for it.
 ---
 
 # F —— 工地主任（通用版）
@@ -75,6 +75,12 @@ F 不是一關：叫你不算哪一關被叫，也不讓「這一輪」重新起
 agy-pipeline --todo
 ```
 
+若在專案資料夾內，同步跑一次誠實任務板（無紀錄或未設定照實略過，絕不編造）：
+
+```bash
+agy-pipeline --tasks
+```
+
 沒有這個指令的話：`node "<agy-pipeline 的資料夾>/status.mjs" --todo`（那個資料夾就是 `~/.gemini/config/plugins/agy-pipeline` 指向的位置）。
 跑不出來、印的是錯誤 → 回「問不到總表」加一句原因，**就停**，不憑印象給下一步（R1）。
 
@@ -99,7 +105,7 @@ agy-pipeline --todo
 | ④ | 「這個對話沒有還差的事了——可以按結案」（Nothing left on the list…: you can press Close） | 到儀表板把那個對話按結案 |
 | ⑤ | 其他還差的：缺哪一關、清單沒對、沒存、沒併、章 | 到那個對話說「主任」，那裡會把收尾合成一個問題 |
 | ⑥ | 看不到的：「資料夾不在了…」「問不到…」（is gone…／Couldn't check…） | 照那一句講看不到什麼，請使用者決定要不要按結案 |
-| ⑦ | 白板上一件都沒有 | 已經決定、還沒開始的事：第四步找到的；或這個專案「還沒開始的建議卡」裡最早放的那一張（`agy-pipeline --cards`）；這個專案一張都沒有，就指白板上寫著還沒開始的建議卡的那個專案 |
+| ⑦ | 白板上一件都沒有 | 已經決定、還沒開始的事：第四步找到的；或 `--tasks` 列出的 `可開工` 任務（已解鎖、主資料夾乾淨時可提議派工）；或這個專案「還沒開始的建議卡」裡最早放的那一張（`agy-pipeline --cards`）；這個專案一張都沒有，就指白板上寫著還沒開始的建議卡的那個專案 |
 
 - 同一級有好幾個：挑「最後動作」最近的那一個（白板每一行都寫了），一樣近就照白板的順序。
 - 下一步只給**一個**。後面最多一行「白板上另外還有 N 個對話有事（其中 M 件等你決定）」——照白板數，不列出來、不問要先做哪個。
@@ -122,6 +128,7 @@ agy-pipeline --todo
 | 8 | 最上面「⚠️ 儀表板的服務還在跑…」；或第 6 步之後可能出現 | 重啟儀表板——寫成「併完白板最上面說要才做」，不自己猜要不要 |
 | 9 | 「還沒蓋過章」（Never stamped）、「蓋章之後又存了 N 次」（… since the last stamp） | 蓋章，一定最後（見下面那條） |
 | 10 | （第四步）前提就是這一次收尾的那張卡 | 開卡，排最後 |
+| 11 | （可選，人確認才做）這次併完 main 留下的已合併舊 worktree／已結案對話，或 `--tasks` 新解鎖的 `可開工` 任務 | 附上明確目標：清理已合併舊 worktree（不用 `--force`、絕不移除當前 `cwd`）、歸檔已按結案對話、或替 `<taskId>` 派工開新對話。**派工無論放在 `ask_question` 選項卡或純文字詢問，皆必明講「新對話將開在主資料夾」及型號規則（有設 `task.model` 寫明型號，未設明講「未指定型號，沿用 Antigravity 預設」），絕不自動執行。** |
 
 問題的最後一句：「你說『照建議收尾』就照這個順序做；要改哪一步直接講。按結案留給你按。」（也可同時搭配精簡的 `ask_question` 選項卡讓使用者一鍵拍板，選項精簡在 200 字內；保留純文字回話完全相容。）
 
@@ -219,6 +226,9 @@ Didn't raise: "<title>" already exists (<started / not started / you said you're
 | 推上 GitHub | `agy-pipeline --wrap push "<原話>"` |
 | 重啟儀表板 | `agy-pipeline --wrap restart "<原話>"`——服務用的程式改過才重啟，沒改過它自己說不用 |
 | 蓋章（一定最後） | `agy-pipeline --wrap stamp "<原話>"`——還有一關的結論沒了結它不蓋 |
+| 派工開新對話（經確認） | `agy-pipeline --wrap dispatch <taskId> "<原話>"`——只開 `可開工` 且主資料夾乾淨無其他活躍對話；省略 `environmentId` |
+| 清理已合併舊 worktree（經確認） | `agy-pipeline --wrap clean-worktree <path|branch> "<原話>"`——非強制移除並視情況安全 `git branch -d` |
+| 歸檔已結案對話（經確認） | `agy-pipeline --wrap archive <conversationId> "<原話>"`——只歸檔已按結案且無未存未併風險的對話 |
 | 開卡 | 照第四步 |
 
 - 每一步回報一行，照它印的講：「成了」「不用」「沒成」「沒做」「問不到」——**不准把沒成、問不到講成成了**（R2）。

@@ -1427,6 +1427,69 @@ a.ext { color: var(--color-neon-cyan); }
   opacity: 1; animation: pen-light 2.4s ease-in-out infinite;
 }
 
+/* ───────── 案件頁誠實任務板（規格：honest-task-board-director-dispatch AC-2） ───────── */
+.tboard-summary { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 10px 0 14px; }
+.tboard-total { font-size: var(--text-caption); font-weight: var(--font-weight-medium); color: var(--color-text-primary); margin-right: 4px; }
+.tboard-pill {
+  font-size: var(--text-caption); padding: 2px 10px; border-radius: var(--radius-full);
+  border: 1px solid var(--color-night-border); background: var(--color-night-surface); color: var(--color-text-secondary);
+}
+.tboard-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.tboard-col {
+  border: 1px solid var(--color-night-border-strong); border-radius: var(--radius-2xl);
+  padding: 12px; background: var(--color-night-surface); display: grid; gap: 10px; align-content: start;
+}
+.tboard-chead {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: var(--text-caption); font-weight: var(--font-weight-medium); color: var(--color-text-secondary);
+  border-bottom: 1px solid var(--color-night-border); padding-bottom: 6px;
+}
+.tboard-cnt { font-family: var(--font-abc-diatype-mono); color: var(--color-text-primary); }
+.tboard-list, .tboard-arch-list { display: grid; gap: 8px; }
+.tboard-empty { margin: 0; font-size: var(--text-caption); color: var(--color-text-muted); }
+.tcard {
+  --ink: var(--color-marker-gray);
+  border: 1px solid var(--color-night-border); border-left: 3px solid var(--ink);
+  border-radius: 10px; padding: 10px 12px; display: grid; gap: 4px;
+  background: color-mix(in srgb, var(--color-night-canvas) 40%, var(--color-night-surface));
+}
+.tcard[data-col="ready"] { --ink: var(--color-marker-blue); }
+.tcard[data-col="spec-waiting"] { --ink: var(--color-marker-yellow); }
+.tcard[data-col="in-progress"] { --ink: var(--color-neon-cyan); }
+.tcard[data-col="wrap-up"] { --ink: var(--color-marker-red); }
+.tcard-top { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: var(--text-caption); }
+.tcard-id { font-family: var(--font-abc-diatype-mono); font-weight: var(--font-weight-medium); color: var(--color-text-primary); }
+.tcard-epic, .tcard-spec {
+  font-size: var(--text-caption); padding: 1px 8px; border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--color-night-border) 50%, transparent); color: var(--color-text-secondary);
+}
+.tcard-title { font-size: var(--text-body-sm); font-weight: var(--font-weight-medium); color: var(--color-text-primary); }
+.tcard-reason { font-size: var(--text-caption); color: var(--color-text-secondary); }
+.tcard-warn { font-size: var(--text-caption); color: var(--color-neon-amber); }
+.tcard-meta { font-size: var(--text-caption); }
+.tcard-meta a { color: var(--color-neon-cyan); }
+.tcard-act { margin-top: 4px; }
+.tboard-arch { margin-top: 12px; }
+.tboard-arch-list { margin-top: 8px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.tboard-errs { margin: 6px 0 0; padding-left: 1.2em; font-size: var(--text-caption); color: var(--color-neon-amber); }
+
+[data-theme="day"] .tboard-pill { border-color: var(--color-ash); background: var(--color-parchment); color: var(--color-graphite); }
+[data-theme="day"] .tboard-total,
+[data-theme="day"] .tboard-cnt,
+[data-theme="day"] .tcard-id,
+[data-theme="day"] .tcard-title { color: var(--color-off-black); }
+[data-theme="day"] .tboard-col { border-color: var(--color-ash); background: var(--color-whiteboard); box-shadow: var(--shadow-note); }
+[data-theme="day"] .tboard-chead { border-bottom-color: var(--color-ash); color: var(--color-graphite); }
+[data-theme="day"] .tboard-empty,
+[data-theme="day"] .tcard-reason { color: var(--color-smoke); }
+[data-theme="day"] .tcard { border-color: var(--color-ash); background: var(--color-paper); }
+[data-theme="day"] .tcard[data-col="in-progress"] { --ink: var(--color-lake-blue); }
+[data-theme="day"] .tcard-epic,
+[data-theme="day"] .tcard-spec { background: var(--color-parchment); color: var(--color-graphite); }
+[data-theme="day"] .tcard-warn,
+[data-theme="day"] .tboard-errs { color: var(--color-crimson); }
+[data-theme="day"] .tcard-meta a { color: var(--color-lake-blue); }
+
 @media (prefers-reduced-motion: reduce) {
   [data-theme="day"] .ag-ground { animation: none; }
   [data-theme="day"] .wf-day-line path { animation: none; stroke-dashoffset: 0; }

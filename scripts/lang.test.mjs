@@ -325,7 +325,7 @@ function uiOf(latest, { lang = 'zh', fetch = () => Promise.reject(new Error('測
   const make = new Function('describeFreshness', 'STALE_AFTER_SECONDS', 'document', 'window', 'localStorage', 'sessionStorage', 'location', 'setTimeout', 'setInterval', 'fetch', 'performance', 'console', '__LATEST',
     `${body}\nlatest = __LATEST;\nreturn { workflow, roundWhere, sensorLine, faultBanner, oldServerBanner, langBanner, render, safeRender, switchLang, poll, ago, clock, OLD_LINE, ROLE,
       applyTheme, cycleTheme, sunTimes, resolveTheme, themeTooltip,
-      statRestore, statLadder, statChanges, statTier, briefCard, contextScaleCard, projectList, overview, sessionList, projectPage, suggestionsBlock, optOutLine, sessionPage,
+      statRestore, statLadder, statChanges, statTier, briefCard, contextScaleCard, taskBoardBlock, projectList, overview, sessionList, projectPage, suggestionsBlock, optOutLine, sessionPage,
       setLatest: (x) => { latest = x; }, connected: () => connected, LANG };`);
   const api = make(describeFreshness, 60, document, { addEventListener: noop }, { getItem: () => null, setItem: noop }, sessionStorage, loc, noop, noop, fetch,
     { now: () => 0 }, { ...console, error: noop }, latest);   // 壞掉的那一頁會往主控台印錯誤:這裡不看那一行
@@ -957,16 +957,27 @@ function enWorld() {
         ...closedSessions.map((cs) => ({ ...cs, context: ctxOf(cs.id) })),
       ],
       suggestions: cards,
+      taskBoard: {
+        state: 'ok', total: 2, ignoredManualFields: true,
+        counts: { blocked: 1, ready: 1, 'spec-waiting': 0, 'in-progress': 0, 'wrap-up': 0, archived: 0, unknown: 0 },
+        columns: {
+          blocked: [{ id: 'T2', title: 'Locked item', epic: 'E1', spec: 's2', column: 'blocked', reason: 'Waiting for T1', warnings: [], canCopy: true, copyPrompt: 'start T2', copyLabel: 'Copy prompt (deps locked)' }],
+          ready: [{ id: 'T1', title: 'Ready item', spec: 's1', column: 'ready', reason: 'Ready to start', warnings: [], sessionId: 's1', sessionTitle: 'Export button', canCopy: true, copyPrompt: 'start T1', copyLabel: 'Copy handoff prompt' }],
+          'spec-waiting': [], 'in-progress': [], 'wrap-up': [], archived: [], unknown: [],
+        },
+      },
     };
     const empty = { name: 'quiet-app', displayName: 'quiet-app', mainRoot: '/work/quiet-app', optedOut: { at: t(9000) }, optedOutLine: optedOutLine({ at: t(9000), days: 90 }),
-      cards: [], sessions: [], suggestions: [], emptyLine: noRecordLine({ here: 'the bar at the very top', optedOut: true }), noRecords: true };
-    const oldOne = { name: 'old-app', displayName: 'old-app', mainRoot: '/work/old-app', optedOut: { at: null }, cards: [], sessions: [], suggestions: [] };
+      cards: [], sessions: [], suggestions: [], emptyLine: noRecordLine({ here: 'the bar at the very top', optedOut: true }), noRecords: true,
+      taskBoard: { state: 'unset', note: 'This project hasn\'t set up .agents/pipeline-tasks.json yet.', total: 0, counts: {}, columns: {}, tasks: [] } };
+    const oldOne = { name: 'old-app', displayName: 'old-app', mainRoot: '/work/old-app', optedOut: { at: null }, cards: [], sessions: [], suggestions: [],
+      taskBoard: { state: 'empty', note: 'The task list is currently empty.', total: 0, counts: {}, columns: {}, tasks: [] } };
     const baseAll = { projects: [project, empty, oldOne], faults: { banner: [], blind: false, unreadableLine: null } };
     const todo = todoBoard(baseAll, { ago });
     const brief = briefReport(baseAll, todo, { ago });
     return { generatedAt: NOW, retainDays: 90, lang: 'en', langNote: null, ...baseAll, todo, brief,
       sharedLines: { calledNotPassed: calledIsNotPassed() }, stampHelp: { commit: 'commit: …', stamp: 'stamp (agy-pipeline --checkpoint): …', order: 'Always commit before stamping' },
-      contextScaleSupport: true };
+      contextScaleSupport: true, taskBoardSupport: true };
   }));
 }
 

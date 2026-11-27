@@ -390,7 +390,7 @@ const mark = (text, part, tag = 'b') => { const t = esc(text), m = esc(part ?? '
  *  todo 是「還差什麼」那一版才有的(規格:還差什麼總表 AC-7):要重啟那一句是服務自己講的,舊的服務講不出來——
  *  不算進來的話,併進去、還沒重啟的那段時間,只有點進案件頁的白板才看得到要重啟,首頁一句都不講(魔鬼教官第二輪,R1) */
 function oldServerBanner() {
-  return latest && (!('sharedLines' in latest) || !('stampHelp' in latest) || !('todo' in latest) || !('guardSupport' in latest) || !('precheckSupport' in latest) || !('escalateSupport' in latest) || !('conflictSupport' in latest) || !('brief' in latest) || !('contextScaleSupport' in latest))
+  return latest && (!('sharedLines' in latest) || !('stampHelp' in latest) || !('todo' in latest) || !('guardSupport' in latest) || !('precheckSupport' in latest) || !('escalateSupport' in latest) || !('conflictSupport' in latest) || !('brief' in latest) || !('contextScaleSupport' in latest) || !('taskBoardSupport' in latest))
     ? zhEn('<p class="fault" data-tone="amber">🟡 儀表板的服務還在跑舊的程式，有幾句畫不出來——跑 <code>agy-pipeline --serve-restart</code></p>',
       '<p class="fault" data-tone="amber">🟡 The dashboard service is still running the old program, so a few lines can\'t be drawn: run <code>agy-pipeline --serve-restart</code></p>') : '';
 }
@@ -1194,7 +1194,90 @@ function projectPage(name) {
       <h2 class="section serif">Overview</h2>
       ${overview(p)}
       ${optOutLine(p)}
-    </div>` + whiteboard(p) + suggestionsBlock(p) + sessionList(p);
+    </div>` + whiteboard(p) + taskBoardBlock(p) + suggestionsBlock(p) + sessionList(p);
+}
+
+/**
+ * 案件頁「誠實任務板」（規格：honest-task-board-director-dispatch AC-2）：
+ * 欄位 100% 由伺服器照 lib/tasks.mjs 推導，只印整數筆數、不畫百分比或綠燈背書；
+ * 網頁不放直開對話／刪 worktree／歸檔按鈕，僅提供複製開工交辦。
+ */
+function taskBoardBlock(p) {
+  const title = zhEn('誠實任務板', 'Honest task board');
+  if (!latest || !('taskBoardSupport' in latest) || !p?.taskBoard) {
+    return `<div class="block"><h2 class="section serif">${title}</h2><p class="section-note">${esc(OLD_LINE)}</p></div>`;
+  }
+  const tb = p.taskBoard;
+  const ignoredNote = tb.ignoredManualFields
+    ? `<p class="section-note">${zhEn('ℹ️ 已忽略任務清單內的手寫狀態欄位——各欄完全由真實檔案與紀錄推導。', 'ℹ️ Manual status or completion fields in the task config were ignored: columns are derived solely from real files and records.')}</p>`
+    : '';
+  if (tb.state !== 'ok') {
+    const errs = (tb.errors ?? []).length
+      ? `<ul class="tboard-errs">${tb.errors.map((e) => `<li>${esc(e)}</li>`).join('')}</ul>`
+      : '';
+    return `<div class="block">
+      <h2 class="section serif">${title}</h2>
+      ${ignoredNote}
+      <p class="section-note">${esc(tb.note ?? '')}</p>
+      ${errs}
+    </div>`;
+  }
+  const colNames = {
+    blocked: zhEn('鎖定中', 'Blocked'),
+    ready: zhEn('可開工', 'Ready'),
+    'spec-waiting': zhEn('規格等點頭', 'Spec waiting nod'),
+    'in-progress': zhEn('施工與檢查中', 'In progress'),
+    'wrap-up': zhEn('只剩收尾', 'Wrap-up only'),
+    archived: zhEn('已歸檔', 'Archived'),
+    unknown: zhEn('問不到／待釐清', 'Unknown / clarify'),
+  };
+  const cols = tb.columns ?? {};
+  const counts = tb.counts ?? {};
+  const activeKeys = ['blocked', 'ready', 'spec-waiting', 'in-progress', 'wrap-up'];
+  if ((counts.unknown ?? 0) > 0) activeKeys.push('unknown');
+  const cardHtml = (t) => {
+    const epic = t.epic ? `<span class="tcard-epic">${esc(t.epic)}</span>` : '';
+    const spec = t.spec ? `<span class="tcard-spec">${esc(t.spec)}</span>` : '';
+    const link = t.sessionId
+      ? `<div class="tcard-meta"><a href="#/p/${encodeURIComponent(p.name)}/s/${encodeURIComponent(t.sessionId)}">${esc(t.sessionTitle ?? t.sessionId.slice(0, 8))}</a></div>`
+      : '';
+    const warns = (t.warnings ?? []).map((w) => `<div class="tcard-warn">${esc(w)}</div>`).join('');
+    const copy = t.canCopy && t.copyPrompt
+      ? `<div class="tcard-act"><button type="button" class="copy tb-copy" data-copy="${esc(t.copyPrompt)}">${esc(t.copyLabel ?? zhEn('複製開工交辦', 'Copy handoff prompt'))}</button></div>`
+      : '';
+    return `<article class="tcard" data-col="${esc(t.column)}">
+      <div class="tcard-top"><span class="tcard-id">${esc(t.id)}</span>${epic}${spec}</div>
+      <div class="tcard-title">${esc(t.title)}</div>
+      <div class="tcard-reason">${esc(t.reason)}</div>
+      ${warns}${link}${copy}
+    </article>`;
+  };
+  const pills = ['blocked', 'ready', 'spec-waiting', 'in-progress', 'wrap-up', 'archived', ...((counts.unknown ?? 0) > 0 ? ['unknown'] : [])]
+    .map((k) => `<span class="tboard-pill" data-col="${esc(k)}">${esc(colNames[k])}: ${Number(counts[k] ?? 0)}</span>`)
+    .join('');
+  const grid = activeKeys.map((k) => {
+    const list = cols[k] ?? [];
+    return `<section class="tboard-col" data-col="${esc(k)}">
+      <header class="tboard-chead"><span>${esc(colNames[k])}</span><span class="tboard-cnt">${list.length}</span></header>
+      <div class="tboard-list">${list.length ? list.map(cardHtml).join('') : `<p class="tboard-empty">${zhEn('目前 0 項', '0 items')}</p>`}</div>
+    </section>`;
+  }).join('');
+  const arch = cols.archived ?? [];
+  const archKey = `tb-arch|${p.name}`;
+  const archBox = arch.length
+    ? `<details class="acl-box tboard-arch" data-fold="${esc(archKey)}"${foldOpen(archKey, false) ? ' open' : ''}>
+        <summary>${zhEn(`已歸檔（${arch.length} 項）`, `Archived (${arch.length})`)}</summary>
+        <div class="tboard-arch-list">${arch.map(cardHtml).join('')}</div>
+      </details>`
+    : '';
+  return `<div class="block">
+    <h2 class="section serif">${title}</h2>
+    <p class="section-note">${zhEn('網頁不直接開對話：複製開工交辦貼進新對話，或在對話裡請 F 主任派工。', 'This page doesn\'t start conversations directly: copy a handoff prompt into a new conversation, or ask the site director in chat to dispatch it.')}</p>
+    ${ignoredNote}
+    <div class="tboard-summary"><span class="tboard-total">${zhEn(`共 ${tb.total ?? 0} 項`, `${many(tb.total ?? 0, 'task')} total`)}</span>${pills}</div>
+    <div class="tboard-grid">${grid}</div>
+    ${archBox}
+  </div>`;
 }
 
 /**

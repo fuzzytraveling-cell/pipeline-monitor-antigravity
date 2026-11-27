@@ -35,8 +35,10 @@ agy-pipeline --report E ok|found "…"   # AI 記下走一遍的結論：第一�
 agy-pipeline --todo       # 還差什麼：所有專案的對話各還差什麼（在 Antigravity 終端機裡跑時，那個對話那一行標「← 這個對話」）
 agy-pipeline --brief      # 定時工地巡檢晨報：只列故障、防丟／衝突、待拍板、問不到與建議卡（加 --quiet-if-clear 只有確實沒事且無問不到才安靜）
 agy-pipeline --cards      # 這個專案的每一張新對話建議卡：還沒開始、已開始、你說不做了（主任開卡之前查有沒有了）
+agy-pipeline --tasks      # 誠實任務板：依主線規格與紀錄推導鎖定中／可開工／等點頭／施工中／只剩收尾／已歸檔
 agy-pipeline --suggest "標題"  # 放一張「建議另開對話」的卡片到儀表板（內容從 stdin 讀）
-agy-pipeline --wrap merge|push|restart|stamp "你的原話"   # 主任收尾：你回答之後一步一次（併進 main 只快轉、推完當場問 GitHub、改過才重啟、D 沒了結不蓋章），每一步講成了沒
+agy-pipeline --wrap merge|push|restart|stamp "<原話>"   # 主任收尾：你回答之後一步一次（併進 main 只快轉、推完當場問 GitHub、改過才重啟、D 沒了結不蓋章），每一步講成了沒
+agy-pipeline --wrap dispatch|clean-worktree|archive <目標> "<原話>"   # 主任經你確認後真派工開新對話、安全清理已合併舊 worktree（配安全 git branch -d）與歸檔已結案對話
 agy-pipeline --on         # 把感測器掛到**這個**專案的 .agents/hooks.json（--off 拆掉；已裝 plugin 時改控制退出記錄）
 agy-pipeline --tier-init  # 設定分級的骨架（程式區）；危險清單在對話裡說「幫我設定分級」
 agy-pipeline --tier T2 "理由"   # 這次調高（只准往上）；收回是 --tier-retract

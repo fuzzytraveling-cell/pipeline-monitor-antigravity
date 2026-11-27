@@ -17,6 +17,7 @@
 - **照別的對話寫好的規格施工前**：先跑 `agy-pipeline --spec <規格檔>`（分批做可在後面附 `AC-1 AC-2`）；改完程式回頭在規格檔每條 AC 標題行末尾標 `✅ 對過 YYYY-MM-DD`（英文 `✅ ticked YYYY-MM-DD`）或 `⏳ 待討論：原因`。
 - **動手前速查過往決定與死法**：寫規格盤點完預計動檔時可跑 `agy-pipeline --context <檔...>`（純唯讀、可附 `--all`），預審與魔鬼教官階段跑 `--round precheck`／`--round D` 會自動附帶相關舊規格與已知死法出處（**僅列字面上點名過該檔路徑的歷史紀錄，沒列到的不代表無關**）；定期復盤可跑純唯讀 `agy-pipeline --retrospect [--all]`。
 - **各關收尾一定要記結論**：跑完 A／C／D／E 必跑 `agy-pipeline --report <關> ok|found "…"`，儀表板與收工門禁才看得到。
+- **任務板與對話內派工／收尾**：專案有 `.agents/pipeline-tasks.json` 時可用 `agy-pipeline --tasks` 檢視推導欄位；`--wrap dispatch <taskId>`、`--wrap clean-worktree <path|branch>`、`--wrap archive <conversationId>` 一律須先在 `director` 問完並取得使用者確認原話才可執行，絕不寫入 `ANTIGRAVITY_CSRF_TOKEN`。
 - **規格預審（A → D 預審）與程式 D 分開記**：已設定分級的專案寫出預測最高級（預設 T2）的規格後，停下來等使用者點頭前先跑一輪 `spec-precheck`（先 `--round precheck`），收尾一律記 `agy-pipeline --precheck ok|found "…"`（絕不記進 `--report D`、不自動改規格檔、不自動重跑第二輪）。
 
 ## 配合生命週期 Hook

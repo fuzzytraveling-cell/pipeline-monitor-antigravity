@@ -309,6 +309,8 @@ section('英文:--wrap 那幾行沒有中文', 'P2');
   check('……整段沒有中文', !CJK.test(r.text), r.text);
   const no = w.cli(['--wrap', 'push']);
   check('英文:沒附原話 → 沒做', no.code === 1 && /Push to GitHub: not done: attach what the user said/.test(no.text) && !CJK.test(no.text), no.text);
+  const noTarget = w.cli(['--wrap', 'dispatch']);
+  check('帶目標步驟沒給目標 → 沒做', noTarget.code === 1 && /Dispatch new conversation: not done: This step needs a target/.test(noTarget.text) && !CJK.test(noTarget.text), noTarget.text);
   w.cleanup();
 }
 

@@ -242,6 +242,13 @@ section('工地復盤官技能契約與常駐規則同步（retrospect-skill AC-
   const rulesBytes = Buffer.byteLength(rules, 'utf8');
   check(`rules/AGENTS.md 含 retrospect 與 --retrospect 且 < 24,000 bytes（${rulesBytes} bytes）`,
     !rules.startsWith('---\n') && rulesBytes < 24000 && rules.includes('retrospect') && rules.includes('--retrospect'));
+  const director = textOf('director');
+  check('director 與 rules/AGENTS.md 含 --tasks 與 --wrap dispatch/clean-worktree/archive',
+    director.includes('agy-pipeline --tasks')
+    && director.includes('agy-pipeline --wrap dispatch <taskId> "<原話>"')
+    && director.includes('agy-pipeline --wrap clean-worktree <path|branch> "<原話>"')
+    && director.includes('agy-pipeline --wrap archive <conversationId> "<原話>"')
+    && rules.includes('--tasks') && rules.includes('--wrap dispatch'));
   const pDesc = PLUGIN_JSON.description;
   check('plugin.json 說明同步為 8 支技能並含 retrospect',
     pDesc.includes('8 支技能') && pDesc.includes('Includes 8 skills') && pDesc.includes('retrospect'), pDesc);
