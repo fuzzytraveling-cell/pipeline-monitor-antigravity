@@ -33,6 +33,20 @@
       "epic": "看板視覺升級",
       "spec": "merge-suggestions-into-task-board",
       "prompt": "用 spec 技能撰寫一頁規格並等點頭：將「建議新增的對話（--suggest）」與「誠實任務板（.agents/pipeline-tasks.json）」軟整併為單一主力入口——有建立任務板的專案在沒有未開始建議卡時將舊建議卡預設收折為歷史折疊列不搶版面，F 工地主任於有任務板的專案改以任務板單軌運作不再重複開 --suggest，無任務板的小專案維持原輕量兜底，且保留全部歷史建議卡不丟資料（守住 R1／P2）。"
+    },
+    {
+      "id": "T-20",
+      "title": "收斂誠實任務板「複製開工交辦」按鈕顯示規則",
+      "epic": "看板視覺升級",
+      "spec": "task-board-copy-button-scope",
+      "prompt": "用 spec 技能撰寫精簡規格或小修並確認（從最新 main 出發）：調整誠實任務板卡片的「複製開工交辦」按鈕顯示規則（lib/tasks.mjs 的 canCopy 與對應測試 scripts/tasks.test.mjs、scripts/ui.test.mjs）：1.「規格等點頭」、「施工與檢查中」、「只剩收尾」、「已歸檔」都不再顯示「複製開工交辦」按鈕（這四欄維持純進度提醒與對話連結）；2.「可開工」照舊顯示「複製開工交辦」；3.「鎖定中」請先問我一句要保留附警告的「複製交辦（前置未解鎖）」還是一併拿掉。完成後跑 npm test 與 npm run test:clean 並依流程收尾。"
+    },
+    {
+      "id": "T-21",
+      "title": "建議卡預設全面改開在誠實任務板",
+      "epic": "看板視覺升級",
+      "spec": "default-suggestions-to-task-board",
+      "prompt": "用 spec 技能撰寫精簡規格並確認（從最新 main 出發）：將「建議卡／另開新對話任務」的預設行為全面收斂到誠實任務板（.agents/pipeline-tasks.json），更新 rules/AGENTS.md、skills/director/SKILL.md、skills/retrospect/SKILL.md 與對應測試（scripts/skills.test.mjs、scripts/director.test.mjs）：1. 任何對話（不只限 director 與 retrospect）只要使用者要求開建議卡、開新任務或另開對話處理某件事，預設一律開在該專案主資料夾的 .agents/pipeline-tasks.json（有檔就補草稿或經確認寫入；還沒建檔的 git 專案主動提議建立 .agents/pipeline-tasks.json 並寫入）；2. 只有使用者明確指定用輕量 --suggest、或非 git 專案／無法寫入時，才退回 --suggest 兜底；3. 任務板異常（broken/unreadable/no-main）照舊先報錯停下來問人，不偷開 --suggest（守住 R1／P2）。完成後跑 npm test 與 npm run test:clean 並依流程收尾。"
     }
   ]
 }
