@@ -390,7 +390,7 @@ const mark = (text, part, tag = 'b') => { const t = esc(text), m = esc(part ?? '
  *  todo 是「還差什麼」那一版才有的(規格:還差什麼總表 AC-7):要重啟那一句是服務自己講的,舊的服務講不出來——
  *  不算進來的話,併進去、還沒重啟的那段時間,只有點進案件頁的白板才看得到要重啟,首頁一句都不講(魔鬼教官第二輪,R1) */
 function oldServerBanner() {
-  return latest && (!('sharedLines' in latest) || !('stampHelp' in latest) || !('todo' in latest) || !('guardSupport' in latest) || !('precheckSupport' in latest) || !('escalateSupport' in latest) || !('conflictSupport' in latest) || !('brief' in latest) || !('contextScaleSupport' in latest) || !('taskBoardSupport' in latest) || !('taskEntryMergeSupport' in latest))
+  return latest && (!('sharedLines' in latest) || !('stampHelp' in latest) || !('todo' in latest) || !('guardSupport' in latest) || !('precheckSupport' in latest) || !('escalateSupport' in latest) || !('conflictSupport' in latest) || !('brief' in latest) || !('contextScaleSupport' in latest) || !('contextGaugeSupport' in latest) || !('taskBoardSupport' in latest) || !('taskEntryMergeSupport' in latest))
     ? zhEn('<p class="fault" data-tone="amber">🟡 儀表板的服務還在跑舊的程式，有幾句畫不出來——跑 <code>agy-pipeline --serve-restart</code></p>',
       '<p class="fault" data-tone="amber">🟡 The dashboard service is still running the old program, so a few lines can\'t be drawn: run <code>agy-pipeline --serve-restart</code></p>') : '';
 }
@@ -1463,15 +1463,125 @@ function optOutLine(p) {
 }
 
 /* ═══ 第三層:一個對話 ═══ */
-/** 對話記憶量表卡：照印伺服器照 lib/contextScale.mjs 算好的實測數值、壓縮事實與本專案歷史比例尺（P2 / P5 / P10）。 */
+/** 視覺化記憶量表尺規：依伺服器算好的比例座標繪製日間手繪尺規與夜間賽博 HUD 雙圖層（P2 / P4 / P10）。 */
+function contextGaugeBlock(g, sid) {
+  const safeSid = String(sid ?? 's').replace(/[^a-zA-Z0-9_-]/g, '') || 's';
+  if (g.mode !== 'scale') {
+    const emptyText = g.emptyLabel ?? g.reason ?? zhEn('無法繪製視覺量表', 'Visual memory gauge unavailable');
+    return `<div class="ctx-gauge ctx-gauge-empty" role="img" aria-label="${esc(g.ariaLabel ?? emptyText)}">
+      <svg class="ctx-gauge-svg ctx-gauge-empty-svg" viewBox="0 0 560 36" aria-hidden="true">
+        <g class="ctx-g-night">
+          <rect class="ctx-n-track" x="14" y="11" width="532" height="14" rx="7" fill="var(--color-ctx-track-bg)" stroke="var(--color-ctx-track-border)" stroke-width="1.2" stroke-dasharray="6 4"/>
+        </g>
+        <g class="ctx-g-day">
+          <path d="M 15 9 Q 280 7 545 9 Q 547 18 545 27 Q 280 29 15 27 Q 13 18 15 9 Z" fill="var(--color-ctx-track-bg)" stroke="var(--color-ctx-track-border)" stroke-width="1.5" stroke-dasharray="7 5" stroke-linecap="round"/>
+          <line x1="148" y1="22" x2="148" y2="27" stroke="var(--color-ctx-tick)" stroke-width="1.2" stroke-linecap="round"/>
+          <line x1="280" y1="20" x2="280" y2="27" stroke="var(--color-ctx-tick)" stroke-width="1.2" stroke-linecap="round"/>
+          <line x1="412" y1="22" x2="412" y2="27" stroke="var(--color-ctx-tick)" stroke-width="1.2" stroke-linecap="round"/>
+        </g>
+      </svg>
+      <div class="ctx-gauge-reason">${esc(emptyText)}</div>
+    </div>`;
+  }
+
+  const X0 = 14;
+  const W = 532;
+  const X1 = X0 + W;
+  const Y = 24;
+  const H = 22;
+  const posX = (r) => {
+    const clamped = typeof r === 'number' && Number.isFinite(r) ? Math.max(0, Math.min(1, r)) : 0;
+    return Number((X0 + clamped * W).toFixed(1));
+  };
+  const curX = posX(g.current?.ratio);
+  const curW = Number(Math.max(4, curX - X0).toFixed(1));
+  const peakX = posX(g.peak?.ratio);
+  const medX = posX(g.historyMedian?.ratio);
+  const maxX = posX(g.historyMax?.ratio);
+  const curLbl = esc(g.current?.label ?? '');
+  const peakLbl = esc(g.peak?.label ?? '');
+  const medLbl = esc(g.historyMedian?.label ?? '');
+  const maxLbl = esc(g.historyMax?.label ?? '');
+  const curTitle = `${zhEn('目前用量', 'Current')}: ${curLbl} tokens`;
+  const peakTitle = `${zhEn('本對話最高', 'Conversation peak')}: ${peakLbl} tokens`;
+  const medTitle = `${zhEn('專案通常（中位數）', 'Project typical (median)')}: ${medLbl} tokens`;
+  const maxTitle = `${zhEn('專案過往最高', 'Project past max')}: ${maxLbl} tokens`;
+
+  const nightGradId = `ctxNBar-${safeSid}`;
+  const dayGradId = `ctxDBar-${safeSid}`;
+  const dayHatchId = `ctxDHatch-${safeSid}`;
+  const dayTicks = [0.2, 0.4, 0.6, 0.8].map((r) => {
+    const tx = Number((X0 + r * W).toFixed(1));
+    return `<line x1="${tx}" y1="${Y + H - 5}" x2="${tx}" y2="${Y + H}" stroke="var(--color-ctx-tick)" stroke-width="1.3" stroke-linecap="round"/>`;
+  }).join('');
+
+  const showPeak = Boolean(g.peak?.aboveCurrent && peakX > curX);
+  const peakW = showPeak ? Number(Math.max(2, peakX - curX).toFixed(1)) : 0;
+  const exceedW = g.exceedsHistoryMax && X1 > maxX ? Number((X1 - maxX).toFixed(1)) : 0;
+  const NY = 29;
+  const NH = 12;
+
+  return `<div class="ctx-gauge" role="img" aria-label="${esc(g.ariaLabel ?? '')}">
+    <svg class="ctx-gauge-svg" viewBox="0 0 560 72" aria-hidden="true">
+      <defs>
+        <linearGradient id="${nightGradId}" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stop-color="var(--color-ctx-bar-start)"/>
+          <stop offset="1" stop-color="var(--color-ctx-bar-end)"/>
+        </linearGradient>
+        <linearGradient id="${dayGradId}" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stop-color="var(--color-ctx-bar-start)"/>
+          <stop offset="1" stop-color="var(--color-ctx-bar-end)"/>
+        </linearGradient>
+        <pattern id="${dayHatchId}" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(42)">
+          <line x1="0" y1="0" x2="0" y2="8" stroke="var(--color-ctx-peak-stroke)" stroke-width="2" opacity="0.55"/>
+        </pattern>
+      </defs>
+
+      <g class="ctx-g-night">
+        <rect class="ctx-n-track" x="${X0}" y="${NY}" width="${W}" height="${NH}" rx="6" fill="var(--color-ctx-track-bg)" stroke="var(--color-ctx-track-border)" stroke-width="1.2"/>
+        ${exceedW > 0 ? `<rect class="ctx-n-exceed" x="${maxX}" y="${NY + 2}" width="${exceedW}" height="${NH - 4}" rx="4" fill="var(--color-ctx-exceed-bg)"/>` : ''}
+        ${showPeak ? `<g><title>${peakTitle}</title><rect class="ctx-n-peak" x="${curX}" y="${NY + 2}" width="${peakW}" height="${NH - 4}" rx="4" fill="var(--color-ctx-peak-fill)"/><rect class="ctx-n-peak-tip" x="${Number((peakX - 1).toFixed(1))}" y="${NY - 3}" width="2" height="${NH + 6}" rx="1" fill="var(--color-ctx-peak-stroke)"/></g>` : ''}
+        <g><title>${curTitle}</title><rect class="ctx-n-bar" x="${X0 + 1}" y="${NY + 2}" width="${Math.max(4, curW - 1)}" height="${NH - 4}" rx="4" fill="url(#${nightGradId})"/><line class="ctx-n-core" x1="${X0 + 3}" y1="${NY + NH / 2}" x2="${Number(Math.max(X0 + 5, curX - 2).toFixed(1))}" y2="${NY + NH / 2}" stroke="var(--color-text-primary)" stroke-width="1.2" stroke-linecap="round" opacity="0.6"/></g>
+        <g><title>${medTitle}</title><rect class="ctx-n-med" x="${Number((medX - 1).toFixed(1))}" y="${NY - 3}" width="2" height="${NH + 6}" rx="1" fill="var(--color-ctx-median)"/></g>
+        <g><title>${maxTitle}</title><rect class="ctx-n-max" x="${Number((maxX - 1.2).toFixed(1))}" y="${NY - 4}" width="2.5" height="${NH + 8}" rx="1" fill="var(--color-ctx-max)"/></g>
+      </g>
+
+      <g class="ctx-g-day">
+        <path d="M ${X0 + 1} ${Y} Q 280 ${Y - 1.5} ${X1 - 1} ${Y} Q ${X1 + 1.5} ${Y + H / 2} ${X1 - 1} ${Y + H} Q 280 ${Y + H + 1.5} ${X0 + 1} ${Y + H} Q ${X0 - 1.5} ${Y + H / 2} ${X0 + 1} ${Y} Z" fill="var(--color-ctx-track-bg)" stroke="var(--color-ctx-track-border)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+        ${dayTicks}
+        ${exceedW > 0 ? `<path d="M ${maxX} ${Y + 2} L ${X1 - 2} ${Y + 2} L ${X1 - 2} ${Y + H - 2} L ${maxX} ${Y + H - 2} Z" fill="var(--color-ctx-exceed-bg)" stroke="var(--color-ctx-exceed)" stroke-width="1.2" stroke-dasharray="4 3" stroke-linecap="round"/>` : ''}
+        ${showPeak ? `<g><title>${peakTitle}</title><rect x="${curX}" y="${Y + 3}" width="${peakW}" height="${H - 6}" rx="2" fill="url(#${dayHatchId})" stroke="var(--color-ctx-peak-stroke)" stroke-width="1.3" stroke-dasharray="4 2"/><line x1="${peakX}" y1="${Y - 6}" x2="${peakX}" y2="${Y + H + 4}" stroke="var(--color-ctx-peak-stroke)" stroke-width="1.8" stroke-linecap="round"/><path d="M ${peakX} ${Y - 13} L ${peakX + 5} ${Y - 8} L ${peakX} ${Y - 3} L ${peakX - 5} ${Y - 8} Z" fill="var(--color-ctx-peak-stroke)"/></g>` : ''}
+        <g><title>${curTitle}</title><rect x="${X0 + 2}" y="${Y + 4}" width="${Math.max(4, curW - 2)}" height="${H - 8}" rx="4" fill="url(#${dayGradId})" opacity="0.9"/><path d="M ${X0 + 2} ${Y + 4.5} Q ${(X0 + curX) / 2} ${Y + 3} ${curX} ${Y + 4.5}" fill="none" stroke="var(--color-ctx-bar-end)" stroke-width="1.5" stroke-linecap="round"/><path d="M ${curX - 5} ${Y - 9} L ${curX} ${Y - 2} L ${curX + 5} ${Y - 9} Z" fill="var(--color-ctx-bar-end)"/></g>
+        <g><title>${medTitle}</title><line x1="${medX}" y1="${Y - 6}" x2="${medX}" y2="${Y + H + 9}" stroke="var(--color-ctx-median)" stroke-width="1.6" stroke-dasharray="4 3" stroke-linecap="round"/><circle cx="${medX}" cy="${Y + H + 11}" r="3.2" fill="var(--color-ctx-median)"/></g>
+        <g><title>${maxTitle}</title><line x1="${maxX}" y1="${Y - 8}" x2="${maxX}" y2="${Y + H + 10}" stroke="var(--color-ctx-max)" stroke-width="2" stroke-linecap="round"/><path d="M ${maxX - 4} ${Y - 11} L ${maxX + 4} ${Y - 11}" stroke="var(--color-ctx-max)" stroke-width="2.4" stroke-linecap="round"/></g>
+      </g>
+    </svg>
+    <div class="ctx-axis-ends">
+      <span>0</span>
+      <span>${esc(g.domainMaxLabel ?? '')} tokens${g.domainEndNote ? ` <span class="ctx-exceed-tag">${esc(g.domainEndNote)}</span>` : ''}</span>
+    </div>
+    <div class="ctx-legend">
+      <span class="ctx-leg-item"><i class="ctx-sw ctx-sw-cur" aria-hidden="true"></i>${zhEn('目前', 'Current')} <b>${curLbl}</b></span>
+      <span class="ctx-leg-item"><i class="ctx-sw ctx-sw-peak" aria-hidden="true"></i>${zhEn('本對話最高', 'Peak')} <b>${peakLbl}</b></span>
+      <span class="ctx-leg-item"><i class="ctx-sw ctx-sw-med" aria-hidden="true"></i>${zhEn('專案通常', 'Typical')} <b>${medLbl}</b></span>
+      <span class="ctx-leg-item"><i class="ctx-sw ctx-sw-max" aria-hidden="true"></i>${zhEn('專案最高', 'Past max')} <b>${maxLbl}</b></span>
+    </div>
+  </div>`;
+}
+
+/** 對話記憶量表卡：照印伺服器照 lib/contextScale.mjs 算好的實測數值、視覺比例尺、壓縮事實與本專案歷史比例尺（P2 / P5 / P10）。 */
 function contextScaleCard(s) {
   if (!latest) return '';
+  const hasScale = 'contextScaleSupport' in latest;
+  const hasGauge = 'contextGaugeSupport' in latest;
+  const cx = s?.context ?? null;
+  const compBadgeText = hasGauge ? (cx?.gauge?.compactionBadge ?? null) : null;
+  const compBadge = compBadgeText ? `<span class="ctx-compact-badge">${esc(compBadgeText)}</span>` : '';
   const head = `<div class="ctx-head"><div><h3 class="ctitle">${zhEn('對話記憶量表', 'Context memory scale')}</h3>
-    <div class="ctx-sub">${zhEn('轉錄檔實測與專案歷史', 'Measured transcript &amp; project history')}</div></div></div>`;
-  if (!('contextScaleSupport' in latest) || !s?.context) {
+    <div class="ctx-sub">${zhEn('轉錄檔實測與專案歷史', 'Measured transcript &amp; project history')}</div></div>${compBadge}</div>`;
+  if (!hasScale || !cx) {
     return `<section class="ctx-card" aria-label="${zhEn('對話記憶量表', 'Context memory scale')}">${head}<div class="ctx-meta">${OLD_LINE}</div></section>`;
   }
-  const cx = s.context;
   const bigCls = cx.state === 'ok' ? 'ctx-big' : 'ctx-missing';
   const mainLine = cx.metaLine ? `<div class="ctx-meta">${esc(cx.metaLine)}</div>`
     : cx.summaryLine ? `<div class="ctx-meta">${esc(cx.summaryLine)}</div>` : '';
@@ -1479,6 +1589,14 @@ function contextScaleCard(s) {
   const warn = cx.compactionLine ? `<div class="ctx-warn">${esc(cx.compactionLine)}</div>` : '';
   const peak = cx.peakNote ? `<div class="ctx-note">${esc(cx.peakNote)}</div>` : '';
   const scale = cx.scaleLine ? `<div class="ctx-scale">${esc(cx.scaleLine)}</div>` : '';
+  let gaugeHtml;
+  if (!hasGauge) {
+    gaugeHtml = `<div class="ctx-gauge-old">${OLD_LINE}</div>`;
+  } else if (!cx.gauge || typeof cx.gauge !== 'object') {
+    gaugeHtml = `<div class="ctx-gauge-old">${zhEn('問不到視覺量表資料', 'Visual memory gauge data unavailable')}</div>`;
+  } else {
+    gaugeHtml = contextGaugeBlock(cx.gauge, s.id);
+  }
   const foldKey = `ctx|${s.id ?? ''}`;
   const details = [...(Array.isArray(cx.breakdownLines) ? cx.breakdownLines : []), cx.honestNote]
     .filter(Boolean)
@@ -1491,6 +1609,7 @@ function contextScaleCard(s) {
     ${head}
     ${subagent}
     <div class="ctx-main"><div class="${bigCls}">${esc(cx.headline ?? '')}</div>${mainLine}</div>
+    ${gaugeHtml}
     ${warn}${peak}${scale}${more}
   </section>`;
 }

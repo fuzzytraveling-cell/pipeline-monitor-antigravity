@@ -107,7 +107,7 @@
 | Antigravity 專用版（方案 B）移植與地基 | v0.1 地基（感測器、收工門禁、看板、rules、6 支 skill）：[antigravity-v01-foundation](docs/升級摘要/antigravity-v01-foundation.md) |
 | 多 worktree 並發改動衝突偵測 | [worktree-conflict-detection](docs/升級摘要/worktree-conflict-detection.md) |
 | 定時工地巡檢晨報（`--brief`／`--quiet-if-clear`）與首頁晨報卡 | [brief-patrol-command](docs/升級摘要/brief-patrol-command.md)；儀表板首頁晨報卡：[dashboard-brief-card](docs/升級摘要/dashboard-brief-card.md) |
-| 對話 Context Token 真實量表與歷史比例尺 | [context-token-scale](docs/升級摘要/context-token-scale.md) |
+| 對話 Context Token 真實量表與歷史比例尺 | [context-token-scale](docs/升級摘要/context-token-scale.md)；視覺化儀表：[context-token-visual-gauge](docs/升級摘要/context-token-visual-gauge.md) |
 | 舊規格與已知死法即時反查（`--round precheck`／`--round D`／`--context`） | [legacy-spec-lookup](docs/升級摘要/legacy-spec-lookup.md) |
 | 工地復盤官技能（`retrospect`）與近期卡關純事實盤點（`--retrospect`） | [retrospect-skill](docs/升級摘要/retrospect-skill.md) |
 | 誠實任務板、F 主任派工／清理／歸檔與新版 Antigravity ROADMAP | [honest-task-board-director-dispatch](docs/升級摘要/honest-task-board-director-dispatch.md)；建議卡與任務板軟整併：[merge-suggestions-into-task-board](docs/升級摘要/merge-suggestions-into-task-board.md) |

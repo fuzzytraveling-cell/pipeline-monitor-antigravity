@@ -180,6 +180,24 @@
   --color-marker-gray: #8b9bb4;
   --color-marker-yellow: var(--color-agent-f);
 
+  /* 對話記憶量表視覺化儀表（夜間賽博 HUD 風，規格：context-token-visual-gauge，禁用綠色） */
+  --color-ctx-panel-bg: rgba(9, 15, 29, 0.78);
+  --color-ctx-track-bg: #0c1425;
+  --color-ctx-track-border: #2c4066;
+  --color-ctx-tick: #3e5782;
+  --color-ctx-bar-start: #00e5ff;
+  --color-ctx-bar-end: #38a6ff;
+  --color-ctx-bar-glow: rgba(0, 229, 255, 0.45);
+  --color-ctx-peak-fill: rgba(184, 125, 255, 0.24);
+  --color-ctx-peak-stroke: #b87dff;
+  --color-ctx-median: #c7d6f2;
+  --color-ctx-max: #ffb84d;
+  --color-ctx-exceed: #9c8cff;
+  --color-ctx-exceed-bg: rgba(156, 140, 255, 0.14);
+  --color-ctx-compact-bg: rgba(255, 196, 0, 0.14);
+  --color-ctx-compact-border: rgba(255, 196, 0, 0.65);
+  --color-ctx-compact-text: #ffd447;
+
   /* 字：一般的句子用系統的無襯線字（中文是蘋方）；指令、檔名、數字照舊等寬 */
   --font-body: -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
 }
@@ -217,4 +235,22 @@
   --color-marker-blue: #2b59d1;
   --color-marker-gray: #9b9896;
   --color-marker-yellow: var(--color-agent-f);
+
+  /* 對話記憶量表視覺化儀表（白天手繪工地尺規風，禁用綠色） */
+  --color-ctx-panel-bg: #fcfaf5;
+  --color-ctx-track-bg: #f3efe6;
+  --color-ctx-track-border: #8b8680;
+  --color-ctx-tick: #a8a29c;
+  --color-ctx-bar-start: #a0b5eb;
+  --color-ctx-bar-end: #2b59d1;
+  --color-ctx-bar-glow: rgba(43, 89, 209, 0.18);
+  --color-ctx-peak-fill: rgba(108, 91, 192, 0.22);
+  --color-ctx-peak-stroke: #6c5bc0;
+  --color-ctx-median: #4e4d4d;
+  --color-ctx-max: #b88a1e;
+  --color-ctx-exceed: #2b59d1;
+  --color-ctx-exceed-bg: rgba(43, 89, 209, 0.10);
+  --color-ctx-compact-bg: #fde9e1;
+  --color-ctx-compact-border: #f37a0a;
+  --color-ctx-compact-text: #b84a00;
 }

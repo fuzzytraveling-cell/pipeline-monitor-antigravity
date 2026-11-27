@@ -977,7 +977,7 @@ function enWorld() {
     const brief = briefReport(baseAll, todo, { ago });
     return { generatedAt: NOW, retainDays: 90, lang: 'en', langNote: null, ...baseAll, todo, brief,
       sharedLines: { calledNotPassed: calledIsNotPassed() }, stampHelp: { commit: 'commit: …', stamp: 'stamp (agy-pipeline --checkpoint): …', order: 'Always commit before stamping' },
-      contextScaleSupport: true, taskBoardSupport: true, taskEntryMergeSupport: true };
+      contextScaleSupport: true, contextGaugeSupport: true, taskBoardSupport: true, taskEntryMergeSupport: true };
   }));
 }
 

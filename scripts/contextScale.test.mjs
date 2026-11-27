@@ -454,6 +454,7 @@ section('AC-3 & AC-4：網頁照印伺服器、舊服務防護、gone/movedOn �
     retainDays: 90,
     lang: 'zh',
     contextScaleSupport: true,
+    contextGaugeSupport: true,
     sharedLines: { calledNotPassed: '五關寫的是「叫了」' },
     projects: [{
       name: 'p1',
@@ -553,17 +554,183 @@ section('AC-3 & AC-4：網頁照印伺服器、舊服務防護、gone/movedOn �
       const cv = sessionContextView({ sessionId: 'cur', events: evs, projectScale: sc, extraTranscripts: { cur: tr } });
       return { sc, cv };
     }));
-    const enCardHtml = uiSessionHarness({ generatedAt: NOW, contextScaleSupport: true }, { lang: 'en' })
+    const enCardHtml = uiSessionHarness({ generatedAt: NOW, contextScaleSupport: true, contextGaugeSupport: true }, { lang: 'en' })
       .contextScaleCard({ id: 'cur', context: enOut.cv });
     const textOnly = enCardHtml.replace(/<[^>]*>/g, ' ');
-    const allEn = `${enOut.sc.line} ${enOut.cv.summaryLine} ${enOut.cv.compactionLine} ${enOut.cv.peakNote} ${enOut.cv.honestNote} ${textOnly}`;
+    const allEn = `${enOut.sc.line} ${enOut.cv.summaryLine} ${enOut.cv.compactionLine} ${enOut.cv.peakNote} ${enOut.cv.honestNote} ${enOut.cv.gauge.ariaLabel} ${textOnly}`;
     check('英文版零中文與零全形空白', !CJK.test(allEn) && !allEn.includes('\u3000'), allEn);
-    check('英文與網頁無百分比 / % / 禁語 / 美元（P4 / P10）',
-      !/%|進度|百分比|\$\d|\bpassed\b|\ball clear\b|\bverified\b|\bsafe\b|✓|✅/i.test(allEn), allEn);
+    check('英文與網頁無百分比 / % / 禁語 / 美元 / <progress>（P4 / P10）',
+      !/%|進度|百分比|\$\d|\bpassed\b|\ball clear\b|\bverified\b|\bsafe\b|✓|✅|<progress\b/i.test(allEn) && !/<progress\b/i.test(enCardHtml), allEn);
     check('formatTokens 與 formatExactTokens 格式正確', formatTokens(1250000) === '1.25M' && formatExactTokens(12345) === '12,345', true);
   } finally {
     rmSync(enDir, { recursive: true, force: true });
   }
+}
+
+/* ════════════ 7. 視覺化記憶量表（context-token-visual-gauge）：三態、碰撞、畸形、三層舊服務與雙主題 SVG ════════════ */
+
+section('視覺化記憶量表（context-token-visual-gauge）：scale/no-scale/unavailable 優先序、壓縮殘影、超出最高、畸形防呆與三層舊服務', 'P2');
+{
+  const fakeScaleReady = {
+    ready: true, sample: 14, totalClosed: 14, effectiveClosed: 14, scanned: 14, unscanned: 0, unreadInScanned: 0,
+    median: 511000, max: 554200,
+    line: '參考：這個專案過往 14 個可讀已結案對話，最高用量通常到 511k tokens，最多到過 554.2k tokens',
+  };
+  const fakeScaleNotReady = {
+    ready: false, sample: 3, totalClosed: 3, effectiveClosed: 3, scanned: 3, unscanned: 0, unreadInScanned: 0,
+    median: null, max: null,
+    line: '這個專案目前只有 3 個可讀的已結案對話（滿 5 個才給歷史比例尺）',
+  };
+  const mkRead = (usage) => () => ({ ok: true, isSubagent: false, usage });
+
+  // 1. scale 態：壓縮回落（peak > current）＋緊貼值（511k / 550.5k / 554.2k）＋日夜雙圖層＋四項圖例
+  const compView = withClock(() => sessionContextView({
+    sessionId: 's-comp',
+    projectScale: fakeScaleReady,
+    extraTranscripts: { 's-comp': 'tp-comp' },
+    read: mkRead({
+      latest: { step: 8, at: T(-60), model: 'gemini-4-neon-xhigh', contextTokens: 97600, input_tokens: 17600, cache_read_tokens: 80000, inputTokens: 17600, cacheReadTokens: 80000, outputTokens: 250 },
+      peakTokens: 550500, peakAt: T(-300), compactions: 2, lastCompactionAt: T(-240), plannerSteps: 8, readableSteps: 8,
+    }),
+  }));
+  eq('scale 態：mode 為 scale', compView.gauge.mode, 'scale');
+  eq('scale 態：domainMax 取三者最大 554.2k', compView.gauge.domainMax, 554200);
+  eq('scale 態：exceedsHistoryMax 為 false', compView.gauge.exceedsHistoryMax, false);
+  eq('scale 態：peak.aboveCurrent 為 true', compView.gauge.peak.aboveCurrent, true);
+  eq('scale 態：compactionBadge 為 壓縮 2 次', compView.gauge.compactionBadge, '壓縮 2 次');
+
+  const uiNow = uiSessionHarness({ generatedAt: NOW, contextScaleSupport: true, contextGaugeSupport: true }, { lang: 'zh' });
+  const compHtml = uiNow.contextScaleCard({ id: 's-comp', context: compView });
+  check('SVG 同時內嵌日間手繪圖層與夜間賽博圖層、含壓縮章與四項圖例實數且零 %',
+    compHtml.includes('class="ctx-g-night"')
+    && compHtml.includes('class="ctx-g-day"')
+    && compHtml.includes('壓縮 2 次')
+    && compHtml.includes('97.6k')
+    && compHtml.includes('550.5k')
+    && compHtml.includes('511k')
+    && compHtml.includes('554.2k')
+    && !compHtml.includes('%')
+    && !/<progress\b/i.test(compHtml), compHtml);
+
+  // 2. 超出專案過往最高（exceedsHistoryMax）＋ 極小非零值（1 token）＋ 四點完全重合（current === peak === max）
+  const exceedView = withClock(() => sessionContextView({
+    sessionId: 's-exc',
+    projectScale: fakeScaleReady,
+    extraTranscripts: { 's-exc': 'tp-exc' },
+    read: mkRead({
+      latest: { step: 2, at: T(-30), model: 'gemini-4-neon-xhigh', contextTokens: 640000, inputTokens: 40000, cacheReadTokens: 600000, outputTokens: 100 },
+      peakTokens: 640000, peakAt: T(-30), compactions: 0, lastCompactionAt: null, plannerSteps: 2, readableSteps: 2,
+    }),
+  }));
+  eq('超出過往最高時 domainMax 動態延展為 640k', exceedView.gauge.domainMax, 640000);
+  check('超出過往最高時 exceedsHistoryMax 為 true 且 historyMax.ratio < 1',
+    exceedView.gauge.exceedsHistoryMax === true && exceedView.gauge.historyMax.ratio < 1, exceedView.gauge.historyMax.ratio);
+  const excHtml = uiNow.contextScaleCard({ id: 's-exc', context: exceedView });
+  check('超出過往最高顯示中性標籤且不含紅燈警語', excHtml.includes('高於過往最高') && !excHtml.includes('ctx-warn'), excHtml);
+
+  const tinyView = withClock(() => sessionContextView({
+    sessionId: 's-tiny',
+    projectScale: fakeScaleReady,
+    extraTranscripts: { 's-tiny': 'tp-tiny' },
+    read: mkRead({
+      latest: { step: 1, at: T(-10), model: 'gemini-4-neon-xhigh', contextTokens: 1, inputTokens: 1, cacheReadTokens: 0, outputTokens: 1 },
+      peakTokens: 1, peakAt: T(-10), compactions: 0, lastCompactionAt: null, plannerSteps: 1, readableSteps: 1,
+    }),
+  }));
+  check('極小非零值（1 token）於 ratio > 0 時保底畫出可見最小寬度', tinyView.gauge.current.ratio > 0 && uiNow.contextScaleCard({ id: 's-tiny', context: tinyView }).includes('width="4"'), true);
+
+  // 3. no-scale 與 unavailable 優先序（預審 #2）：state !== 'ok' 且樣本 < 5 時優先出 unavailable；projectScale: null 時自帶原因
+  const unavailPriority = sessionContextView({
+    sessionId: 's-miss',
+    projectScale: fakeScaleNotReady,
+    extraTranscripts: { 's-miss': '/nonexistent/path.jsonl' },
+  });
+  eq('樣本未滿 5 個且轉錄檔遺失時優先回 mode: unavailable（不冒充 no-scale，P5）', unavailPriority.gauge.mode, 'unavailable');
+
+  const noScaleNull = withClock(() => sessionContextView({
+    sessionId: 's-noscale-null',
+    projectScale: null,
+    extraTranscripts: { 's-noscale-null': 'tp-ns' },
+    read: mkRead({
+      latest: { step: 1, at: T(-20), model: 'gemini-4-neon-xhigh', contextTokens: 80000, inputTokens: 80000, cacheReadTokens: 0, outputTokens: 50 },
+      peakTokens: 120000, peakAt: T(-20), compactions: 1, lastCompactionAt: T(-15), plannerSteps: 1, readableSteps: 1,
+    }),
+  }));
+  check('projectScale 為 null 時 mode 為 no-scale 且自帶原因', noScaleNull.gauge.mode === 'no-scale' && Boolean(noScaleNull.gauge.reason), noScaleNull.gauge);
+  const nsHtml = uiNow.contextScaleCard({ id: 's-noscale-null', context: noScaleNull });
+  check('no-scale 不畫實心比例長條（ctx-g-night 僅虛線空框）且印出未校準原因與壓縮章',
+    nsHtml.includes('ctx-gauge-empty') && nsHtml.includes('尚未提供專案歷史比例尺') && nsHtml.includes('壓縮 1 次') && !nsHtml.includes('ctx-legend'), nsHtml);
+
+  // 舊格式無 token 但有壓縮紀錄（unavailable 仍保留壓縮章）
+  const oldFmtView = sessionContextView({
+    sessionId: 's-oldfmt',
+    projectScale: fakeScaleReady,
+    extraTranscripts: { 's-oldfmt': 'tp-oldfmt' },
+    read: mkRead({ latest: null, peakTokens: null, peakAt: null, compactions: 3, lastCompactionAt: T(-50), plannerSteps: 4, readableSteps: 0 }),
+  });
+  check('舊格式無 token 紀錄但有壓縮時 mode 為 unavailable 且帶壓縮 3 次徽章',
+    oldFmtView.gauge.mode === 'unavailable' && oldFmtView.gauge.compactionBadge === '壓縮 3 次', oldFmtView.gauge);
+
+  // 4. 畸形數值防呆（預審 #1）：NaN/-1/Infinity 整組降級不印 null tokens；peak < current 正規化；median > max 降級 no-scale
+  const nanView = sessionContextView({
+    sessionId: 's-nan',
+    projectScale: fakeScaleReady,
+    extraTranscripts: { 's-nan': 'tp-nan' },
+    read: mkRead({
+      latest: { step: 1, at: T(-10), model: 'gemini-4-neon-xhigh', contextTokens: Number.NaN, inputTokens: 0, cacheReadTokens: 0, outputTokens: null },
+      peakTokens: -5, peakAt: null, compactions: 0, lastCompactionAt: null, plannerSteps: 1, readableSteps: 1,
+    }),
+  });
+  check('contextTokens 為 NaN 時整組降級為 no-tokens（絕不印 null tokens，R1）',
+    nanView.state === 'no-tokens' && nanView.gauge.mode === 'unavailable' && !/null\s*tokens/i.test(nanView.headline), nanView);
+
+  const normPeakView = withClock(() => sessionContextView({
+    sessionId: 's-norm',
+    projectScale: { ...fakeScaleReady, median: 600000, max: 500000 }, // median > max 畸形歷史
+    extraTranscripts: { 's-norm': 'tp-norm' },
+    read: mkRead({
+      latest: { step: 1, at: T(-10), model: 'gemini-4-neon-xhigh', contextTokens: 150000, inputTokens: 50000, cacheReadTokens: 100000, outputTokens: 50 },
+      peakTokens: 100000, // 畸形：peak < current
+      peakAt: T(-10), compactions: 0, lastCompactionAt: null, plannerSteps: 1, readableSteps: 1,
+    }),
+  }));
+  check('peakTokens < contextTokens 時統一正規化為 150000 且不於文字與圖表打架（P2）',
+    normPeakView.peakTokens === 150000 && normPeakView.gauge.peak.tokens === 150000 && normPeakView.peakNote === null, normPeakView);
+  eq('median > max 畸形歷史比例尺降級為 no-scale', normPeakView.gauge.mode, 'no-scale');
+  const normHtml = uiNow.contextScaleCard({ id: 's-norm', context: normPeakView });
+  check('畸形歷史比例尺渲染不出「需滿 5 個可讀已結案對話」、照實印數值異常（P5 / R1）',
+    normHtml.includes('歷史比例尺數值異常') && !normHtml.includes('需滿 5 個可讀已結案對話'), normHtml);
+
+  // 5. 三層舊服務／缺 gauge 分流（預審 #3）與 gone/movedOn 頁視覺量表
+  const v16OldUi = uiSessionHarness({
+    generatedAt: NOW, sharedLines: {}, stampHelp: {}, todo: { projects: [] },
+    guardSupport: true, precheckSupport: true, escalateSupport: true, conflictSupport: true,
+    brief: { clear: true, groups: [] }, contextScaleSupport: true, taskBoardSupport: true, taskEntryMergeSupport: true,
+  }, { lang: 'zh' });
+  check('缺少 contextGaugeSupport 時 oldServerBanner 亮黃條', /--serve-restart/.test(v16OldUi.oldServerBanner()));
+  const v16CardHtml = v16OldUi.contextScaleCard({ id: 's-comp', context: compView });
+  check('v0.16 舊服務：保留既有文字（97.6k tokens）、於量表區顯示 OLD_LINE 且不於前端自拼 ctx-compact-badge（P2）',
+    v16CardHtml.includes('97.6k tokens') && v16CardHtml.includes(v16OldUi.OLD_LINE) && !v16CardHtml.includes('ctx-compact-badge'), v16CardHtml);
+
+  const fakeBadgeHtml = uiNow.contextScaleCard({
+    id: 's-fake-badge',
+    context: { ...compView, gauge: { ...compView.gauge, compactionBadge: 'FAKE_BADGE_99' } },
+  });
+  check('網頁照印伺服器給的假 compactionBadge 字串（不自己重算，P2）',
+    fakeBadgeHtml.includes('FAKE_BADGE_99'), fakeBadgeHtml);
+
+  const missingGaugeHtml = uiNow.contextScaleCard({ id: 's-nogauge', context: { state: 'ok', headline: '50k tokens', metaLine: 'm' } });
+  check('已有 contextGaugeSupport 但缺 s.context.gauge → 顯示問不到量表，不誤報舊服務（P5）',
+    missingGaugeHtml.includes('問不到視覺量表資料') && !missingGaugeHtml.includes(uiNow.OLD_LINE), missingGaugeHtml);
+
+  const goneUi = uiSessionHarness({
+    generatedAt: NOW, contextScaleSupport: true, contextGaugeSupport: true, sharedLines: { calledNotPassed: '叫了' },
+    projects: [{
+      name: 'p1', displayName: 'p1',
+      sessions: [{ id: 'g1', title: '已刪', prompts: 1, lastTs: T(-20), closedAt: T(-10), cwd: '/g', card: { path: '/g', gone: true, sensor: { state: 'ok' }, stages: [] }, stages: [], context: compView }],
+    }],
+  }, { lang: 'zh' });
+  check('c.gone 對話頁一樣畫出視覺記憶量表 SVG', goneUi.sessionPage('p1', 'g1').includes('class="ctx-gauge-svg"'));
 }
 
 process.exit(summary());

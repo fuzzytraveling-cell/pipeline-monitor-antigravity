@@ -174,6 +174,54 @@ h2.section { font-size: var(--text-subheading); letter-spacing: var(--tracking-s
 .ctx-scale { margin-top: 8px; font-size: var(--text-caption); color: var(--color-text-secondary); }
 .ctx-details { margin-top: 10px; }
 .ctx-details p { margin: 4px 0 0; font-size: var(--text-caption); color: var(--color-text-muted); }
+.ctx-compact-badge {
+  display: inline-flex; align-items: center; gap: 4px; flex: none;
+  padding: 2px 10px; border-radius: var(--radius-full);
+  font-size: var(--text-caption); font-weight: var(--font-weight-medium);
+  background: var(--color-ctx-compact-bg);
+  border: 1px solid var(--color-ctx-compact-border);
+  color: var(--color-ctx-compact-text);
+}
+.ctx-gauge {
+  margin-top: 10px; padding: 10px 12px 9px;
+  border-radius: 10px;
+  border: 1px solid var(--color-night-border);
+  background:
+    linear-gradient(var(--color-grid) 1px, transparent 1px) 0 0 / 18px 18px,
+    linear-gradient(90deg, var(--color-grid) 1px, transparent 1px) 0 0 / 18px 18px,
+    var(--color-ctx-panel-bg);
+}
+.ctx-gauge-svg { display: block; width: 100%; height: auto; overflow: visible; }
+.ctx-g-night { display: block; }
+.ctx-g-day { display: none; }
+.ctx-n-bar { filter: drop-shadow(0 0 8px var(--color-ctx-bar-glow)); }
+.ctx-n-peak-tip { filter: drop-shadow(0 0 5px var(--color-ctx-peak-stroke)); }
+.ctx-n-max { filter: drop-shadow(0 0 5px var(--color-ctx-max)); }
+.ctx-axis-ends {
+  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  margin-top: 4px; font-family: var(--font-abc-diatype-mono); font-size: var(--text-caption);
+  color: var(--color-text-muted);
+}
+.ctx-exceed-tag {
+  display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: var(--radius-full);
+  font-family: var(--font-body);
+  color: var(--color-ctx-exceed); background: var(--color-ctx-exceed-bg);
+  border: 1px solid var(--color-ctx-exceed);
+}
+.ctx-legend {
+  display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 8px;
+  font-size: var(--text-caption); color: var(--color-text-secondary);
+}
+.ctx-leg-item { display: inline-flex; align-items: center; gap: 5px; }
+.ctx-leg-item b { font-family: var(--font-abc-diatype-mono); font-weight: var(--font-weight-medium); color: var(--color-text-primary); }
+.ctx-sw { display: inline-block; width: 10px; height: 10px; flex: none; border-radius: 2px; }
+.ctx-sw-cur { background: linear-gradient(90deg, var(--color-ctx-bar-start), var(--color-ctx-bar-end)); }
+.ctx-sw-peak { background: var(--color-ctx-peak-fill); border: 1px dashed var(--color-ctx-peak-stroke); }
+.ctx-sw-med { width: 8px; height: 8px; border-radius: 50%; background: var(--color-ctx-median); }
+.ctx-sw-max { width: 3px; height: 11px; border-radius: 1px; background: var(--color-ctx-max); }
+.ctx-gauge-empty { padding: 8px 12px; }
+.ctx-gauge-reason { margin-top: 4px; font-size: var(--text-caption); color: var(--color-text-muted); }
+.ctx-gauge-old { margin-top: 8px; font-size: var(--text-caption); color: var(--color-text-muted); }
 
 /* ───────── 第一層:案件列表 ───────── */
 /* 案件卡也是貼在夜間施工看板上的工作卡(night-shift-ui-theme AC-1、AC-2):施工藍圖方格、頂端反光貼條 */
@@ -1354,6 +1402,19 @@ a.ext { color: var(--color-neon-cyan); }
 [data-theme="day"] .ctx-sub,
 [data-theme="day"] .ctx-details p { color: var(--color-smoke); }
 [data-theme="day"] .ctx-warn { color: var(--color-crimson); }
+[data-theme="day"] .ctx-g-night { display: none; }
+[data-theme="day"] .ctx-g-day { display: block; }
+[data-theme="day"] .ctx-gauge {
+  border-color: var(--color-ash); border-style: dashed; border-radius: 6px;
+}
+[data-theme="day"] .ctx-compact-badge {
+  border-radius: 4px; border-style: dashed; transform: rotate(-1deg);
+}
+[data-theme="day"] .ctx-axis-ends,
+[data-theme="day"] .ctx-gauge-reason,
+[data-theme="day"] .ctx-gauge-old { color: var(--color-smoke); }
+[data-theme="day"] .ctx-legend { color: var(--color-graphite); }
+[data-theme="day"] .ctx-leg-item b { color: var(--color-off-black); }
 
 [data-theme="day"] .wb {
   background: var(--color-whiteboard); -webkit-backdrop-filter: none; backdrop-filter: none;

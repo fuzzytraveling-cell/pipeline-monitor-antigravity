@@ -302,6 +302,17 @@ section('CSS 單一來源、零硬編碼色碼、零綠色狀態、減少動態�
     .filter((v) => !localVars.has(v) && !definedVars.has(v));
   eq('ui/ui.css 用到的每個全域 CSS 變數都在 variables.css 定義', missingVars.join(','), '');
 
+  const dayBlock = varsCss.match(/:root\[data-theme="day"\]\s*\{([\s\S]*?)\n\}/)?.[1] ?? '';
+  const ctxVars = [...new Set([...varsCss.matchAll(/(--color-ctx-[a-z0-9-]+)\s*:/gi)].map((m) => m[1]))];
+  check('對話記憶量表雙主題色票 --color-ctx-* 皆成對定義於 :root 與 :root[data-theme="day"]',
+    ctxVars.length >= 10 && ctxVars.every((v) => dayBlock.includes(`${v}:`)), ctxVars.join(','));
+  check('ui/ui.css 的 [data-theme="day"] 分流切換 .ctx-g-day 與 .ctx-g-night',
+    /\[data-theme="day"\]\s+\.ctx-g-night\s*\{\s*display:\s*none;\s*\}/.test(cleanUi)
+    && /\[data-theme="day"\]\s+\.ctx-g-day\s*\{\s*display:\s*block;\s*\}/.test(cleanUi));
+  const ctxCss = cleanUi.match(/\.ctx-[^{]*\{[^}]*\}/g)?.join('\n') ?? '';
+  check('.ctx-* 樣式絕不使用薄荷綠（--color-agent-c / --color-mint，P10）',
+    !/--color-agent-c|--color-mint/.test(ctxCss), ctxCss);
+
   const keyframes = [...cleanUi.matchAll(/@keyframes\s+([a-z0-9-]+)/gi)].map((m) => m[1]);
   const reduceCss = [...cleanUi.matchAll(/@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{([\s\S]*?\n\})/g)].map((m) => m[1]).join('\n');
   const animatedRules = [...cleanUi.matchAll(/([^{}\n]+)\{[^}]*\banimation(?:-name)?\s*:\s*([a-z0-9-]+)/gi)]

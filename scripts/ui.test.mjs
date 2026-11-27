@@ -594,7 +594,7 @@ section('還原點那一行照實講:有沒 commit 的才說會丟掉幾個、�
   const bannerOf = (latest) => (banner ? new Function('latest', `const zhEn = (zh) => zh; const many = (n, one, more = one + 's') => n + ' ' + (n === 1 ? one : more);\n${banner}; return oldServerBanner();`)(latest) : '');
   check('從 ui/app.js 拿得出 oldServerBanner', !!banner);
   check('上一版的服務(有 sharedLines、沒有 stampHelp)→ 最上面講服務還在跑舊的程式', /--serve-restart/.test(bannerOf({ projects: [], sharedLines: {} })));
-  check('這一版的服務 → 不講', bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true, precheckSupport: true, escalateSupport: true, conflictSupport: true, brief: { clear: true, groups: [] }, contextScaleSupport: true, taskBoardSupport: true, taskEntryMergeSupport: true }) === '');
+  check('這一版的服務 → 不講', bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true, precheckSupport: true, escalateSupport: true, conflictSupport: true, brief: { clear: true, groups: [] }, contextScaleSupport: true, contextGaugeSupport: true, taskBoardSupport: true, taskEntryMergeSupport: true }) === '');
 }
 
 section('舊的服務認得出來:「還差什麼」那一版以前的服務(有 stampHelp、沒有 todo)要重啟那一句講不出來 → 每一頁最上面講服務還在跑舊的程式(規格:還差什麼總表 AC-7,魔鬼教官第二輪)', 'P2');
@@ -620,7 +620,9 @@ section('舊的服務認得出來:「還差什麼」那一版以前的服務(有
     /--serve-restart/.test(bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true, precheckSupport: true, escalateSupport: true, conflictSupport: true, brief: { clear: true, groups: [] }, contextScaleSupport: true })));
   check('必抓:有 taskBoardSupport 但沒有 taskEntryMergeSupport（v0.15 舊服務）→ 每一頁最上面講服務還在跑舊的程式',
     /--serve-restart/.test(bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true, precheckSupport: true, escalateSupport: true, conflictSupport: true, brief: { clear: true, groups: [] }, contextScaleSupport: true, taskBoardSupport: true })));
-  check('必放:有全部旗標含 taskEntryMergeSupport → 不講', bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true, precheckSupport: true, escalateSupport: true, conflictSupport: true, brief: { clear: true, groups: [] }, contextScaleSupport: true, taskBoardSupport: true, taskEntryMergeSupport: true }) === '');
+  check('必抓:有 taskEntryMergeSupport 但沒有 contextGaugeSupport（v0.16 舊服務）→ 每一頁最上面講服務還在跑舊的程式',
+    /--serve-restart/.test(bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true, precheckSupport: true, escalateSupport: true, conflictSupport: true, brief: { clear: true, groups: [] }, contextScaleSupport: true, taskBoardSupport: true, taskEntryMergeSupport: true })));
+  check('必放:有全部旗標含 contextGaugeSupport → 不講', bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true, precheckSupport: true, escalateSupport: true, conflictSupport: true, brief: { clear: true, groups: [] }, contextScaleSupport: true, contextGaugeSupport: true, taskBoardSupport: true, taskEntryMergeSupport: true }) === '');
 }
 
 section('案件頁「誠實任務板」（taskBoardBlock）與三態任務入口整併（AC-1/AC-2）：舊服務降級、empty 不早退吞卡、無 % 與無綠燈背書', 'P10');
