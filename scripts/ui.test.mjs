@@ -594,7 +594,7 @@ section('還原點那一行照實講:有沒 commit 的才說會丟掉幾個、�
   const bannerOf = (latest) => (banner ? new Function('latest', `const zhEn = (zh) => zh; const many = (n, one, more = one + 's') => n + ' ' + (n === 1 ? one : more);\n${banner}; return oldServerBanner();`)(latest) : '');
   check('從 ui/app.js 拿得出 oldServerBanner', !!banner);
   check('上一版的服務(有 sharedLines、沒有 stampHelp)→ 最上面講服務還在跑舊的程式', /--serve-restart/.test(bannerOf({ projects: [], sharedLines: {} })));
-  check('這一版的服務 → 不講', bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true, precheckSupport: true, escalateSupport: true, conflictSupport: true, brief: { clear: true, groups: [] } }) === '');
+  check('這一版的服務 → 不講', bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true, precheckSupport: true, escalateSupport: true, conflictSupport: true, brief: { clear: true, groups: [] }, contextScaleSupport: true }) === '');
 }
 
 section('舊的服務認得出來:「還差什麼」那一版以前的服務(有 stampHelp、沒有 todo)要重啟那一句講不出來 → 每一頁最上面講服務還在跑舊的程式(規格:還差什麼總表 AC-7,魔鬼教官第二輪)', 'P2');
@@ -614,7 +614,9 @@ section('舊的服務認得出來:「還差什麼」那一版以前的服務(有
     /--serve-restart/.test(bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true, precheckSupport: true, escalateSupport: true })));
   check('必抓:有 conflictSupport 但沒有 brief（v0.10 舊服務）→ 每一頁最上面講服務還在跑舊的程式',
     /--serve-restart/.test(bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true, precheckSupport: true, escalateSupport: true, conflictSupport: true })));
-  check('必放:有 todo、guardSupport、precheckSupport、escalateSupport、conflictSupport 且 brief → 不講', bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true, precheckSupport: true, escalateSupport: true, conflictSupport: true, brief: { clear: true, groups: [] } }) === '');
+  check('必抓:有 brief 但沒有 contextScaleSupport（v0.11 舊服務）→ 每一頁最上面講服務還在跑舊的程式',
+    /--serve-restart/.test(bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true, precheckSupport: true, escalateSupport: true, conflictSupport: true, brief: { clear: true, groups: [] } })));
+  check('必放:有 todo、guardSupport、precheckSupport、escalateSupport、conflictSupport、brief 且 contextScaleSupport → 不講', bannerOf({ projects: [], sharedLines: {}, stampHelp: STAMP_HELP, todo: { projects: [] }, guardSupport: true, precheckSupport: true, escalateSupport: true, conflictSupport: true, brief: { clear: true, groups: [] }, contextScaleSupport: true }) === '');
 }
 
 section('感測器列（sensorLine）：有 q.guard 與 q.escalate 時一併畫出小標籤', 'P2');
@@ -645,16 +647,17 @@ section('上一手的對話頁:講明資料夾換人了,不畫資料夾現在的
   ] }] };
   // workflow 換成會講出它拿到哪個資料夾的替身:E 那一格「你說驗收過了」的按鈕是按資料夾記的,path 在就會畫
   const oldLine = src.match(/^const OLD_LINE = .*;$/m)?.[0] ?? '';   // 「叫了不等於通過」那一句是伺服器給的;舊的服務沒給時用這一句
-  // directorOf:F 工地主任要的那一份(規格:還差什麼總表 AC-12),這一段只看資料夾換人那幾行,給一個替身
-  const page = code ? new Function('latest', 'esc', 'ago', 'workflow', 'statRestore', 'statLadder', 'statChanges', 'statTier', 'sensorLine', 'stagesNoteLine', 'directorOf',
-    `const zhEn = (zh) => zh; const many = (n, one, more = one + 's') => n + ' ' + (n === 1 ? one : more);\n${oldLine}\n${code}; return sessionPage;`)(latest, esc, ago, (c) => `<workflow path=${c.path}>`, stub('restore'), stub('ladder'), stub('changes'), stub('tier'), stub('sensor'), stub('stagesNote'), () => null) : null;
+  // directorOf:F 工地主任要的那一份(規格:還差什麼總表 AC-12),這一段只看資料夾換人那幾行,給一個替身；contextScaleCard 同步注入（預審）
+  const page = code ? new Function('latest', 'esc', 'ago', 'workflow', 'statRestore', 'statLadder', 'statChanges', 'statTier', 'sensorLine', 'stagesNoteLine', 'directorOf', 'contextScaleCard',
+    `const zhEn = (zh) => zh; const many = (n, one, more = one + 's') => n + ' ' + (n === 1 ? one : more);\n${oldLine}\n${code}; return sessionPage;`)(latest, esc, ago, (c) => `<workflow path=${c.path}>`, stub('restore'), stub('ladder'), stub('changes'), stub('tier'), stub('sensor'), stub('stagesNote'), () => null, stub('context')) : null;
   const old = page?.('p', 's0') ?? '';
   check('上一手:講這個資料夾 N 前換到另一條分支、給別的對話用了', /2 天前換到另一條分支、給別的對話用了/.test(old), old);
   check('上一手:不畫還原點、三階梯、改動、分級(那是下一手的)', !/<restore>|<ladder>|<changes>|<tier>/.test(old), old);
+  check('上一手:仍畫得出對話記憶量表卡（轉錄檔跟著對話走）', /<context>/.test(old), old);
   check('上一手:不寫資料夾現在的分支名', !old.includes('claude/new'), old);
   check('上一手:五關照畫,但沒有資料夾(按鈕不畫——在這一頁按,記到的是下一手)', /<workflow path=null>/.test(old), old);
   const cur = page?.('p', 's1') ?? '';
-  check('這一手:照舊畫四張卡、寫分支名、不說跟別的對話共用', /<restore>/.test(cur) && /<tier>/.test(cur) && cur.includes('claude/new') && !/還有別的對話在用/.test(cur), cur);
+  check('這一手:照舊畫四張卡與記憶量表、寫分支名、不說跟別的對話共用', /<restore>/.test(cur) && /<tier>/.test(cur) && /<context>/.test(cur) && cur.includes('claude/new') && !/還有別的對話在用/.test(cur), cur);
 }
 
 section('五關的工班:笑眼只給「你說處理完了」——Claude 自己回報 ok、Claude 對完清單、照開始改程式算你點頭的都不笑(真的跑 ui/app.js 的 workflow;規格:工地工班風畫面 AC-8)', 'P10');

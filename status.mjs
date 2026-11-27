@@ -36,7 +36,8 @@ import { installService, uninstallService, describeService, openDashboard } from
 import { installPlugin, uninstallPlugin } from './lib/mount.mjs';
 import { moveState } from './lib/paths.mjs';
 import { HERE, LOG_DIR, gatherChange, stageFacts, sessionFromEnv } from './lib/cliFacts.mjs';
-import { renderSensor, render, renderConflicts } from './lib/cliView.mjs';
+import { renderSensor, render, renderConflicts, renderContextScale } from './lib/cliView.mjs';
+import { resolveCliContext } from './lib/contextScale.mjs';
 import { renderStages } from './lib/cliStages.mjs';
 import { renderTier, doTierInit, doTierOff, doTierReview, doTierChecked, doTierLater, doTierSet, doTierRetract } from './lib/cliTier.mjs';
 import { doCheckpoint } from './lib/cliStamp.mjs';
@@ -112,13 +113,14 @@ async function main(L = { lang: 'zh', state: 'ok' }) {
   const faults = faultsNow(LOG_DIR, { retainDays: RETAIN_DAYS, move: moveState() });
   if (!ctx.hasCommits && at('--checkpoint') === -1) {
     return withGitMemo(() => {
-      renderSensor(ctx, ev, faults);
+      const normEv = { ...ev, events: normalizeEventsCwd(ev.events, ctx.root, real(ctx.root)) };
+      renderSensor(ctx, normEv, faults);
       console.log(zhEn('這個專案還沒有任何 commit,所以還沒有版本可以回去。', 'This project has no commits yet, so there\'s no version to go back to.'));
       const dirtySet = dirtyPaths(ctx.root);
       const conflicts = projectConflictsFor({
         monitorDir: HERE,
         ctx,
-        ev,
+        ev: normEv,
         current: {
           hasCommits: false,
           health: null,
@@ -129,6 +131,15 @@ async function main(L = { lang: 'zh', state: 'ok' }) {
         },
       });
       renderConflicts(conflicts);
+      renderContextScale(resolveCliContext({
+        ctx,
+        events: normEv.events,
+        evState: normEv.state,
+        takeover: null,
+        sessionId: sessionFromEnv(),
+        retainDays: RETAIN_DAYS,
+        agoFn: ago,
+      }));
       return 0;
     });
   }
@@ -175,6 +186,15 @@ async function main(L = { lang: 'zh', state: 'ok' }) {
         dirtyFiles: info.dirtyFiles,
         takeover: info.tenure?.takeover ?? null,
       },
+    });
+    info.context = resolveCliContext({
+      ctx,
+      events: normEv.events,
+      evState: normEv.state,
+      takeover: info.tenure?.takeover ?? null,
+      sessionId: sessionFromEnv(),
+      retainDays: RETAIN_DAYS,
+      agoFn: ago,
     });
     render(ctx, normEv, info);
     renderStages(ctx, normEv, facts, info);

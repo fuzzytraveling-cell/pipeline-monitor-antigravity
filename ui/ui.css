@@ -142,6 +142,39 @@ h2.section { font-size: var(--text-subheading); letter-spacing: var(--tracking-s
 .brief-clear, .brief-note { margin: 0; font-size: var(--text-caption); color: var(--color-text-secondary); }
 .brief-note { color: var(--color-text-muted); }
 
+/* ───────── 第三層:對話記憶量表卡（獨立於四張 .stats 便條紙，零色碼・無綠燈） ───────── */
+.ctx-card {
+  border: 1px solid var(--color-night-border-strong);
+  border-radius: var(--radius-2xl);
+  padding: 14px 18px;
+  margin: 12px 0 16px;
+  background: var(--color-night-surface);
+  box-shadow: var(--shadow-note);
+}
+.ctx-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 6px; }
+.ctx-head .ctitle {
+  font-family: var(--font-untitled-serif); font-weight: var(--font-weight-regular);
+  font-size: var(--text-label); letter-spacing: var(--tracking-label);
+  margin: 0; color: var(--color-text-primary);
+}
+.ctx-sub { font-size: var(--text-caption); color: var(--color-text-muted); }
+.ctx-main { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; }
+.ctx-big {
+  font-family: var(--font-untitled-serif); font-weight: var(--font-weight-regular);
+  font-size: var(--text-heading-sm); letter-spacing: var(--tracking-heading-sm);
+  line-height: 1.15; color: var(--color-text-primary);
+}
+.ctx-missing {
+  font-family: var(--font-untitled-serif); font-weight: var(--font-weight-regular);
+  font-size: var(--text-body-lg); color: var(--color-text-secondary);
+}
+.ctx-meta { font-size: var(--text-body-sm); color: var(--color-text-secondary); }
+.ctx-warn { margin-top: 8px; font-size: var(--text-caption); color: var(--color-neon-amber); }
+.ctx-note { margin-top: 6px; font-size: var(--text-caption); color: var(--color-text-secondary); }
+.ctx-scale { margin-top: 8px; font-size: var(--text-caption); color: var(--color-text-secondary); }
+.ctx-details { margin-top: 10px; }
+.ctx-details p { margin: 4px 0 0; font-size: var(--text-caption); color: var(--color-text-muted); }
+
 /* ───────── 第一層:案件列表 ───────── */
 /* 案件卡也是貼在夜間施工看板上的工作卡(night-shift-ui-theme AC-1、AC-2):施工藍圖方格、頂端反光貼條 */
 .projects { display: grid; gap: var(--spacing-24) var(--spacing-16); grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); padding-top: 12px; }
@@ -1308,6 +1341,19 @@ a.ext { color: var(--color-neon-cyan); }
 [data-theme="day"] .brief-link:hover { color: var(--color-lake-blue); }
 [data-theme="day"] .brief-list li.brief-sum,
 [data-theme="day"] .brief-note { color: var(--color-smoke); }
+
+[data-theme="day"] .ctx-card {
+  background: var(--color-whiteboard); border-color: var(--color-ash); box-shadow: var(--shadow-note);
+}
+[data-theme="day"] .ctx-head .ctitle,
+[data-theme="day"] .ctx-big { color: var(--color-off-black); }
+[data-theme="day"] .ctx-missing,
+[data-theme="day"] .ctx-meta,
+[data-theme="day"] .ctx-note,
+[data-theme="day"] .ctx-scale { color: var(--color-graphite); }
+[data-theme="day"] .ctx-sub,
+[data-theme="day"] .ctx-details p { color: var(--color-smoke); }
+[data-theme="day"] .ctx-warn { color: var(--color-crimson); }
 
 [data-theme="day"] .wb {
   background: var(--color-whiteboard); -webkit-backdrop-filter: none; backdrop-filter: none;

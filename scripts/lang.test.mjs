@@ -29,6 +29,7 @@ import { eLines, eWhere, summaryLine, walkItems, walkSummary, parseWalk } from '
 import { faultBanner, faultNotes, sensorParts, sensorOffLine, gateLine, guardLine, escalateLine, moveLine, noneHereLine, optedOutLine, unreadableLine } from '../lib/faults.mjs';
 import { todoBoard } from '../lib/todo.mjs';
 import { briefReport } from '../lib/brief.mjs';
+import { projectContextScale, sessionContextView } from '../lib/contextScale.mjs';
 import { createApp } from '../server.mjs';
 import { decide } from '../gate.mjs';
 import { safeName } from '../lib/events.mjs';
@@ -324,7 +325,7 @@ function uiOf(latest, { lang = 'zh', fetch = () => Promise.reject(new Error('測
   const make = new Function('describeFreshness', 'STALE_AFTER_SECONDS', 'document', 'window', 'localStorage', 'sessionStorage', 'location', 'setTimeout', 'setInterval', 'fetch', 'performance', 'console', '__LATEST',
     `${body}\nlatest = __LATEST;\nreturn { workflow, roundWhere, sensorLine, faultBanner, oldServerBanner, langBanner, render, safeRender, switchLang, poll, ago, clock, OLD_LINE, ROLE,
       applyTheme, cycleTheme, sunTimes, resolveTheme, themeTooltip,
-      statRestore, statLadder, statChanges, statTier, briefCard, projectList, overview, sessionList, projectPage, suggestionsBlock, optOutLine, sessionPage,
+      statRestore, statLadder, statChanges, statTier, briefCard, contextScaleCard, projectList, overview, sessionList, projectPage, suggestionsBlock, optOutLine, sessionPage,
       setLatest: (x) => { latest = x; }, connected: () => connected, LANG };`);
   const api = make(describeFreshness, 60, document, { addEventListener: noop }, { getItem: () => null, setItem: noop }, sessionStorage, loc, noop, noop, fetch,
     { now: () => 0 }, { ...console, error: noop }, latest);   // 壞掉的那一頁會往主控台印錯誤:這裡不看那一行
@@ -920,15 +921,40 @@ function enWorld() {
       { id: 'c10', ts: t(36), source: 'ai', title: 'Empty', prompt: '' },
       { id: 'c11', ts: t(35), source: 'ai', title: 'Open elsewhere', prompt: 'p', openIn: {} },
     ];
+    const closedIds = [5, 6, 7, 8, 9, 10].map((n) => `s${n}`);
+    const ctxFakeRead = (p) => {
+      if (p === 'tp-s1') {
+        return {
+          ok: true,
+          isSubagent: false,
+          usage: {
+            latest: { step: 12, at: t(1), model: 'gemini-4-neon-xhigh', contextTokens: 128400, inputTokens: 8400, cacheReadTokens: 120000, outputTokens: 640 },
+            peakTokens: 512000,
+            peakAt: t(5),
+            plannerSteps: 8,
+            readableSteps: 8,
+            compactions: 1,
+            lastCompactionAt: t(4),
+          },
+        };
+      }
+      if (p === 'tp-s3') return { ok: true, isSubagent: false, usage: { latest: null, peakTokens: null, peakAt: null, plannerSteps: 2, readableSteps: 0, compactions: 0, lastCompactionAt: null } };
+      if (p?.startsWith('tp-closed-')) return { ok: true, isSubagent: false, usage: { latest: { step: 5, at: t(50), model: 'gemini-4-neon-xhigh', contextTokens: 240000, inputTokens: 40000, cacheReadTokens: 200000, outputTokens: 200 }, peakTokens: 320000, peakAt: t(60), plannerSteps: 5, readableSteps: 5, compactions: 0, lastCompactionAt: null } };
+      return { ok: false, reason: 'missing' };
+    };
+    const ctxExtra = new Map([['s1', 'tp-s1'], ['s3', 'tp-s3'], ...closedIds.map((id) => [id, `tp-closed-${id}`])]);
+    const closedSessions = closedIds.map((id, idx) => sess({ id, title: `Closed conversation number ${idx + 5} with a long title`, closedAt: t((idx + 5) * 100) }));
+    const contextScale = projectContextScale({ sessions: closedSessions, extraTranscripts: ctxExtra, read: ctxFakeRead });
+    const ctxOf = (id) => sessionContextView({ sessionId: id, projectScale: contextScale, agoFn: ago, extraTranscripts: ctxExtra, read: ctxFakeRead });
     const project = {
-      name: 'export-app', displayName: 'export-app', mainRoot: '/work/export-app', optedOut: null, cards: [card],
+      name: 'export-app', displayName: 'export-app', mainRoot: '/work/export-app', optedOut: null, cards: [card], contextScale,
       incomingSuggestions: [{ project: 'other-app', name: 'other-app', count: 2 }, { project: 'third', count: 1 }],
       sessions: [
-        sess({ sharesCwd: true, reopenedByActivity: t(2), tier: card.tier }),
-        sess({ id: 's2', title: null, card: { ...card, gone: true }, closedAt: t(500) }),
-        sess({ id: 's3', title: 'Handed over', movedOn: { at: t(300) }, closedAt: t(400) }),
-        sess({ id: 's4', title: 'Deleted one', deletedAt: t(100), closedAt: t(100) }),
-        ...[5, 6, 7, 8, 9, 10].map((n) => sess({ id: `s${n}`, title: `Closed conversation number ${n} with a long title`, closedAt: t(n * 100) })),
+        sess({ sharesCwd: true, reopenedByActivity: t(2), tier: card.tier, context: ctxOf('s1') }),
+        sess({ id: 's2', title: null, card: { ...card, gone: true }, closedAt: t(500), context: ctxOf('s2') }),
+        sess({ id: 's3', title: 'Handed over', movedOn: { at: t(300) }, closedAt: t(400), context: ctxOf('s3') }),
+        sess({ id: 's4', title: 'Deleted one', deletedAt: t(100), closedAt: t(100), context: ctxOf('s4') }),
+        ...closedSessions.map((cs) => ({ ...cs, context: ctxOf(cs.id) })),
       ],
       suggestions: cards,
     };
@@ -939,7 +965,8 @@ function enWorld() {
     const todo = todoBoard(baseAll, { ago });
     const brief = briefReport(baseAll, todo, { ago });
     return { generatedAt: NOW, retainDays: 90, lang: 'en', langNote: null, ...baseAll, todo, brief,
-      sharedLines: { calledNotPassed: calledIsNotPassed() }, stampHelp: { commit: 'commit: …', stamp: 'stamp (agy-pipeline --checkpoint): …', order: 'Always commit before stamping' } };
+      sharedLines: { calledNotPassed: calledIsNotPassed() }, stampHelp: { commit: 'commit: …', stamp: 'stamp (agy-pipeline --checkpoint): …', order: 'Always commit before stamping' },
+      contextScaleSupport: true };
   }));
 }
 

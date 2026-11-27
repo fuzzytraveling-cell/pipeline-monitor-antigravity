@@ -390,7 +390,7 @@ const mark = (text, part, tag = 'b') => { const t = esc(text), m = esc(part ?? '
  *  todo 是「還差什麼」那一版才有的(規格:還差什麼總表 AC-7):要重啟那一句是服務自己講的,舊的服務講不出來——
  *  不算進來的話,併進去、還沒重啟的那段時間,只有點進案件頁的白板才看得到要重啟,首頁一句都不講(魔鬼教官第二輪,R1) */
 function oldServerBanner() {
-  return latest && (!('sharedLines' in latest) || !('stampHelp' in latest) || !('todo' in latest) || !('guardSupport' in latest) || !('precheckSupport' in latest) || !('escalateSupport' in latest) || !('conflictSupport' in latest) || !('brief' in latest))
+  return latest && (!('sharedLines' in latest) || !('stampHelp' in latest) || !('todo' in latest) || !('guardSupport' in latest) || !('precheckSupport' in latest) || !('escalateSupport' in latest) || !('conflictSupport' in latest) || !('brief' in latest) || !('contextScaleSupport' in latest))
     ? zhEn('<p class="fault" data-tone="amber">🟡 儀表板的服務還在跑舊的程式，有幾句畫不出來——跑 <code>agy-pipeline --serve-restart</code></p>',
       '<p class="fault" data-tone="amber">🟡 The dashboard service is still running the old program, so a few lines can\'t be drawn: run <code>agy-pipeline --serve-restart</code></p>') : '';
 }
@@ -1311,6 +1311,38 @@ function optOutLine(p) {
 }
 
 /* ═══ 第三層:一個對話 ═══ */
+/** 對話記憶量表卡：照印伺服器照 lib/contextScale.mjs 算好的實測數值、壓縮事實與本專案歷史比例尺（P2 / P5 / P10）。 */
+function contextScaleCard(s) {
+  if (!latest) return '';
+  const head = `<div class="ctx-head"><div><h3 class="ctitle">${zhEn('對話記憶量表', 'Context memory scale')}</h3>
+    <div class="ctx-sub">${zhEn('轉錄檔實測與專案歷史', 'Measured transcript &amp; project history')}</div></div></div>`;
+  if (!('contextScaleSupport' in latest) || !s?.context) {
+    return `<section class="ctx-card" aria-label="${zhEn('對話記憶量表', 'Context memory scale')}">${head}<div class="ctx-meta">${OLD_LINE}</div></section>`;
+  }
+  const cx = s.context;
+  const bigCls = cx.state === 'ok' ? 'ctx-big' : 'ctx-missing';
+  const mainLine = cx.metaLine ? `<div class="ctx-meta">${esc(cx.metaLine)}</div>`
+    : cx.summaryLine ? `<div class="ctx-meta">${esc(cx.summaryLine)}</div>` : '';
+  const subagent = cx.subagentNote ? `<div class="ctx-note">${esc(cx.subagentNote)}</div>` : '';
+  const warn = cx.compactionLine ? `<div class="ctx-warn">${esc(cx.compactionLine)}</div>` : '';
+  const peak = cx.peakNote ? `<div class="ctx-note">${esc(cx.peakNote)}</div>` : '';
+  const scale = cx.scaleLine ? `<div class="ctx-scale">${esc(cx.scaleLine)}</div>` : '';
+  const foldKey = `ctx|${s.id ?? ''}`;
+  const details = [...(Array.isArray(cx.breakdownLines) ? cx.breakdownLines : []), cx.honestNote]
+    .filter(Boolean)
+    .map((line) => `<p>${esc(line)}</p>`)
+    .join('');
+  const more = details
+    ? `<details class="why ctx-details" data-fold="${esc(foldKey)}"${foldOpen(foldKey, false) ? ' open' : ''}><summary>${zhEn('細節', 'Details')}</summary>${details}</details>`
+    : '';
+  return `<section class="ctx-card" aria-label="${zhEn('對話記憶量表', 'Context memory scale')}">
+    ${head}
+    ${subagent}
+    <div class="ctx-main"><div class="${bigCls}">${esc(cx.headline ?? '')}</div>${mainLine}</div>
+    ${warn}${peak}${scale}${more}
+  </section>`;
+}
+
 function sessionPage(name, sid) {
   const p = latest?.projects?.find((x) => x.name === name);
   const s = p?.sessions.find((x) => x.id === sid);
@@ -1333,6 +1365,7 @@ function sessionPage(name, sid) {
       <p class="section-note">${zhEn(`⚠️ 這個對話的工作區資料夾已經不在了（${esc(s.cwd ?? '')}）——
         還原點、三階梯、改動都沒有東西可講。下面五關的紀錄還在。`, `⚠️ This conversation's workspace folder is gone (${esc(s.cwd ?? '')}), so
         the restore point, the three steps and the changes have nothing to show. The five stages' records below are still there.`)}</p>
+      ${contextScaleCard(s)}
     </div>
     <div class="block">
       <h2 class="section serif">My Agent work flow</h2>
@@ -1350,6 +1383,7 @@ function sessionPage(name, sid) {
       <p class="section-note">${zhEn(`⚠️ 這個資料夾 ${ago(s.movedOn.at)}換到另一條分支、給別的對話用了——
         分支、還原點、改動、分級是那個對話的，這裡不畫。下面五關是這個對話當時的紀錄。`, `⚠️ This folder switched to another branch ${ago(s.movedOn.at)} and was handed to another conversation:
         the branch, restore point, changes and tier belong to that conversation, so they aren't drawn here. The five stages below are this conversation's records from back then.`)}</p>
+      ${contextScaleCard(s)}
     </div>
     <div class="block">
       <h2 class="section serif">My Agent work flow</h2>
@@ -1375,7 +1409,7 @@ function sessionPage(name, sid) {
     <div class="block">
       <h2 class="section serif">${title}</h2>
       <p class="section-note"><span class="mono">${esc(c.branch ?? zhEn('沒有分支', 'no branch'))}</span> · ${meta}${closed}</p>
-      ${notes}${warn}${conflictHtml}
+      ${notes}${warn}${conflictHtml}${contextScaleCard(s)}
       <div class="stats">${statRestore(c)}${statLadder(c)}${statChanges(c)}${statTier({ ...c, tier: s.tier ?? c.tier }, p)}</div>
     </div>
     <div class="block">
