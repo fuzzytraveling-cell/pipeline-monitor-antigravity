@@ -192,4 +192,17 @@ section('魔鬼教官照最省的方式跑：--round D 給得出幾種原因，�
     && !chaos.includes('`This project hasn\'t set up tiers, so I ran it the cheapest way`'));
 }
 
+section('三支技能指引歷史反查與誠實邊界（legacy-spec-lookup AC-4）', 'P2');
+{
+  const specMd = textOf('spec');
+  const precheckMd = textOf('spec-precheck');
+  const chaosMd = textOf('chaos-check');
+  check('skills/spec/SKILL.md 指引使用 --context 速讀歷史決定並標明邊界',
+    specMd.includes('--context') && specMd.includes('沒列到的不代表無關'));
+  check('skills/spec-precheck/SKILL.md 指引把 --round precheck 的歷史反查交給子 agent 並標明邊界',
+    precheckMd.includes('--round precheck') && precheckMd.includes('歷史反查') && precheckMd.includes('沒列到的不代表無關'));
+  check('skills/chaos-check/SKILL.md 指引速讀 --round D 的歷史反查並標明邊界',
+    chaosMd.includes('--round D') && chaosMd.includes('相關舊規格') && chaosMd.includes('沒列到的不代表無關'));
+}
+
 process.exit(summary());

@@ -1,7 +1,7 @@
 {
   "name": "agy-pipeline",
   "displayName": "Pipeline Monitor (Antigravity)",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "description": "產線監視器（Antigravity 專用版）：感測器記下每個對話「誰在什麼時候呼叫了什麼」（只記路徑、你說的話的前 200 字，全在本機 ~/.pipeline-monitor-agy/），裝在使用者層級，每個專案自動記；不想記的專案放 .agents/pipeline-monitor.off，或按儀表板的「退出記錄」。另帶 7 支技能：spec（A 寫規格）、spec-precheck（A → D 規格預審：不改檔、不佔程式 D 輪次）、cleanup（C 打掃）、chaos-check（D 魔鬼教官）、verify（E 驗收：照規格在畫面上走一遍，驗收過了只有你能說）、tier-setup（分級）、director（F 工地主任：照還差什麼給一個下一步、把收尾合成一個問題；你回答之前不動手，回答之後照問題做、每一步講成了沒）。 / Pipeline Monitor: Antigravity edition. A sensor records, for each conversation, \"who called what, and when\" (only paths and the first 200 characters of what you said; all stored locally under ~/.pipeline-monitor-agy/). Installed at the user level, it records every project automatically; to stop recording a project, place .agents/pipeline-monitor.off or press \"Stop recording\" on the dashboard. Includes 7 skills: spec (A Spec), spec-precheck (A-to-D spec precheck: read-only, separate from code D), cleanup (C Cleanup), chaos-check (D Chaos check), verify (E Acceptance: walks through the spec on the screen; only you can say it's accepted), tier-setup (tiers), and director (F Site director: gives one next step from what's left and combines wrap-up into a single question; does nothing before you answer, then executes step by step and reports whether each step went through).",
   "author": {
     "name": "Oscar Hsieh"

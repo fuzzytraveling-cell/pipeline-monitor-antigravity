@@ -46,6 +46,7 @@ import { doRound, doDecide } from './lib/cliRerun.mjs';
 import { doMount } from './lib/cliOnOff.mjs';
 import { doTodo, doBrief, doCards } from './lib/cliTodo.mjs';
 import { doWrap, restartConfirmed } from './lib/cliWrap.mjs';
+import { doContext } from './lib/history.mjs';
 import { readLang, withLang, zhEn, langBrokenLine, langUnreadableLine, doLang } from './lib/lang.mjs';
 
 /* ══════════════════════════ main ══════════════════════════ */
@@ -100,6 +101,8 @@ async function main(L = { lang: 'zh', state: 'ok' }) {
   if (at('--on') !== -1 || at('--off') !== -1) return doMount(ctx, at('--on') !== -1);
   // 這個專案的建議卡:要知道是哪個專案,不需要有 commit(規格:主任技能 AC-7)
   if (at('--cards') !== -1) return doCards(ctx);
+  // 舊規格與已知死法即時反查:不需要有 commit、也不讀事件檔(規格:legacy-spec-lookup AC-4)
+  if (at('--context') !== -1) return doContext(ctx, argv);
   // 分級的設定不需要有 commit
   if (at('--tier-init') !== -1) return doTierInit(ctx, after('--tier-init'));
   if (at('--tier-off') !== -1) return doTierOff(ctx, after('--tier-off').join(' '));

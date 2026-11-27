@@ -33,12 +33,12 @@
       "lib/checkpoint.mjs"
     ],
     "checked": {
-      "at": "2026-11-26T07:12:57.964Z",
-      "said": "2.不加（lib/contextScale.mjs 不加入危險清單，維持 12 條）",
+      "at": "2026-11-27T01:56:23.868Z",
+      "said": "不加入危險清單（維持 12 條，lib/history.mjs 僅為純唯讀查詢）",
       "by": "ai",
-      "commit": "456fa76220237ec10234ebb44e65407f92ecda95",
+      "commit": "319319b736f9eaae9d153c0bcf1e06311309d650",
       "files": [
-        "lib/contextScale.mjs"
+        "lib/history.mjs"
       ]
     }
   }

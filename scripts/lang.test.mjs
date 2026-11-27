@@ -1280,6 +1280,9 @@ section('Claude 替你跑的指令跟著語言換:設成英文,--round、--decid
   s.add([{ ts: T(-50 * MIN), hook: 'PostToolUse', tool: 'Edit', file: join(s.root, 'src/app.js'), prompt_id: 'p1' }]);
   outs['--round D(第一次)'] = s.run(['--round', 'D']);
   outs['--round C(只有範圍)'] = s.run(['--round', 'C']);
+  outs['--context(沒給檔)'] = s.run(['--context']);
+  outs['--context(合法檔)'] = s.run(['--context', 'src/app.js']);
+  outs['--context(無效路徑)'] = s.run(['--context', '../outside.js', 'src/', '.']);
   outs['--round E(沒有規格、package.json 有 dev)'] = s.run(['--round', 'E']);
   outs['--round B(不是會過期的關)'] = s.run(['--round', 'B']);
   outs['--round X(認不出)'] = s.run(['--round', 'X']);

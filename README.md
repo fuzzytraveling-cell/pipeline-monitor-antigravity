@@ -24,6 +24,7 @@ agy-pipeline              # 看現況（還原點 + 改動體檢 + 五關）
 agy-pipeline --checkpoint # 跑完整檢查，全綠就蓋一個還原點
 agy-pipeline --clear E    # 記下「E 驗收過了」（A 到 D 由儀表板自動辨識）；AI 替你記要附你的原話：--clear E "你的原話"
 agy-pipeline --spec <規格檔>  # 照別的對話寫好的規格施工：AI 在施工的對話裡記一筆照哪份（--spec 無＝沒有照哪份）
+agy-pipeline --context <檔...> [--all]  # 即時純字面反查指定檔案出現過的舊規格與已知死法出處（唯讀、無快取）
 agy-pipeline --round precheck  # 規格預審的規格路徑、預測分級與可用死法清單（spec-precheck 開工第一步）
 agy-pipeline --precheck ok|found "…"   # 記下規格預審結論（掛在 A 底下，與程式 D 徹底隔離）
 agy-pipeline --round D    # D 這一輪第幾次、怎麼跑、第一次之後改了哪些檔（AI 跑 D 的第一步；問你要不要再跑之前也看它）
