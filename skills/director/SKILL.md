@@ -136,6 +136,7 @@ agy-pipeline --todo
 - 建議裡有「跑 D」或「再跑一次 D」→ 問題裡寫明：「D 找到要修的、修完會再問你一次要不要再跑；蓋章等你回答之後才蓋。」
 - 理由：產線監視器只認 **D 被叫之後**使用者說的「不用再跑」。他先說了「照建議收尾」、D 才找到問題、改了程式——他那句話沒看過這次改的。
 - 蓋章會結掉這一輪，D 的問題就跟著不見：**不准拿蓋章跳過這一題**。
+- **結案升版先於最後一輪 D／問使用者 `--decide D skip`**：若第 4 步手冊規定的結案升版會改動 `tiers.danger`（或 `tiers.code`）上的版本檔（例如 `plugin.json`）且尚未修改，**不可**把「改版號」與「`--decide D skip`」包進同一次「照建議收尾」——`--decide D skip` 只覆蓋使用者說話那一刻之前的改檔（且 D 尚無紀錄時不可 `--decide`）。問題裡須說明：應先完成升版與規格搬移（若升版動到危險清單使分級由低級升為最高級，第 3 步缺的關卡與測試也須一併補齊），**之後**再跑最後一輪 D 或另請使用者決定 `--decide D skip`；否則改動版本檔會讓 D 重新過期、觸發 `D:ask` 收工門禁並擋住第 9 步 `--wrap stamp`。（English: If step 4's version bump edits a file on `tiers.danger` or `tiers.code` such as `plugin.json` and hasn't happened yet, do not bundle the version edit with `--decide D skip` in one wrap-up answer—`--decide D skip` only covers edits made before the user spoke, and `--decide` cannot be used when D has no record yet. State in the question that the version bump and spec move—plus any higher-tier stages or tests added by touching `tiers.danger`—must happen **before** running the final D round or asking the user for `--decide D skip`, otherwise editing the version file marks D stale again, re-triggering the `D:ask` stop gate and stopping `--wrap stamp`.)
 
 ## 第四步：開卡——只替已經決定要做的事
 
@@ -225,6 +226,7 @@ Didn't raise: "<title>" already exists (<started / not started / you said you're
 - 它說「這一句已經拿來做過一次」→ 那一步要他再說一句才做，不拿別的話去試。
 - 做完（或停下來）再跑一次 `agy-pipeline --todo`，照白板講這個對話還差什麼（通常是「只差按結案，你按」）。
 - 記「D 不用再跑」，產線監視器只認 **D 被叫之後**他說的話。D 修完又改了程式 → 先問他要不要再跑，再蓋章——`--wrap stamp` 也會擋，但不要等它擋才問。
+- 若第 4 步包含改動 `tiers.danger`／`tiers.code` 版本檔的升版（例如 `plugin.json`），不得拿升版前使用者的那句話去記 `--decide D skip`；應先完成升版與規格搬移，若有因升版觸發的高分級關卡（例如 T1 升 T2 多出的 C 或補測試）須先補齊，再跑最後一輪 D（若此前已有 D 結論且改採不重跑，則須於升版後再停下來請使用者重新回覆決定 `--decide D skip`），最後才走 `--wrap stamp`。
 
 ## 邊界
 

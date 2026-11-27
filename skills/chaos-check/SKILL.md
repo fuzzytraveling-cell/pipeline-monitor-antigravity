@@ -189,6 +189,12 @@ description: D 魔鬼教官這一關（產線監視器 agy-pipeline 帶的通用
 - 使用者說不用 → `agy-pipeline --decide D skip "使用者的原話"`。儀表板附的是感測器與轉錄檔記的、使用者在這一關被叫之後說的最後一句（或在選項卡點的回覆），不是你轉述的；
   畫面照實寫「你說不用再跑」，不打勾。
 
+### 結案升版與 D 的順序提醒（Version bump & D order）
+
+- 若本輪結案預計升版並改動 `tiers.danger`（或 `tiers.code`）上的版本檔（例如 `plugin.json`），**先完成升版與規格搬移，再執行最後一輪 D，或再請使用者決定 `--decide D skip`**（D 尚無紀錄時不可 `--decide`）。
+- 原因：D 過期比的是 D 被叫的時間，`--decide D skip` 也只覆蓋**使用者說話（或點選項卡）那一刻之前**的改檔；詢問使用者之後或記完決策才改版本檔，會讓 D 重新過期並再次觸發 `D:ask` 收工門禁擋下。
+- English: If wrapping up this round includes bumping the version in a file on `tiers.danger` (or `tiers.code`, e.g., `plugin.json`), finish the version bump and spec move **before** running the final D round or asking the user for `--decide D skip` (when D has no record yet, `--decide` cannot be used). Because `--decide D skip` only covers edits made **before the user spoke or replied**, editing a tracked version file afterwards marks D stale again and re-triggers the `D:ask` stop gate.
+
 這一輪從哪算起：到下一次寫規格（A）或蓋章為止都是同一輪——使用者回「修掉吧」之後，你修完也一樣先問，不自動再跑。
 
 ## 檢查完之後

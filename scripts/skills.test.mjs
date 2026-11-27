@@ -247,4 +247,57 @@ section('工地復盤官技能契約與常駐規則同步（retrospect-skill AC-
     pDesc.includes('8 支技能') && pDesc.includes('Includes 8 skills') && pDesc.includes('retrospect'), pDesc);
 }
 
+section('結案升版改動危險版本檔與 D 順序提醒（中英一致，chaos-check 與 director 兩處同步且無英文禁語）', 'P2');
+{
+  const chaos = textOf('chaos-check');
+  const director = textOf('director');
+  const chaosSec = chaos.match(/### 結案升版與 D 的順序提醒[\s\S]*?(?=\n這一輪從哪算起)/)?.[0] ?? '';
+  const dirStep3 = director.match(/## 第三步：[\s\S]*?(?=\n## 第四步：)/)?.[0] ?? '';
+  const dirAfter = director.match(/## 使用者回答之後[\s\S]*?(?=\n## 邊界)/)?.[0] ?? '';
+
+  for (const token of [
+    'tiers.danger',
+    'plugin.json',
+    '先完成升版與規格搬移',
+    '使用者說話（或點選項卡）那一刻之前',
+    'D 尚無紀錄時不可 `--decide`',
+    'D:ask',
+    'finish the version bump and spec move **before** running the final D round or asking the user for `--decide D skip`',
+    'before the user spoke or replied',
+    're-triggers the `D:ask` stop gate',
+  ]) {
+    check(`chaos-check 順序提醒含「${token}」`, chaosSec.includes(token), token);
+  }
+  for (const token of [
+    '結案升版先於最後一輪 D／問使用者 `--decide D skip`',
+    'tiers.danger',
+    'plugin.json',
+    '使用者說話那一刻之前',
+    'D 尚無紀錄時不可 `--decide`',
+    '由低級升為最高級',
+    'D:ask',
+    '--wrap stamp',
+    'before the user spoke',
+    'asking the user for `--decide D skip`',
+    're-triggering the `D:ask` stop gate and stopping `--wrap stamp`',
+  ]) {
+    check(`director 第三步含「${token}」`, dirStep3.includes(token), token);
+  }
+  for (const token of [
+    '不得拿升版前使用者的那句話去記 `--decide D skip`',
+    '先完成升版與規格搬移',
+    'T1 升 T2',
+    '升版後再停下來請使用者重新回覆決定 `--decide D skip`',
+    '--wrap stamp',
+  ]) {
+    check(`director 使用者回答之後含「${token}」`, dirAfter.includes(token), token);
+  }
+
+  const forbidden = /\b(passed|all clear|no problems|safe|verified|accepted|done|skipped|blocked|will)\b/i;
+  const enChaos = chaosSec.match(/^- English:.*$/m)?.[0] ?? '';
+  const enDir = dirStep3.match(/[（(]English:[^)）]*`--wrap stamp`\.[)）]/)?.[0] ?? '';
+  check('兩處英文順序提醒段落都存在且不含紅線禁語', Boolean(enChaos && enDir) && !forbidden.test(`${enChaos}\n${enDir}`), `${enChaos}\n${enDir}`);
+  check('禁語檢查對「passed」必抓到（P4 反向驗證）', forbidden.test('must be passed before stamp'));
+}
+
 process.exit(summary());
