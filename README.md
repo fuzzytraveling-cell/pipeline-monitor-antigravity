@@ -25,6 +25,7 @@ agy-pipeline --checkpoint # 跑完整檢查，全綠就蓋一個還原點
 agy-pipeline --clear E    # 記下「E 驗收過了」（A 到 D 由儀表板自動辨識）；AI 替你記要附你的原話：--clear E "你的原話"
 agy-pipeline --spec <規格檔>  # 照別的對話寫好的規格施工：AI 在施工的對話裡記一筆照哪份（--spec 無＝沒有照哪份）
 agy-pipeline --context <檔...> [--all]  # 即時純字面反查指定檔案出現過的舊規格與已知死法出處（唯讀、無快取）
+agy-pipeline --retrospect [--all]       # 工地復盤純事實盤點：近期已完成規格、死法／教訓檔與近 90 天四類卡關紀錄純統計（唯讀、零語意猜測）
 agy-pipeline --round precheck  # 規格預審的規格路徑、預測分級與可用死法清單（spec-precheck 開工第一步）
 agy-pipeline --precheck ok|found "…"   # 記下規格預審結論（掛在 A 底下，與程式 D 徹底隔離）
 agy-pipeline --round D    # D 這一輪第幾次、怎麼跑、第一次之後改了哪些檔（AI 跑 D 的第一步；問你要不要再跑之前也看它）
@@ -52,7 +53,7 @@ agy-pipeline --install
 它在 `~/.gemini/config/plugins/agy-pipeline` 放一個捷徑指向這個資料夾，Antigravity 會一次載入：
 - **Hooks**（`hooks.json`）：`SessionStart`（`remind.sh`）、`PreToolUse`（`guard.sh`／`guard.mjs`：改危險清單前強制彈窗問你確認）、`PreInvocation`（`escalate.sh`／`escalate.mjs`：改到一半升到最高級時即時通知 AI 補關卡）、`PostToolUse`（`hook.sh`）、`Stop`（`gate.sh`）
 - **常駐規則**（`rules/AGENTS.md`）：五關紀律、三條紅線、何時跑 `agy-pipeline` 指令
-- **7 支通用技能**（`skills/*/SKILL.md`）：`spec`、`spec-precheck`、`cleanup`、`chaos-check`、`verify`、`tier-setup`、`director`
+- **8 支通用技能**（`skills/*/SKILL.md`）：`spec`、`spec-precheck`、`cleanup`、`chaos-check`、`verify`、`tier-setup`、`director`、`retrospect`
 
 拆掉用 `agy-pipeline --uninstall`。
 
@@ -66,7 +67,7 @@ agy-pipeline --install
 
 「掛在哪」看設定，「活著嗎」看紀錄——兩件事分開講，證據跟設定打架時證據贏。
 
-### plugin 帶的 7 支技能（通用版）
+### plugin 帶的 8 支技能（通用版）
 
 | 技能 | 做什麼 | 不做什麼 |
 |---|---|---|
@@ -77,6 +78,7 @@ agy-pipeline --install
 | `verify` | E 驗收：照這一輪的規格在畫面上走一遍（透過 Antigravity 內建 `browser` subagent），每條記看到了（附畫面原文）／沒看到／驗不了 | 不改程式、不存截圖、**不說「驗收過了」**（那句只有你能說） |
 | `tier-setup` | 分級設定與危險清單維護 | 不替你決定危險清單 |
 | `director` | F 工地主任：讀 `agy-pipeline --todo`，給**一個**下一步，把收尾合成一個問題，你回答後才用 `--wrap` 一步一步做 | 不給選單、不替你按結案 |
+| `retrospect` | 工地復盤官：讀 `agy-pipeline --retrospect` 與近期施作紀錄／教訓，把重複錯誤提煉成最多三類防線升級提案，用 `ask_question` 交你拍板 | 你拍板前不改任何檔、不預開建議卡、不算進五關 |
 
 它們是**通用版**：不知道你的專案的任何事。專案專屬的內容（死法清單、教訓、規格範本、分級、要跑的檢查）
 一律從那個專案自己的檔案讀（`AGENTS.md`／`GEMINI.md`／`CLAUDE.md`／`README.md`／`docs/`）；讀不到就退回三條紅線（R1 沒問到≠沒有、R2 跑過≠通過、R3 不編數字），並在回覆裡說用的是哪一套。

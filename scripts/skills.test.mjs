@@ -1,11 +1,11 @@
 /**
- * skills.test.mjs —— Antigravity plugin 帶的 6 支技能、rules/AGENTS.md 與根目錄 plugin.json。
+ * skills.test.mjs —— Antigravity plugin 帶的 8 支技能、rules/AGENTS.md 與根目錄 plugin.json。
  *
  * 釘四件會安靜壞掉的事：
  *   ① stages.json 說這一關有 skill，plugin 卻沒帶 → 別的專案這一關永遠「找不到這個指令」（老毛病 P2）
  *   ② SKILL.md 指向 TutorPod 的路徑 → 「通用版」其實綁著另一個專案（老毛病 P4）
  *   ③ 讀取端（lib/skills.mjs）找得到 ~/.gemini/config/plugins/agy-pipeline 裡的技能
- *   ④ rules/AGENTS.md 存在、不含 frontmatter、小於 24000 bytes；6 支技能的中英用語與 lib/lang.mjs 及 CLI 英文輸出逐字同步
+ *   ④ rules/AGENTS.md 存在、不含 frontmatter、小於 24000 bytes；8 支技能的中英用語與 lib/lang.mjs 及 CLI 英文輸出逐字同步
  */
 import { existsSync, readFileSync, readdirSync, mkdtempSync, mkdirSync, symlinkSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -52,14 +52,14 @@ section('Antigravity plugin 結構：根目錄 plugin.json、hooks.json、rules/
   }
 }
 
-section('stages.json 每一個有 skill 的關，plugin 都帶了對應的 SKILL.md（且 6 支技能 frontmatter 符合 Antigravity 規範）', 'P2');
+section('stages.json 每一個有 skill 的關，plugin 都帶了對應的 SKILL.md（且 8 支技能 frontmatter 符合 Antigravity 規範）', 'P2');
 check('內建關卡裡至少有一關是 skill 關', stages.length > 0);
 for (const s of stages) {
   const file = join(SKILLS, s.skill, 'SKILL.md');
   check(`${s.id} ${s.name} → skills/${s.skill}/SKILL.md 存在`, existsSync(file));
 }
 const ALL = readdirSync(SKILLS).filter((d) => existsSync(join(SKILLS, d, 'SKILL.md'))).sort();
-eq('共有 7 支技能', ALL.length, 7);
+eq('共有 8 支技能', ALL.length, 8);
 for (const d of ALL) {
   const fm = frontmatter(readFileSync(join(SKILLS, d, 'SKILL.md'), 'utf8'));
   check(`skills/${d}: 有 frontmatter`, fm !== null);
@@ -121,18 +121,27 @@ section('AC-1：每一支技能的說明中英兩段——英文觸發句完整�
     verify: ['walk through it', 'verify'],
     'tier-setup': ['set up tiers', 'this project doesn\'t need tiers', 'look at my danger list'],
     director: ['site director', 'what\'s next'],
+    retrospect: ['run a retrospect', 'site retrospect', 'pitfall retrospect', 'retrospect'],
   };
   check('每一支技能都列了要求的英文觸發句', ALL.length > 0 && ALL.every((d) => want[d]) && Object.keys(want).every((d) => ALL.includes(d)), ALL.join(','));
   for (const d of ALL) {
     const fm = frontmatter(textOf(d));
     check(`skills/${d}：說明中英兩段`, bilingual(fm?.description), fm?.description);
-    const got = englishTriggers(fm?.description).map((x) => x.toLowerCase());
+    const fullDesc = String(fm?.description ?? '');
+    const cutAt = [...fullDesc].slice(0, 1536).join('');
+    const descLen = [...fullDesc].length;
+    check(`skills/${d}：說明總長小於 1,536 字元（目前 ${descLen} 字）`, descLen > 0 && descLen < 1536, String(descLen));
+    const got = englishTriggers(fullDesc).map((x) => x.toLowerCase());
+    const gotCut = englishTriggers(cutAt).map((x) => x.toLowerCase());
     for (const w of want[d] ?? []) {
-      check(`skills/${d}：英文觸發句有「${w}」`, got.includes(w.toLowerCase()) || (w === 'verify' && /"verify"/.test(fm?.description ?? '')), got.join(' | '));
+      const quotedWordRe = new RegExp(`"${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"`, 'i');
+      const hasTrigger = /\s/.test(w)
+        ? (got.includes(w.toLowerCase()) && gotCut.includes(w.toLowerCase()))
+        : (quotedWordRe.test(fullDesc) && quotedWordRe.test(cutAt));
+      check(`skills/${d}：英文觸發句有「${w}」且落在前 1,536 字元內`, hasTrigger, got.join(' | '));
     }
-    const cutAt = [...String(fm?.description ?? '')].slice(0, 1536).join('');
-    check(`skills/${d}：英文觸發句在前 1,536 字內`, englishTriggers(cutAt).length === englishTriggers(fm?.description).length && englishTriggers(cutAt).length > 0,
-      String([...String(fm?.description ?? '')].length));
+    check(`skills/${d}：英文觸發句在前 1,536 字內`, englishTriggers(cutAt).length === englishTriggers(fullDesc).length && englishTriggers(cutAt).length > 0,
+      String(descLen));
   }
   const pluginDesc = PLUGIN_JSON.description;
   check('plugin.json 的說明中英兩段', CJK.test(pluginDesc) && /Pipeline Monitor/.test(pluginDesc), pluginDesc);
@@ -203,6 +212,39 @@ section('三支技能指引歷史反查與誠實邊界（legacy-spec-lookup AC-4
     precheckMd.includes('--round precheck') && precheckMd.includes('歷史反查') && precheckMd.includes('沒列到的不代表無關'));
   check('skills/chaos-check/SKILL.md 指引速讀 --round D 的歷史反查並標明邊界',
     chaosMd.includes('--round D') && chaosMd.includes('相關舊規格') && chaosMd.includes('沒列到的不代表無關'));
+}
+
+section('工地復盤官技能契約與常駐規則同步（retrospect-skill AC-1/AC-3/AC-4/AC-5）', 'P2');
+{
+  const allStages = JSON.parse(readFileSync(join(ROOT, 'stages.json'), 'utf8')).stages;
+  check('retrospect 不在 stages.json 裡（非關卡技能）', !allStages.some((s) => s.skill === 'retrospect' || s.id === 'retrospect'));
+  const retro = textOf('retrospect');
+  for (const token of [
+    'agy-pipeline --retrospect',
+    '--all',
+    'FAILURE-PATTERNS.md',
+    'tiers.danger',
+    'ask_question',
+    '(Recommended)',
+    'agy-pipeline --suggest',
+    "<<'EOF'",
+    'agy-pipeline --cards',
+    'agy-pipeline --todo',
+    'agy-pipeline --tier-review',
+    '--tier-checked',
+    '這只代表讀得到的紀錄裡沒看到，不代表專案沒有隱患',
+    'In the records I could read, I didn\'t see repeated pitfalls or friction items meeting the evidence bar',
+    'This is a retrospect review, not a pass or safety endorsement',
+  ]) {
+    check(`skills/retrospect/SKILL.md 含「${token}」`, retro.includes(token), token);
+  }
+  const rules = readFileSync(join(ROOT, 'rules', 'AGENTS.md'), 'utf8');
+  const rulesBytes = Buffer.byteLength(rules, 'utf8');
+  check(`rules/AGENTS.md 含 retrospect 與 --retrospect 且 < 24,000 bytes（${rulesBytes} bytes）`,
+    !rules.startsWith('---\n') && rulesBytes < 24000 && rules.includes('retrospect') && rules.includes('--retrospect'));
+  const pDesc = PLUGIN_JSON.description;
+  check('plugin.json 說明同步為 8 支技能並含 retrospect',
+    pDesc.includes('8 支技能') && pDesc.includes('Includes 8 skills') && pDesc.includes('retrospect'), pDesc);
 }
 
 process.exit(summary());

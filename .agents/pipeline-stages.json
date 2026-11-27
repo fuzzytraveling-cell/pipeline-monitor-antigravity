@@ -33,12 +33,13 @@
       "lib/checkpoint.mjs"
     ],
     "checked": {
-      "at": "2026-11-27T01:56:23.868Z",
-      "said": "不加入危險清單（維持 12 條，lib/history.mjs 僅為純唯讀查詢）",
+      "at": "2026-11-27T03:22:24.488Z",
+      "said": "兩支都不加入危險清單，維持在程式區（僅為唯讀盤點模組與 AI 指南）",
       "by": "ai",
-      "commit": "319319b736f9eaae9d153c0bcf1e06311309d650",
+      "commit": "eb86ae06f8728bbe4d730f7c8c932d768071375b",
       "files": [
-        "lib/history.mjs"
+        "lib/retrospect.mjs",
+        "skills/retrospect/SKILL.md"
       ]
     }
   }

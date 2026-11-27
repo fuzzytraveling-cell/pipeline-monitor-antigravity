@@ -47,6 +47,7 @@ import { doMount } from './lib/cliOnOff.mjs';
 import { doTodo, doBrief, doCards } from './lib/cliTodo.mjs';
 import { doWrap, restartConfirmed } from './lib/cliWrap.mjs';
 import { doContext } from './lib/history.mjs';
+import { doRetrospect } from './lib/retrospect.mjs';
 import { readLang, withLang, zhEn, langBrokenLine, langUnreadableLine, doLang } from './lib/lang.mjs';
 
 /* ══════════════════════════ main ══════════════════════════ */
@@ -59,6 +60,8 @@ async function main(L = { lang: 'zh', state: 'ok' }) {
 
   // 定時工地巡檢晨報:不需要站在 git 專案裡;擺在 --lang 與語言警示之前,統一拒收不認得的引數並由 doBrief 納入語言狀態(P2/P4)
   if (at('--brief') !== -1) return doBrief(argv, { langState: L.state });
+  // 工地復盤官純事實盤點:擺在 --lang 與其他寫檔旗標之前統一驗證整包 argv,防止誤混寫檔旗標安靜改檔(規格:retrospect-skill AC-2,P2/P4)
+  if (at('--retrospect') !== -1) return doRetrospect(argv, { langState: L.state });
 
   // 換語言:不需要站在 git 專案裡。它自己講現在是哪一種(含讀不懂),不用再印一次下面那一句
   if (at('--lang') !== -1) return doLang(after('--lang')[0]);

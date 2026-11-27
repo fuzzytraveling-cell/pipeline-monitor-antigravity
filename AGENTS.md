@@ -109,6 +109,7 @@
 | 定時工地巡檢晨報（`--brief`／`--quiet-if-clear`）與首頁晨報卡 | [brief-patrol-command](docs/升級摘要/brief-patrol-command.md)；儀表板首頁晨報卡：[dashboard-brief-card](docs/升級摘要/dashboard-brief-card.md) |
 | 對話 Context Token 真實量表與歷史比例尺 | [context-token-scale](docs/升級摘要/context-token-scale.md) |
 | 舊規格與已知死法即時反查（`--round precheck`／`--round D`／`--context`） | [legacy-spec-lookup](docs/升級摘要/legacy-spec-lookup.md) |
+| 工地復盤官技能（`retrospect`）與近期卡關純事實盤點（`--retrospect`） | [retrospect-skill](docs/升級摘要/retrospect-skill.md) |
 
 每一列只寫「什麼情況、讀哪一份」。結案日期、實況還沒看過、還待你決定的事，寫在那份規格自己的施作紀錄裡——
 寫在這裡就是第二個真相來源，而且這一頁每個對話都會整份讀一次。新的規格放進最貼近的那一列；找不到才開新的一列。
